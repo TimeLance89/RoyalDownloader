@@ -11,7 +11,7 @@ import asyncio
 import ipaddress
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from application_services.series_detail_work import SeriesDetailWork, SeriesDetailsBusy
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
@@ -186,10 +186,10 @@ COVER_CACHE_MAX_BYTES = 64 * 1024 * 1024
 COVER_CACHE_MAX_ENTRIES = 256
 COVER_MAX_REDIRECTS = 3
 COVER_FETCH_TIMEOUT_SECONDS = 8
-_COVER_FETCH_POOL = ThreadPoolExecutor(
-    max_workers=8,
-    thread_name_prefix="cover-fetch",
+_COVER_FETCH_POOL = SeriesDetailWork(
+    workers=8, capacity=32, retain_seconds=0, thread_name="cover-fetch",
 )
+COVER_WAIT_SECONDS = 10.0
 COVER_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 COVER_IMAGE_TYPES = frozenset({
     "image/jpeg",
@@ -336,7 +336,18 @@ async def api_cover(url: str):
     # Fremdhoster-Poster duerfen den gemeinsamen Starlette/AnyIO-Threadpool
     # nicht belegen. Sonst warten Katalog- und TMDB-Routen hinter bis zu 40
     # langsamen Bildern, obwohl deren Daten bereits verfuegbar sind.
-    data = await asyncio.wrap_future(_COVER_FETCH_POOL.submit(_fetch_cover_data, url))
+    # Bound distinct outstanding URLs and share duplicate requests. Cancelling
+    # one browser request must not cancel a poster needed by another client.
+    try:
+        future = _COVER_FETCH_POOL.submit(url, lambda: _fetch_cover_data(url))
+    except SeriesDetailsBusy as exc:
+        raise HTTPException(503, "Cover-Laden ist ausgelastet.", headers={"Retry-After": "2"}) from exc
+    waiting = asyncio.wrap_future(future)
+    waiting.add_done_callback(lambda done: None if done.cancelled() else done.exception())
+    try:
+        data = await asyncio.wait_for(asyncio.shield(waiting), timeout=COVER_WAIT_SECONDS)
+    except TimeoutError as exc:
+        raise HTTPException(504, "Cover-Laden dauert zu lange.", headers={"Retry-After": "2"}) from exc
     if not data:
         raise HTTPException(502, "Cover konnte nicht geladen werden.")
     content, content_type = data

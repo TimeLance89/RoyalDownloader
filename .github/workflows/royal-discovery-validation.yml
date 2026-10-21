@@ -1,0 +1,99 @@
+name: Royal Discovery branch validation
+on:
+  push:
+    branches:
+      - feature/royal-discovery-3-home-20261019
+      - codex/fix-home-discovery-ui-performance
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: discovery-validation-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test-and-snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - name: Check out development branch
+        uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+        with:
+          persist-credentials: false
+      - name: Reproducible Git archive
+        shell: bash
+        run: |
+          git archive --format=tar HEAD | gzip -n > royal-discovery-source.tar.gz
+          test -s royal-discovery-source.tar.gz
+          echo "ARCHIVE_BYTES=$(stat -c%s royal-discovery-source.tar.gz)" >> "$GITHUB_ENV"
+      - name: Upload worktree archive
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: royal-discovery-source
+          path: royal-discovery-source.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+      - name: Set up Python 3.12
+        uses: actions/setup-python@751276eafca55f10f252026015f43c488f2322ba
+        with:
+          python-version: "3.12"
+      - name: Install locked development requirements
+        run: python -m pip install -r requirements-dev.lock
+      - name: Python Discovery and layout integration tests
+        run: python -m pytest -q tests/test_home_discovery.py tests/test_home_intelligence.py tests/test_home_discovery_frontend.py tests/test_home_discovery_api.py tests/test_home_person_discovery.py tests/test_home_franchise_discovery.py tests/test_home_relevance_scenarios.py tests/test_home_layout.py tests/test_taste_api.py tests/test_taste_profile_v2.py tests/test_taste_frontend_v2.py tests/test_home_experience_v2.py
+      - name: Node Discovery and component regression tests
+        run: |
+          node --test tests/frontend_smoke.test.mjs tests/series_card_summary.test.mjs tests/frontend/*.test.*
+      - name: Syntax smoke
+        run: |
+          python -m compileall -q features api core
+          find web -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+
+  browser-and-visual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    steps:
+      - name: Checkout with frozen visual baseline
+        uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install browser verification tooling
+        shell: bash
+        run: |
+          npm install --prefix "${RUNNER_TEMP}/royal-discovery-browser" --no-save --ignore-scripts playwright@1.62.1 pngjs@7.0.0 pixelmatch@7.2.0
+          "${RUNNER_TEMP}/royal-discovery-browser/node_modules/.bin/playwright" install --with-deps chromium webkit
+          echo "ROYAL_PLAYWRIGHT=${RUNNER_TEMP}/royal-discovery-browser/node_modules/playwright" >> "$GITHUB_ENV"
+          echo "ROYAL_BROWSER=chromium" >> "$GITHUB_ENV"
+          git worktree add --detach "${RUNNER_TEMP}/royal-discovery-baseline" d3aada9099703c0b9d9b6201f49082c52ddff0d7
+      - name: Browser interactions against fully rendered Home
+        run: node tests/frontend/browser-smoke.cjs
+      - name: Discovery opens movie and series details in both engines
+        run: node tests/frontend/home-discovery-browser.cjs
+      - name: Landscape spotlight containment from mobile to 4K in both engines
+        run: node tests/frontend/home-spotlight-browser.cjs
+      - name: Trained household profile and exposure history performance
+        env:
+          ROYAL_HOME_PERF_VERIFY: "1"
+        run: node tests/frontend/home-personalization-performance.cjs
+      - name: Relative geometry and unchanged-rail visual regression
+        shell: bash
+        run: |
+          ROYAL_VISUAL_BASELINE_WEB="${RUNNER_TEMP}/royal-discovery-baseline/web" node tests/frontend/carousel-visual.cjs
+      - name: Paired mobile and desktop performance budgets
+        shell: bash
+        run: |
+          ROYAL_WEB_ROOT="${RUNNER_TEMP}/royal-discovery-baseline/web" ROYAL_PERF_OUTPUT=artifacts/frontend-performance/baseline node tests/frontend/performance-benchmark.cjs
+          ROYAL_PERF_OUTPUT=artifacts/frontend-performance/current node tests/frontend/performance-benchmark.cjs
+          node tests/frontend/performance-budget.cjs artifacts/frontend-performance/baseline/metrics.json artifacts/frontend-performance/current/metrics.json
+      - name: Upload visual evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: royal-discovery-visual-evidence
+          path: |
+            artifacts/frontend-performance/
+            artifacts/home-discovery/
+            artifacts/home-spotlight/
+            artifacts/home-personalization-performance/
+          retention-days: 2

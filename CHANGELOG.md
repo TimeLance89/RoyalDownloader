@@ -1,5 +1,66 @@
 # Changelog
 
+## Unreleased
+
+### NAS resource and startup hotfix
+
+- Pin certifi 2026.10.19 in both reviewed dependency sets to resolve
+  PYSEC-2026-4320 without bypassing the vulnerability audit.
+- Limit optional Royal Intelligence to two concurrent inferences per process,
+  bound result/job history, back off after failures and discard late results
+  after configuration changes. Overload immediately retains the baseline ranking.
+- Isolate storage HTTP work in bounded pools, coalesce short-lived telemetry,
+  and return a temporary error instead of accumulating blocked mount probes.
+  Skip unchanged inventory writes while retaining durable writes for real changes.
+- Recover from failed startup imports with an independent, CSP-compatible
+  error screen and manual retry instead of an endless loading curtain.
+- Serve the existing ordered CSS manifest as one gzip-capable response,
+  eliminating 44 import requests without changing the visible layout.
+
+### Royal Discovery 3.0
+
+- Preserve poster-only recommendations and twelve Spotlight cards; align the
+  full frontend contracts with the existing cinema presentation.
+- Separate bounded recent interests and movie/series taste for Home and hero
+  ranking without changing Jellyfin recommendation scoring or stored schema.
+- Discover confirmed actor/director credits, collections and related titles
+  within three TMDB calls; respect rejected media types and rotate seed paths.
+- Bound concurrent and queued TMDB work, return within an eight-second fetch
+  budget, coalesce browser requests and retry partial outages after five minutes.
+- Protect per-user caches against response mutation and shared legacy fallback.
+- Reject stale Home/taste requests after another browser window changes the
+  shared login cookie, before reading or writing the new user's preferences.
+- Preserve continuous viewport dwell and only penalize genuinely seen cards
+  when shuffling; repeated appearances in several rows count once per day.
+- Add offline relevance, malformed-response, restart, recovery and concurrency
+  scenarios; run full quality, mobile WebKit and Linux stability before a PR.
+
+### Explicit movie replacement API
+
+- Add an administrator-only endpoint that verifies movie identity and a source,
+  deletes exactly the matching Jellyfin movie versions, then uses the existing
+  guarded queue to download the replacement.
+- Persist replacement requests before deletion. Retries cannot delete a newly
+  downloaded version; interrupted deletion stops for manual inspection.
+- Keep normal queue duplicate protection and expose the contract and recovery
+  behavior in `docs/MOVIE_REDOWNLOAD.md`.
+
+### NAS responsiveness and runtime diagnostics
+
+- Move remaining configuration, provider-health, storage preparation, queue
+  resume/snapshots and module lifecycle waits off the HTTP event loop.
+- Reserve a bounded worker pool for browsing, share and limit outstanding
+  poster fetches, and cap late catalog, prefetch and metadata work.
+- Keep periodic maintenance alive after individual failures and clean up
+  background tasks and browser pools outside the event loop on shutdown.
+- Add authenticated runtime diagnostics and an independent loop watchdog with
+  bounded stack evidence, process identity and available container memory/OOM
+  counters. See `docs/NAS_STABILITY_AUDIT_2026-10-18.md` for evidence and limits.
+- Bound worker-to-WebSocket event ingress before asyncio callbacks accumulate;
+  resynchronize clients after overflow or send failure and bound socket close.
+- Release remote browser tabs and CDP proxy sockets after setup failures, and
+  include cgroup v1, Linux RSS, native threads and descriptor counts in diagnostics.
+
 ## v2.0.0 – 2026-10-18
 
 Stable v2.0.0 marks a major product milestone and promotes the complete

@@ -7,13 +7,15 @@ export function createHomeData({
   client = api, storage, getMovieMetadata, isRendered,
   homeAllEntries, homeArtworkEntriesInLayout, renderHome,
   syncFpCatalogFromHome, syncSeriesCatalogFromHome,
+  getTasteStorageKey = () => "",
+  getUserId = () => "",
   hydrateHomeMovieArtwork, hydrateHomeSeriesArtwork,
   refreshCatalogJellyfinStatus, discoveryV2MergeItems, homeMovieEntry, homeSeriesEntry,
   onLoaded = () => {},
 }) {
   const data = { newMovies: [], topMovies: [], cinemaMovies: [], cinemaUpdatedAt: 0,
     trendingSeries: [], newSeries: [],
-    discoveryMovies: [], discoverySeries: [], loading: true, refreshing: false };
+    discoveryMovies: [], discoverySeries: [], personalDiscoveries: [], personalDiscoveryDisabled: false, loading: true, refreshing: false };
   const cache = createHomeCache(data, getMovieMetadata, storage);
   let owner = createScope();
   let pendingLoad = null;
@@ -22,6 +24,8 @@ export function createHomeData({
   let resumeLoad = false;
   let resumeWarm = false;
   let warmFinished = false;
+  let discoveryOwner = "";
+  let discoverySeq = 0;
   const saveHomeCache = () => { if (owner.active) cache.save(); };
   function catalog(kind, params, signal) {
     return client.get(`/api/${kind === "movie" ? "movies" : "series"}?${new URLSearchParams(params)}`, {
@@ -80,6 +84,31 @@ export function createHomeData({
       if (changed) renderHome({ force: true });
     } catch {
       // The current catalog and release dates still provide a usable selection.
+    }
+  }
+  async function loadPersonalDiscovery(scope) {
+    const ownerKey = String(getTasteStorageKey() || "");
+    if (!ownerKey || !scope.active) return;
+    const sequence = ++discoverySeq;
+    try {
+      // TMDB suggestions never enter the shared seven-day catalog cache.
+      const response = await client.get("/api/home/discovery", {
+        signal: scope.signal, timeoutMs: 15_000,
+        headers: { "X-Royal-Profile": String(getUserId() || "") },
+      });
+      if (!scope.active || sequence !== discoverySeq
+          || ownerKey !== String(getTasteStorageKey() || "")) return;
+      if (response?.owner_user_id && response.owner_user_id !== String(getUserId() || "")) return;
+      data.personalDiscoveryDisabled = response?.disabled === true;
+      data.personalDiscoveries = (Array.isArray(response?.results) ? response.results : [])
+        .filter((entry) => ["movie", "series"].includes(entry?.kind)
+          && entry?.item?.tmdb_discovery === true);
+      discoveryOwner = ownerKey;
+      renderHome({ force: true });
+    } catch (error) {
+      if (scope.active && sequence === discoverySeq) {
+        console.warn("Persönliche TMDB-Entdeckungen nicht verfügbar:", error);
+      }
     }
   }
   function scheduleWarm(delay) {
@@ -205,6 +234,7 @@ export function createHomeData({
       scheduleWarm(120);
       void refreshCinemaStatus(scope);
       onLoaded();
+      void loadPersonalDiscovery(scope);
     }
   }
 
@@ -305,15 +335,23 @@ export function createHomeData({
       if (!current.active) throw new DOMException("Abgebrochen", "AbortError");
       data.loading = false; data.refreshing = false;
       renderHome({ force: true }); saveHomeCache(); onLoaded();
+      void loadPersonalDiscovery(current);
     } finally { signal?.removeEventListener("abort", abort); }
   }
 
   return {
-    get: () => Object.freeze({ ...data }), load, warm, reloadForLanguage, save: saveHomeCache,
+    get: () => Object.freeze({ ...data,
+      personalDiscoveries: discoveryOwner === String(getTasteStorageKey() || "")
+        ? data.personalDiscoveries : [],
+      personalDiscoveryDisabled: discoveryOwner === String(getTasteStorageKey() || "")
+        && data.personalDiscoveryDisabled,
+    }), load, warm, reloadForLanguage, save: saveHomeCache,
+    refreshDiscovery() { if (owner.active) void loadPersonalDiscovery(owner); },
     restore() {
       if (!owner.active) return false;
       const restored = cache.restore();
-      if (restored) { renderHome({ force: true }); scheduleWarm(350); }
+      if (restored) { renderHome({ force: true }); scheduleWarm(350);
+        void loadPersonalDiscovery(owner); }
       return restored;
     },
     unmount() {
@@ -321,6 +359,7 @@ export function createHomeData({
       resumeLoad = Boolean(pendingLoad);
       resumeWarm = Boolean(pendingWarm) && !warmFinished;
       owner.dispose(); pendingLoad = null; pendingWarm = null;
+      discoverySeq++;
       warmFinished = false;
       data.loading = false; data.refreshing = false;
     },

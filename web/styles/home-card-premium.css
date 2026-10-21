@@ -24,7 +24,7 @@
 #tab-home .home-card {
   isolation: isolate;
   border-radius: 12px;
-  transform: translateZ(0);
+  transform: none;
   transition:
     transform .32s cubic-bezier(.2, .78, .18, 1),
     filter .24s ease;
@@ -340,4 +340,33 @@
   #tab-home .home-card-overlay {
     transition: none !important;
   }
+}
+
+/* Royal Discovery 3.0 is an idea carousel, not a provider-availability list. */
+#tab-home [data-home-rail="discovered"] .home-rail-eyebrow {
+  color: #e5c276;
+  letter-spacing: .12em;
+}
+#tab-home .home-card[data-home-discovery="tmdb"] .catalog-jellyfin-badge {
+  display: none;
+}
+#tab-home .home-card[data-home-discovery="tmdb"] .royal-discovery-reason {
+  position: absolute;
+  z-index: 8;
+  top: 12px;
+  left: 12px;
+  max-width: calc(100% - 118px);
+  padding: 6px 9px;
+  overflow: hidden;
+  color: #fae7be;
+  background: rgba(9, 12, 17, .86);
+  border: 1px solid rgba(216, 183, 102, .45);
+  border-radius: 7px;
+  font: 650 10px/1.3 "Archivo", sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+#tab-home .home-card[data-home-discovery="tmdb"] .home-card-art {
+  border-color: rgba(216, 183, 102, .27);
 }

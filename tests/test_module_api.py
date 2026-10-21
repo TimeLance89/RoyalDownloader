@@ -82,7 +82,7 @@ def test_relevant_configuration_endpoints_trigger_module_reconciliation():
         "telegram-control",
         "seerr-sync",
     ):
-        assert f'state.module_manager.reconcile("{module_id}")' in source
+        assert f'await run_in_threadpool(state.module_manager.reconcile, "{module_id}")' in source
 
 
 def test_module_health_contract_is_additive_and_applies_to_reads_and_writes():

@@ -25,6 +25,10 @@ jobs:
           echo "ROYAL_PLAYWRIGHT=${RUNNER_TEMP}/royal-webkit/node_modules/playwright" >> "$GITHUB_ENV"
       - name: Mobile WebKit real taps and layout contracts
         run: node tests/frontend/webkit-mobile.cjs
+      - name: Failed boot recovery and unchanged bundled stylesheet rendering
+        env:
+          ROYAL_BROWSER: webkit
+        run: node tests/frontend/startup-recovery-browser.cjs
       - name: Source Sentinel settings and hoster repair confirmation
         env:
           ROYAL_BROWSER: webkit
@@ -34,10 +38,16 @@ jobs:
         env:
           ROYAL_BROWSER: webkit
         run: node tests/frontend/saved-media-browser.cjs
+      - name: Movie Jellyfin ribbons across navigation and background checks
+        env:
+          ROYAL_BROWSER: webkit
+        run: node tests/frontend/movie-jellyfin-browser.cjs
       - name: Storage Autopilot mobile permissions and confirmations
         env:
           ROYAL_BROWSER: webkit
-        run: node tests/frontend/storage-autopilot-browser.cjs
+        run: |
+          node tests/frontend/storage-autopilot-browser.cjs
+          node tests/frontend/storage-mount-status-browser.cjs
 
       - name: Native mobile navigation and subscription inbox
         env:

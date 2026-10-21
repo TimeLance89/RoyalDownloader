@@ -84,6 +84,7 @@ def new_job(
         "final_path": "",
         "requested_by_user_id": "",
         "request_source": "",
+        "replacement_request_id": "",
     }
 
 

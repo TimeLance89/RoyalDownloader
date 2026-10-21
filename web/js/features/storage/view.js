@@ -26,11 +26,13 @@ export function createStorageView(root) {
       const kind = target.key === "movies" ? "Filme" : "Serien";
       const extra = target.key === "series" ? " · Anime nutzt diesen Serienpfad als Standard" : "";
       const available = Boolean(target.available);
+      const confirmMount = Boolean(target.mount_confirmation_required);
+      const usable = available && target.writable !== false;
       const state = available
-        ? `${formatPercent(target.used_percent)} belegt · ${formatBytes(target.free_bytes)} frei`
-        : "nicht erreichbar";
+        ? target.writable === false ? "erreichbar, aber nicht beschreibbar" : `${formatPercent(target.used_percent)} belegt · ${formatBytes(target.free_bytes)} frei`
+        : confirmMount ? "erreichbar · Datenträgerkennung geändert; Bestätigung erforderlich" : "nicht erreichbar";
       return `
-        <article class="storage-standard-target${available ? "" : " is-offline"}">
+        <article class="storage-standard-target${usable ? "" : " is-offline"}">
           <div class="storage-location-icon" aria-hidden="true">▰</div>
           <div class="storage-location-copy">
             <span>STANDARD FÜR ${html(kind.toUpperCase())}</span>
@@ -38,7 +40,7 @@ export function createStorageView(root) {
             <code title="${html(target.resolved_path || target.path || "")}">${html(target.resolved_path || target.path || "Nicht konfiguriert")}</code>
             <small>${html(state + extra)}</small>
           </div>
-          <div class="storage-standard-target-note"><strong>Immer verfügbar</strong><span>Fallback &amp; Ausgangspunkt</span></div>
+          <div class="storage-standard-target-note"><strong>${usable ? "Verfügbar" : confirmMount ? "Bestätigung erforderlich" : "Nicht verfügbar"}</strong><span>${usable ? "Standardziel &amp; Fallback" : "Derzeit kein sicheres Fallback"}</span>${confirmMount ? `<button type="button" class="btn btn-ghost btn-sm" data-autopilot-action="mount" data-root="${html(target.key)}">Mount prüfen und bestätigen</button>` : ""}</div>
         </article>`;
     }).join("");
   }
@@ -95,7 +97,7 @@ export function createStorageView(root) {
 
   function unavailableRootCard(root) {
     return `
-      <article class="storage-volume-card is-error"><header><div><small>${root.source === "custom" ? "SPEICHERORT" : "MEDIENPFAD"}</small><span>${html(root.label || root.key)}</span></div><strong>offline</strong></header><code>${html(root.path || "Nicht konfiguriert")}</code><p>${html(root.error || "Pfad konnte nicht gelesen werden. Prüfe den NAS-/Docker-Mount.")}</p></article>`;
+      <article class="storage-volume-card is-error"><header><div><small>${root.source === "custom" ? "SPEICHERORT" : "MEDIENPFAD"}</small><span>${html(root.label || root.key)}</span></div><strong>${root.mount_confirmation_required ? "Bestätigung erforderlich" : "offline"}</strong></header><code>${html(root.path || "Nicht konfiguriert")}</code><p>${html(root.error || "Pfad konnte nicht gelesen werden. Prüfe den NAS-/Docker-Mount.")}</p></article>`;
   }
 
   function renderStatus(payload) {
@@ -106,7 +108,9 @@ export function createStorageView(root) {
     if (!live || !summary || !grid) return;
     const roots = (payload.roots || []).map(root => {
       const managed = autopilotRoots.find(item => item.key === root.key);
-      return managed && !managed.available ? { ...root, available: false, error: managed.error || root.error } : root;
+      return managed ? { ...root, available: Boolean(root.available && managed.available),
+        writable: managed.writable, mount_confirmation_required: managed.mount_confirmation_required,
+        error: managed.error || root.error } : root;
     });
     renderStandardTargets(roots);
     renderLocations(payload.locations || [], roots);

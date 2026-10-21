@@ -43,11 +43,32 @@ export function createHomeCards({
       media, kind, key, rank, eager, variant, jellyfinState: mediaJellyfinStatus(media),
       coverCandidates: url => coverCandidates(url), initials: mediaCardInitials,
       setArtwork: setHomeCardArtworkCandidates, setMeta: setHomeCardMeta,
-      onOpen: () => { if (!openDailyTop(entry)) openHomeEntry(kind, key); },
-      decorate(card) { registerDock(card, entry); },
+      onOpen: () => {
+        if (item.tmdb_discovery) {
+          if (kind === "movie") selectFpRow(item.slug, { ...media, slug: item.slug, hosters: [], metadata_source: "TMDB" });
+          else loadSeries({ ...media, base_slug: `tmdb:${item.tmdb_id}`, sample_slug: `tmdb:${item.tmdb_id}`, sources: [], metadata_source: "TMDB" });
+        }
+        else if (!openDailyTop(entry)) openHomeEntry(kind, key);
+      },
+      decorate(card) { if (!item.tmdb_discovery) registerDock(card, entry); },
     });
     markLanguage(card.querySelector(".home-card-type"), media);
     enhanceTaste(card, entry);
+    if (item.tmdb_discovery) {
+      card.dataset.homeDiscovery = "tmdb";
+      const why = (item.discovery_reason || []).filter(reason => !["movie", "series", "tv", "anime"].includes(reason)).slice(0, 2).join(" · ");
+      card.title = why ? `Royal empfiehlt diesen Titel wegen: ${why}. Details öffnen.`
+        : "Royal-Tipp: Details öffnen.";
+      const action = card.querySelector(".home-card-primary-action");
+      action?.setAttribute("aria-label", `${media.title}: Details öffnen`);
+      if (why) {
+        card.dataset.tasteReason = why;
+        const reason = document.createElement("span");
+        reason.className = "royal-discovery-reason";
+        reason.textContent = `Passt zu: ${why}`;
+        card.querySelector(".home-card-art")?.appendChild(reason);
+      }
+    }
     enhanceHero(card, entry);
     return enhanceDailyTop(card, entry, rank);
   }

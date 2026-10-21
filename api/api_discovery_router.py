@@ -6,15 +6,16 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout, wait
 from dataclasses import asdict
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
-from starlette.concurrency import run_in_threadpool
+from api.interactive_work import run_browse_work as run_in_threadpool
 from application_services.series_detail_work import SeriesDetailWork, SeriesDetailsBusy
 
 from starlette.responses import JSONResponse
@@ -27,6 +28,7 @@ from features.monster_series_extension import (
     monster_tmdb_series,
 )
 from features.movie_releases import release_service, safe_image
+from features.home_discovery import HomeDiscoveryService
 from features.subscription_languages import subscription_content_languages
 from features.movie_probes import MovieProbeIncomplete, movie_detail_probes, movie_probe_context, movie_probe_scope
 from providers.aniworld import aniworld_episode_page
@@ -62,7 +64,7 @@ SERIES_DETAIL_WAIT_SECONDS = 2.0
 
 async def _bounded_series_detail_work(identity, work, *, progressive=False):
     key = (identity, getattr(state, "series_path", ""),
-           getattr(state, "jellyfin_config_generation", 0), id(get_tmdb_client()))
+           getattr(state, "jellyfin_config_generation", 0), id((await run_in_threadpool(get_tmdb_client))))
     try:
         future = _SERIES_DETAIL_WORK.submit(key, work)
     except SeriesDetailsBusy as exc:
@@ -92,6 +94,7 @@ async def _bounded_library_work(identity, work):
 
 
 router = APIRouter(tags=["discovery"])
+_HOME_DISCOVERY = HomeDiscoveryService()
 MOVIE_AVAILABILITY_WAIT_SECONDS = 0.8
 
 
@@ -118,6 +121,7 @@ _TMDB_SERIES_METADATA_POOL = ThreadPoolExecutor(
     max_workers=8,
     thread_name_prefix="tmdb-series-metadata",
 )
+TMDB_METADATA_PENDING_LIMIT = 128
 _TMDB_METADATA_INFLIGHT: dict[tuple, Any] = {}
 _TMDB_METADATA_INFLIGHT_LOCK = threading.Lock()
 
@@ -248,14 +252,17 @@ def create_discovery_router(backend) -> APIRouter:
 # ── Start-page composition ────────────────────────────────────────────────
 class HomeLayoutBody(BaseModel):
     hero_visible: bool = True
-    rail_order: list[str] = Field(default_factory=list, max_length=12)
-    hidden_rails: list[str] = Field(default_factory=list, max_length=12)
+    rail_order: list[str] = Field(default_factory=list, max_length=13)
+    hidden_rails: list[str] = Field(default_factory=list, max_length=13)
 
 
 @router.get("/api/v1/home/layout")
 @router.get("/api/home/layout")
 async def api_home_layout_get():
-    return state.home_layout.public_layout()
+    def _work():
+        return state.home_layout.public_layout()
+
+    return await run_in_threadpool(_work)
 
 
 @router.put("/api/v1/home/layout")
@@ -265,6 +272,39 @@ async def api_home_layout_put(body: HomeLayoutBody):
         return await run_in_threadpool(state.home_layout.update, body.model_dump())
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+# ── Royal Discovery 3.0 (isolated Home recommendations) ──────────────────
+@router.get("/api/v1/home/discovery")
+@router.get("/api/home/discovery")
+async def api_home_discovery(request: Request):
+    """Authenticated, user-specific TMDB ideas; never implies download availability."""
+    from application_services.auth import current_user
+
+    user = await run_in_threadpool(current_user, request.headers, request.cookies)
+    if not user or not user.get("id"):
+        raise HTTPException(401, "Anmeldung erforderlich.")
+    owner_id = str(user["id"])
+    from api.profile_owner_guard import require_profile_owner
+    require_profile_owner(request.headers, owner_id)
+    # Operations may disable only the new TMDB Home suggestions without
+    # changing download, provider, search, or existing Home behavior.
+    if os.getenv("ROYAL_HOME_DISCOVERY_V3_ENABLED", "1").strip().lower() in {
+        "0", "off", "false", "no",
+    }:
+        return {"available": False, "results": [], "disabled": True}
+
+    def _work():
+        profiles = getattr(state, "taste_profiles", None)
+        if profiles is None:
+            # Never substitute a shared legacy profile for an authenticated user.
+            return {"available": False, "results": []}
+        profile_store = profiles.for_user(owner_id)
+        profile = profile_store.public_profile()
+        client = get_tmdb_client()
+        return _HOME_DISCOVERY.get(owner_id, profile, client)
+
+    return await run_in_threadpool(_work)
 
 
 # ── Genres ──────────────────────────────────────────────────────────────────
@@ -348,7 +388,7 @@ async def api_movie_collections(query: str = ""):
     q = " ".join(str(query or "").split()).strip()
     if not q:
         return {"results": []}
-    client = get_tmdb_client()
+    client = await run_in_threadpool(get_tmdb_client)
     if not client.configured:
         raise HTTPException(503, "Für Filmreihen muss TMDB konfiguriert sein.")
     results = await run_in_threadpool(client.search_movie_collections, q)
@@ -361,7 +401,7 @@ async def api_movie_collection(collection_id: int):
     """Reihendetails liefern; die Anbieterprüfung startet erst im Client danach."""
     if collection_id <= 0:
         raise HTTPException(400, "Ungültige TMDB-Kollektions-ID.")
-    client = get_tmdb_client()
+    client = await run_in_threadpool(get_tmdb_client)
     if not client.configured:
         raise HTTPException(503, "Für Filmreihen muss TMDB konfiguriert sein.")
     collection = await run_in_threadpool(client.movie_collection, collection_id)
@@ -492,7 +532,7 @@ async def api_movie(slug: str, tmdb_id: int | None = None, progressive: bool = F
 
     try:
         if progressive:
-            context = (movie_probe_context(state), tuple(provider_priority("movies")), slug, tmdb_id)
+            context = (movie_probe_context(state), tuple((await run_in_threadpool(provider_priority, 'movies'))), slug, tmdb_id)
             future = movie_detail_probes.submit(context, slug, _probe)
             if future is None:
                 return pending()
@@ -579,15 +619,16 @@ class SeriesMetadataBody(BaseModel):
 @router.post("/api/tmdb/movie")
 async def api_tmdb_movie(item: MovieMetadataItem):
     """Vollständige TMDB-Details eines Films – ohne Anbieter-/Hoster-Aufruf."""
-    if not get_tmdb_client().configured:
+    client = await run_in_threadpool(get_tmdb_client)
+    if not client.configured:
         return {"movie": None}
     title = clean_movie_title(item.title)
     if item.tmdb_id:
         movie = await run_in_threadpool(
-            get_tmdb_client().movie_by_id, item.tmdb_id, title,
+            client.movie_by_id, item.tmdb_id, title,
         )
     else:
-        movie = await run_in_threadpool(get_tmdb_client().movie, title, item.year)
+        movie = await run_in_threadpool(client.movie, title, item.year)
     return {"movie": movie}
 
 
@@ -665,7 +706,7 @@ async def api_jellyfin_matches(body: MovieMetadataBody):
 @router.post("/api/tmdb/movies")
 async def api_tmdb_movies(body: MovieMetadataBody):
     """Lädt schnelle TMDB-Listenmetadaten parallel, ohne Hoster-Seiten."""
-    if not get_tmdb_client().configured or not body.items:
+    if not (await run_in_threadpool(get_tmdb_client)).configured or not body.items:
         return {"movies": {}}
 
     def _work():
@@ -749,6 +790,9 @@ async def api_tmdb_movies(body: MovieMetadataBody):
             with _TMDB_METADATA_INFLIGHT_LOCK:
                 future = _TMDB_METADATA_INFLIGHT.get(job_key)
                 if future is None:
+                    if len(_TMDB_METADATA_INFLIGHT) >= TMDB_METADATA_PENDING_LIMIT:
+                        futures.append((group, None))
+                        continue
                     future = pool.submit(_group_metadata, group)
                     _TMDB_METADATA_INFLIGHT[job_key] = future
                     created = True
@@ -759,7 +803,7 @@ async def api_tmdb_movies(body: MovieMetadataBody):
             futures.append((group, future))
 
         done, _pending = wait(
-            {future for _group, future in futures},
+            {future for _group, future in futures if future is not None},
             timeout=TMDB_METADATA_BATCH_BUDGET_SECONDS,
         )
         for group, future in futures:
@@ -785,7 +829,7 @@ async def api_tmdb_movies(body: MovieMetadataBody):
 @router.get("/api/tmdb/now-playing")
 async def api_tmdb_now_playing():
     """Lädt Kinostatus getrennt von den zeitkritischen Poster-Anfragen."""
-    client = get_tmdb_client()
+    client = await run_in_threadpool(get_tmdb_client)
     if not client.configured:
         return {"ids": [], "movies": [], "available": False}
     try:
@@ -793,7 +837,7 @@ async def api_tmdb_now_playing():
     except Exception as exc:
         log(f"TMDB-Kinostatus konnte nicht geladen werden: {exc}", "warn")
         return {"ids": [], "movies": [], "available": False}
-    movies = client.cached_now_playing_movies()
+    movies = await run_in_threadpool(client.cached_now_playing_movies)
     return {"ids": sorted(ids), "movies": movies, "available": True}
 
 
@@ -801,7 +845,7 @@ async def api_tmdb_now_playing():
 @router.post("/api/tmdb/series")
 async def api_tmdb_series(body: SeriesMetadataBody):
     """Lädt Serien-Backdrops innerhalb eines festen First-Paint-Budgets."""
-    if not get_tmdb_client().configured or not body.items:
+    if not (await run_in_threadpool(get_tmdb_client)).configured or not body.items:
         return {"series": {}, "pending": []}
 
     def _work():
@@ -830,6 +874,9 @@ async def api_tmdb_series(body: SeriesMetadataBody):
             with _TMDB_METADATA_INFLIGHT_LOCK:
                 future = _TMDB_METADATA_INFLIGHT.get(job_key)
                 if future is None:
+                    if len(_TMDB_METADATA_INFLIGHT) >= TMDB_METADATA_PENDING_LIMIT:
+                        futures.append((group, None))
+                        continue
                     future = (_TMDB_SERIES_METADATA_POOL.submit(
                         client.series_by_id, group["tmdb_id"], group["title"],
                     ) if group["tmdb_id"] else _TMDB_SERIES_METADATA_POOL.submit(
@@ -844,7 +891,7 @@ async def api_tmdb_series(body: SeriesMetadataBody):
             futures.append((group, future))
 
         done, _pending = wait(
-            {future for _group, future in futures},
+            {future for _group, future in futures if future is not None},
             timeout=TMDB_METADATA_BATCH_BUDGET_SECONDS,
         )
         pending_base_slugs = []
@@ -1095,7 +1142,7 @@ async def api_release_check(body: ReleaseCheckBody):
         return matches
 
     try:
-        return release_service().check(cfg, body.id, _search)
+        return await run_in_threadpool(lambda: release_service().check(cfg, body.id, _search))
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
 
@@ -1312,12 +1359,14 @@ async def api_series_load(body: SeriesLoadBody):
             state.series_cache[series.base_slug] = series
         return series, payload
 
-    if body.defer_checks:
+    if body.defer_checks and not body.progressive:
         series, payload = await run_in_threadpool(_work)
     else:
+        # A progressive UI request must never occupy an HTTP worker while
+        # waiting for a slow provider, even when Jellyfin checks are deferred.
         series, payload = await _bounded_series_detail_work(
-            ("catalog", body.base_slug or body.sample_slug, body.refresh_jellyfin), _work,
-            progressive=body.progressive,
+            ("catalog", body.base_slug or body.sample_slug, body.refresh_jellyfin,
+             body.defer_checks), _work, progressive=body.progressive,
         )
     if series is None:
         raise HTTPException(404, "Serie nicht gefunden.")
@@ -1359,7 +1408,7 @@ async def api_series_episode_probe_progress(probe_id: str):
 @router.post("/api/series/episode-languages")
 async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
     provider = body.provider.strip().casefold()
-    if provider not in provider_priority("series"):
+    if provider not in (await run_in_threadpool(provider_priority, 'series')):
         raise HTTPException(409, f"{provider} ist in den Serienquellen deaktiviert.")
     slugs = list(dict.fromkeys(body.slugs))
     if body.content_languages is not None and any(
@@ -1504,7 +1553,7 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
 @router.post("/api/v1/series/huhu-episode-languages")
 @router.post("/api/series/huhu-episode-languages")
 async def api_huhu_episode_languages(body: HuhuEpisodeLanguagesBody):
-    if "huhu" not in provider_priority("series"):
+    if "huhu" not in (await run_in_threadpool(provider_priority, 'series')):
         raise HTTPException(409, "HUHU ist in den Serienquellen deaktiviert.")
     slugs = list(dict.fromkeys(body.slugs))
     if any(
@@ -1542,7 +1591,7 @@ async def api_anime(
 ):
     if page < 1 or page > 50:
         raise HTTPException(400, "Seite muss zwischen 1 und 50 liegen.")
-    if "mkissa" not in provider_priority("anime"):
+    if "mkissa" not in (await run_in_threadpool(provider_priority, 'anime')):
         return {
             "results": [],
             "mode": mode,
@@ -1598,7 +1647,7 @@ async def api_anime_detail(
     translation: str = "",
     episode_page: int = 1,
 ):
-    if "mkissa" not in provider_priority("anime"):
+    if "mkissa" not in (await run_in_threadpool(provider_priority, 'anime')):
         raise HTTPException(
             409,
             "MKissa ist in den Quellen oder über die Inhaltssprache deaktiviert.",
@@ -1665,14 +1714,14 @@ async def api_aniworld(
 ):
     if page < 1 or page > 50:
         raise HTTPException(400, "Seite muss zwischen 1 und 50 liegen.")
-    if reason := aniworld_unavailable_reason():
+    if reason := await run_in_threadpool(aniworld_unavailable_reason):
         disabled = "aniworld" not in state.provider_enabled.get("anime", []) or not provider_supports_languages("aniworld", state.content_languages)
-        if disabled or mode != "search" or not getattr(get_aniworld_scraper(), "has_cached_catalog", lambda: False)():
+        if disabled or mode != "search" or not await run_in_threadpool(lambda: getattr(get_aniworld_scraper(), "has_cached_catalog", lambda: False)()):
             return {
                 "results": [], "mode": mode, "page": 1, "has_more": False,
                 "total": 0, "disabled": disabled,
                 "disabled_reason": reason,
-                "temporarily_unavailable": state.provider_health.status("aniworld")["state"] != "healthy",
+                "temporarily_unavailable": (await run_in_threadpool(state.provider_health.status, "aniworld"))["state"] != "healthy",
             }
     browse_mode = mode if mode in {
         "search", "latest", "popular", "trending", "updates", "catalog",
@@ -1716,7 +1765,7 @@ async def api_aniworld(
 @router.post("/api/v1/aniworld/posters")
 @router.post("/api/aniworld/posters")
 async def api_aniworld_posters(body: AniWorldPosterBody):
-    if reason := aniworld_unavailable_reason():
+    if reason := await run_in_threadpool(aniworld_unavailable_reason):
         raise HTTPException(409, reason)
     anime_ids = list(dict.fromkeys(
         str(anime_id or "").strip() for anime_id in body.ids if anime_id
@@ -1744,7 +1793,7 @@ async def api_aniworld_detail(
     episode_page: int = 1,
     season: int | None = None,
 ):
-    if reason := aniworld_unavailable_reason():
+    if reason := await run_in_threadpool(aniworld_unavailable_reason):
         raise HTTPException(409, reason)
     requested_track = str(translation or "").strip().casefold()
 

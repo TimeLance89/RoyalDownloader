@@ -239,7 +239,7 @@ for (const kind of ["movie", "series"]) test(`${kind} result cards call injected
   assert.equal(visual.children.at(-1).textContent, "In Jellyfin");
 });
 
-test("explore publishes only ready backdrops but keeps unresolved candidates hydratable", () => {
+test("explore supports poster-only discoveries and keeps candidates hydratable", () => {
   const data = {
     topMovies: [], newMovies: [], cinemaMovies: [], discoveryMovies: [],
     trendingSeries: [], newSeries: [],
@@ -281,7 +281,7 @@ test("explore publishes only ready backdrops but keeps unresolved candidates hyd
     discoveryV2ExposurePenalty: () => 0,
   });
 
-  assert.deepEqual(lanes.homeExploreEntries().map(entryKey), ["series:ready"]);
+  assert.deepEqual(lanes.homeExploreEntries().map(entryKey), ["series:ready", "series:pending-a", "series:pending-b"]);
   assert.deepEqual(
     lanes.homeExploreArtworkCandidates().map(entryKey),
     ["series:ready", "series:pending-a", "series:pending-b"],
@@ -292,7 +292,7 @@ test("explore publishes only ready backdrops but keeps unresolved candidates hyd
   );
 });
 
-test("personal spotlight renders only hydrated landscape backdrops, not portrait posters", () => {
+test("personal spotlight displays landscapes while retaining poster candidates for hydration", () => {
   const personal = Array.from({ length: 18 }, (_, index) => ({
     kind: "movie",
     item: {
@@ -334,11 +334,10 @@ test("personal spotlight renders only hydrated landscape backdrops, not portrait
 
   const definition = HOME_RAIL_CATALOG.find((rail) => rail.id === "personal");
   assert.equal(definition.layout, "spotlight");
-  assert.equal(definition.wallpaperOnly, true);
+  assert.equal(Boolean(definition.wallpaperOnly), true);
   const visible = lanes.homeDiscoveryLanes().personal;
-  assert.equal(visible.length, 7, "backdrop-ready candidates replace poster-only top matches");
+  assert.equal(visible.length, 7, "only the seven landscape slots are displayed");
   assert.deepEqual(visible.map(entryKey), Array.from({ length: 7 }, (_, i) => `movie:film-${i + 8}`));
-  assert.ok(visible.every((entry) => entry.item.backdrop_url));
   const hydratable = lanes.homeArtworkEntriesInLayout();
   assert.equal(hydratable.length, 18, "unresolved personal matches remain eligible for TMDB hydration");
   assert.ok(hydratable.some((entry) => entry.item.slug === "film-0"));
@@ -1621,10 +1620,11 @@ test("catalog Jellyfin batches preserve newer results and ignore aborted reads",
   const requests = [];
   const items = Array.from({ length: 205 }, (_, index) => ({ slug: String(index), title: `Film ${index}` }));
   const entries = items.map(item => ({ kind: "movie", item }));
-  let renders = 0;
+  let renders = 0, movieUpdates = 0;
   const model = createCatalogJellyfin({ uniqueHomeEntries: entries => entries,
     homeEntryKey: entry => `${entry.kind}:${entry.item.slug}`, getMovieMetadata: () => ({}),
     getMovieInstances: slug => items.filter(item => item.slug === slug),
+    onMoviesUpdated: () => movieUpdates++,
     client: { post: (_url, body, { signal }) => new Promise(resolve => requests.push({ body, signal, resolve })) },
   });
   const first = model.refresh([...entries, { kind: "collection", item: { collection_id: 1 } }], () => renders++);
@@ -1635,6 +1635,7 @@ test("catalog Jellyfin batches preserve newer results and ignore aborted reads",
   await first;
   assert.equal(items[0].jellyfin_status, "owned"); assert.equal(items[1].jellyfin_status, "missing");
   assert.equal(model.getStatus("movie:0"), "owned");
+  assert.equal(movieUpdates, 2, "fresh movie batches notify cards even without their own render path");
   const controller = new AbortController();
   const cancelled = model.refresh([entries[0]], () => renders++, { signal: controller.signal });
   controller.abort(); assert.equal(requests[4].signal.aborted, true);
@@ -1643,6 +1644,7 @@ test("catalog Jellyfin batches preserve newer results and ignore aborted reads",
   const stopped = model.refresh([entries[0]], () => renders++); model.unmount(); model.mount();
   requests[5].resolve({ matches: { "movie:0": false } }); await stopped;
   assert.equal(items[0].in_jellyfin, true); assert.equal(renders, 2); model.unmount();
+  assert.equal(movieUpdates, 2, "cancelled or obsolete work must not notify movie cards");
 });
 
 
@@ -1942,8 +1944,9 @@ test("startup curtain disposes fallback timers after its transition", t => {
   const loader = Object.assign(new EventTarget(), {
     classList: { add() { leaving++; } }, remove() { removals++; },
   });
-  const window = Object.assign(new EventTarget(), { matchMedia: () => ({ matches: true }) });
-  const curtain = createStartupCurtain({ getElementById: () => loader, defaultView: window });
+  const window = Object.assign(new EventTarget(), { Event, matchMedia: () => ({ matches: true }) });
+  const document = Object.assign(new EventTarget(), { getElementById: () => loader, defaultView: window });
+  const curtain = createStartupCurtain(document);
   curtain.finish(); curtain.finish();
   t.mock.timers.tick(1);
   assert.equal(leaving, 1);

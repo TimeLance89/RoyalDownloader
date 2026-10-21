@@ -36,7 +36,12 @@ def get_autopilot(*, queue_jobs: list[dict] | None = None) -> dict:
     jobs = list_move_jobs()
     for root in snapshot["roots"]:
         observation = document["observations"].get(root["key"], {})
-        if observation.get("volume_id") and root.get("volume_id") != observation["volume_id"]:
+        # Reachability is telemetry, not permission to use a replacement disk.
+        # An existing empty mount folder must remain blocked until confirmed.
+        root["reachable"] = bool(root.get("available"))
+        root["mount_confirmation_required"] = bool(root["reachable"] and observation.get("volume_id")
+                                                   and root.get("volume_id") != observation["volume_id"])
+        if root["mount_confirmation_required"]:
             root["available"] = root["writable"] = False
             root["error"] = "Datenträgeridentität geändert; Mount prüfen und erneut bestätigen."
     budgets = reserved_by_volume(document, snapshot["roots"], queue_jobs or [], jobs["jobs"])
@@ -55,11 +60,6 @@ def get_autopilot(*, queue_jobs: list[dict] | None = None) -> dict:
         root["_physical_policy"] = {key: shared[key] for key in ("reserve_gib", "target_percent", "warning_percent", "critical_percent") if key in shared}
         policy = volume_policy(root, document["volumes"])
         observation = document["observations"].get(root["key"], {})
-        # A surviving empty mount directory must not silently become a target
-        # on the host/container filesystem after the original disk disappears.
-        if observation.get("volume_id") and root.get("volume_id") != observation["volume_id"]:
-            root["available"] = root["writable"] = False
-            root["error"] = "Datenträgeridentität geändert; Mount prüfen und erneut bestätigen."
         reserved = budgets.get(root.get("volume_id"), 0)
         active_jobs = sum(1 for job in queue_jobs or [] if job.get("status") not in ("completed", "failed", "cancelled")
                           and job.get("final_path") and Path(root["path"]) in Path(job["final_path"]).parents)

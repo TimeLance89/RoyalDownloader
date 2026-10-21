@@ -19,6 +19,7 @@ export function composeIntegrations({ movieState, getHome, getDiscovery, getSett
         refreshSeriesJellyfinStatus: force => getDiscovery().movieActions.refreshSeriesJellyfinStatus(force),
       }),
   catalogJellyfin: createCatalogJellyfin({
+        onMoviesUpdated: () => getDiscovery().movieActions.updateFpJellyfinBadges(),
         uniqueHomeEntries: (...args) => getHome().actions.uniqueHomeEntries(...args), homeEntryKey: (...args) => getHome().actions.homeEntryKey(...args), getMovieMetadata: () => movieState.metadataCache,
         getMovieInstances: slug => [
           ...movieState.results.filter(item => item.slug === slug), ...getHome().actions.homeMovieInstances(slug),

@@ -1,3 +1,7 @@
+import { homeTasteReady } from "./taste-readiness.js";
+import { homeTasteContext, homeTasteLookup } from "./taste-context.js";
+import { withHomeRender, memoHomeRender } from "./render-pass.js";
+
 /** Existing taste/trend hero ranking, without global function replacement. */
 export function createHeroSelection({
   discoveryV2LogicalKey, homeEntryKey, homeEntryMedia, tasteMetadata, discoveryV2ExposurePenalty,
@@ -5,6 +9,7 @@ export function createHeroSelection({
   localDateKey, stableDiscoveryHash,
 }) {
   const HERO_LIMIT = 7;
+  const heroCandidatesMemo = Symbol("home-hero-candidates");
   const HERO_STRONG_TARGET = 5;
   const HERO_MIN_RATING = 5.5;
   const HERO_MAX_SAME_KIND = 5;
@@ -135,15 +140,11 @@ export function createHeroSelection({
   }
 
   function profileLookup(profile, dimension) {
-    const lookup = new Map();
-    Object.entries(profile?.dimensions?.[dimension] || {}).forEach(([name, score]) => {
-      const numeric = Number(score);
-      if (Number.isFinite(numeric)) lookup.set(String(name).toLocaleLowerCase(), { name, score: numeric });
-    });
-    return lookup;
+    return homeTasteLookup(profile, dimension);
   }
 
   function heroTasteScore(entry, profile) {
+    profile = homeTasteContext(profile, entry.kind);
     const metadata = heroMetadata(entry);
     const policy = profile?.ranking || {};
     const negativeMultiplier = Number(policy.negative_multiplier ?? 1.55);
@@ -307,7 +308,7 @@ export function createHeroSelection({
 
   function tasteRankedHeroEntries() {
     const profile = loadDiscoveryProfile();
-    const trained = Number(profile.interactions || 0) >= 2 && Number(profile.confidence || 0) >= 0.18;
+    const trained = homeTasteReady(profile);
     const trendRanks = heroTrendRanks();
     const pool = homeAllEntries();
     const blocked = new Set(profile.blocked_items || []);
@@ -362,8 +363,9 @@ export function createHeroSelection({
     const selected = [];
     const selectedKeys = new Set();
 
-    // Put current cinema hits first when they fit the profile, then fill the
-    // remaining slots with strong matches and adjacent discoveries.
+    // A trained user's strongest matches should lead; cinema can enrich
+    // the top four but must not displace all personal candidates.
+    addBalanced(selected, selectedKeys, strong, 3);
     addBalanced(selected, selectedKeys, cinema, 4);
     addBalanced(selected, selectedKeys, strong, HERO_STRONG_TARGET);
     addBalanced(selected, selectedKeys, trend, Math.min(HERO_LIMIT, selected.length + 1));
@@ -415,5 +417,5 @@ export function createHeroSelection({
     return card;
   }
 
-  return { candidates: homeExperienceHeroCandidates, enhance: enhanceHomeCard };
+  return { candidates: () => withHomeRender(() => memoHomeRender(heroCandidatesMemo, homeExperienceHeroCandidates)), enhance: enhanceHomeCard };
 }

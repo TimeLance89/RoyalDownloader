@@ -51,6 +51,7 @@ MOBILE_LEGACY_API_PATHS = frozenset({
     "/api/anime",
     "/api/queue",
     "/api/queue/add",
+    "/api/queue/redownload",
     "/api/queue/remove",
     "/api/queue/clear",
     "/api/download/cancel",
@@ -283,7 +284,14 @@ def install_authentication_middleware(
                     headers={"Retry-After": "60"},
                 ))
         mobile_legacy = is_mobile_legacy_path(path)
-        public_path = is_public_path(path, request.method, dependencies.setup_required)
+        # Setup state can wait on a config/user fsync. Health and static
+        # requests keep the cheap public-path fast path without a worker.
+        needs_setup = path.startswith("/api/setup/") or (
+            path in {"/api/ui/config", "/api/v1/ui/config"}
+            and request.method == "POST"
+        )
+        setup = await run_in_threadpool(dependencies.setup_required) if needs_setup else False
+        public_path = is_public_path(path, request.method, lambda: setup)
         authenticated = False
         if not public_path:
             # Session validation occasionally checkpoints the last-seen state

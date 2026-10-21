@@ -280,13 +280,19 @@ const server = createServer(async (req, res) => {
     // Layout draft previews are local; cancelled writes are reconciled from the server.
     await page.locator("#home-layout-open").click();
     await page.locator("#home-layout-modal").waitFor({ state: "visible" });
-    assert.equal(await page.locator(".home-layout-row").count(), 12);
+    assert.equal(await page.locator(".home-layout-row").count(), 13);
     await page.locator("#home-layout-hero").uncheck();
     assert.equal(await page.locator("#home-hero").evaluate(el => el.classList.contains("home-layout-hidden")), true);
     await page.locator("#home-layout-cancel").click();
     assert.equal(await page.locator("#home-hero").evaluate(el => el.classList.contains("home-layout-hidden")), false);
     await page.locator("#home-layout-open").click();
-    await page.locator('.home-layout-row[data-rail-id="top"] .home-layout-move').first().click();
+    // The new personal sections precede Top. Move it to the first position
+    // step by step instead of assuming the old chart-first default order.
+    const topIndex = await page.locator('.home-layout-row[data-rail-id="top"]').evaluate(el =>
+      [...el.parentElement.children].indexOf(el));
+    for (let i = 0; i < topIndex; i += 1) {
+      await page.locator('.home-layout-row[data-rail-id="top"] .home-layout-move').first().click();
+    }
     await page.locator("#home-layout-save").click();
     await page.locator("#home-layout-modal").waitFor({ state: "hidden" });
     assert.equal(layoutWrites, 1);

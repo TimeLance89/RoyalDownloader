@@ -52,6 +52,25 @@ def test_taste_api_rejects_unknown_actions(monkeypatch, tmp_path):
     assert raised.value.status_code == 400
 
 
+@pytest.mark.parametrize("operation", ["read", "event", "feedback", "reset"])
+def test_stale_browser_cookie_cannot_read_or_modify_another_taste_profile(monkeypatch, operation):
+    monkeypatch.setattr("application_services.auth.current_user", lambda *_: {"id": "user-b"})
+    monkeypatch.setattr(server.state, "taste_profiles", SimpleNamespace(
+        for_user=lambda _: pytest.fail("No profile may be loaded after an owner mismatch")))
+    request = Request({"type": "http", "method": "POST", "path": "/api/taste/events",
+                       "headers": [(b"x-royal-profile", b"user-a")], "query_string": b""})
+    calls = {
+        "read": lambda: server.api_taste_profile_get(request),
+        "event": lambda: server.api_taste_event(server.TasteEventBody(action="open", item_key="movie:1"), request),
+        "feedback": lambda: server.api_taste_feedback(server.TasteFeedbackBody(action="like", item_key="movie:1"), request),
+        "reset": lambda: server.api_taste_profile_reset(request),
+    }
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(calls[operation]())
+    assert exc.value.status_code == 409
+    assert exc.value.detail["code"] == "profile_changed"
+
+
 def test_queue_taste_collapses_episodes_and_distinguishes_anime(monkeypatch, tmp_path):
     store = _use_store(monkeypatch, tmp_path)
     series = FilmpalastMovie(title="Eine Serie S01E01", url="", genres=["Drama"])

@@ -234,7 +234,8 @@ test("release calendar routes movies and series and unlocks past dates", () => {
 test("royal startup loader is branded, accessible, and wired to every exit path", () => {
   assert.match(html, /id="royal-loader"[^>]+role="status"[^>]+aria-label="Royal Downloader wird geladen"/);
   assert.match(html, /class="royal-loader-crown"/);
-  assert.doesNotMatch(html, /<script(?![^>]*type="module")/);
+  assert.match(html, /<script src="\/boot\.js\?[^"<>]+"><\/script>/);
+  assert.doesNotMatch(html.replace(/<script src="\/boot\.js\?[^"<>]+"><\/script>/, ""), /<script(?![^>]*type="module")/);
   assert.match(loader, /prefers-reduced-motion: reduce/);
   assert.match(loader, /scope\.dispose\(\)/);
   assert.match(app, /startupCurtain\.finish\(\)/);
@@ -636,16 +637,17 @@ test("home cards and hero fall back to available posters when wallpapers are mis
   assert.match(homeRailRuntime, /media\.backdrop_url \|\| media\.cover_url \|\| ""/);
 });
 
-test("personal spotlight requests only landscape artwork without removing ranking", () => {
-  assert.match(homeLayoutEditor, /id: "personal"[^\n]*layout: "spotlight", wallpaperOnly: true/);
+test("personal spotlight requires landscapes while retaining hydration and ranking", () => {
+  assert.match(homeLayoutEditor, /id: "personal"[^\n]*layout: "spotlight"/);
+  assert.match(homeLayoutEditor, /id: "personal"[^\n]*wallpaperOnly: true/);
   assert.match(app, /homePersonalWallpaperEntries\(\)/);
-  assert.match(app, /\.filter\(\(entry\) => Boolean\(homeEntryMedia\(entry\)\.backdrop_url\)\)/);
+  assert.match(app, /function homePersonalWallpaperEntries\(\) \{[\s\S]*?return homePersonalArtworkCandidates\(\)/);
   assert.match(app, /personalVisible \? homePersonalArtworkCandidates\(\) : \[\]/);
   assert.match(app, /homeRailCardSignature\(entry, rank, variant, wallpaperOnly\)/);
 });
 
-test("explore rail renders wallpaper-only cards without portrait-poster fallback", () => {
-  assert.match(homeLayoutEditor, /id: "explore"[\s\S]*wallpaperOnly: true/);
+test("explore accepts posters and preserves the explicit wallpaper-only rendering option", () => {
+  assert.doesNotMatch(homeLayoutEditor, /id: "explore"[^\n]*wallpaperOnly: true/);
   assert.match(app, /wallpaperOnly: Boolean\(definition\.wallpaperOnly\)/);
   assert.match(app, /createHomeCard\(entry, rank, cycle === 1 && index < eagerCount, variant, \{ wallpaperOnly \}\)/);
   assert.match(app, /if \(wallpaperOnly\) media\.cover_url = ""/);

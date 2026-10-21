@@ -1,4 +1,10 @@
-import { preparePresentation } from "./js/composition/index.js";
+let preparePresentation;
+try {
+  ({ preparePresentation } = await import("./js/composition/index.js"));
+} catch (error) {
+  document.dispatchEvent(new Event("royal:boot-error"));
+  throw error;
+}
 
 export const application = preparePresentation();
 const { core, profile, settings } = application;
@@ -25,9 +31,12 @@ async function initApp() {
   core.startupCurtain.finish();
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+function start() {
   initApp().catch((error) => {
+    document.dispatchEvent(new Event("royal:boot-error"));
     core.startupCurtain.finish();
     console.error("Royal Downloader konnte nicht initialisiert werden:", error);
   });
-});
+}
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start, { once: true });
+else start();

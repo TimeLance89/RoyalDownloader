@@ -167,7 +167,7 @@ def test_only_media_locations_join_smart_scan(monkeypatch):
 
     assert len(calls) == 2
     assert calls[0]["movies"] == "/movies"
-    assert calls[1]["movies"] == "/external"
+    assert Path(calls[1]["movies"]) == Path("/external")
     assert not any(call["movies"] == "/backup" for call in calls)
     assert any(item["root"] == "location:media" for item in payload["candidates"])
     assert any(item["root_label"] == "USB Medien" for item in payload["candidates"])

@@ -5,6 +5,7 @@ import { createCardDock } from "../features/home/card-dock.js";
 import { createMood } from "../features/mood/index.js";
 import { createHero } from "../features/home/hero.js";
 import { createDiscoveryPolicy } from "../features/home/discovery-policy.js";
+import { createHomeExposureVisibility } from "../features/home/exposure-visibility.js";
 import { createRecommendations } from "../features/home/recommendations.js";
 import { createHomeActions } from "../features/home/actions.js";
 import { createHomeCards } from "../features/home/cards.js";
@@ -28,6 +29,12 @@ import { createCarousel } from "../shared/components/carousel.js";
 export function composeHome({ discoveryPolicy, movieState, artworkUrls, recommendations, getDiscovery, getIntegrations, getCore, getSearch, getProfile }) {
   const services = {
   discoveryPolicy,
+  exposureVisibility: createHomeExposureVisibility(document.getElementById("tab-home"), {
+    record: (lane, entries) => discoveryPolicy.recordDiscoveryExposureV2(lane, entries),
+    logicalKey: entry => discoveryPolicy.discoveryV2LogicalKey(entry),
+    getOwner: () => getProfile().tasteProfile.key(),
+    getDay: () => services.actions.localDateKey(),
+  }),
   homeCards: createHomeCards({
         getMovieMetadata: () => movieState.metadataCache,
         getJellyfinStatus: key => getIntegrations().catalogJellyfin.getStatus(key),
@@ -48,6 +55,7 @@ export function composeHome({ discoveryPolicy, movieState, artworkUrls, recommen
         stableDiscoveryHash: (...args) => services.actions.stableDiscoveryHash(...args), localDateKey: (...args) => services.actions.localDateKey(...args), homeHeroCandidates: (...args) => services.actions.homeHeroCandidates(...args), homePersonalizedEntries: (...args) => services.actions.homePersonalizedEntries(...args), currentHomeLayout: (...args) => services.actions.currentHomeLayout(...args),
         mediaJellyfinStatus: (...args) => services.actions.mediaJellyfinStatus(...args), getJellyfinStatus: key => getIntegrations().catalogJellyfin.getStatus(key),
         discoveryV2ExposurePenalty: (...args) => discoveryPolicy.discoveryV2ExposurePenalty(...args),
+        homeContentKeys: entry => services.actions.homeContentKeys(entry),
         getData: () => services.homeData.get(),
       }),
   homePresenter: createHomePresenter(document.getElementById("tab-home"), {
@@ -73,6 +81,10 @@ export function composeHome({ discoveryPolicy, movieState, artworkUrls, recommen
         discoveryV2Noise: (...args) => discoveryPolicy.discoveryV2Noise(...args),
         getShuffle: () => services.homePresenter.get().discoveryShuffle,
         applyServerTasteProfile: profile => services.actions.applyServerTasteProfile(profile), renderHome: () => services.actions.renderHome(),
+        onProfileChanged: () => services.homeData.refreshDiscovery(),
+        hasSeen: key => services.exposureVisibility.hasSeen(key),
+        getOwner: () => services.actions.discoveryProfileStorageKey(),
+        getUserId: () => getProfile().auth.get().user?.id || "",
       }),
   heroSelection: createHeroSelection({
         discoveryV2LogicalKey: entry => discoveryPolicy.discoveryV2LogicalKey(entry), homeEntryKey: (...args) => services.actions.homeEntryKey(...args), homeEntryMedia: entry => services.actions.homeEntryMedia(entry), tasteMetadata: (...args) => services.actions.tasteMetadata(...args),
@@ -89,6 +101,8 @@ export function composeHome({ discoveryPolicy, movieState, artworkUrls, recommen
   recommendations,
   homeData: createHomeData({
         getMovieMetadata: () => movieState.metadataCache, isRendered: () => services.homePresenter.get().rendered,
+        getTasteStorageKey: () => services.actions.discoveryProfileStorageKey(),
+        getUserId: () => getProfile().auth.get().user?.id || "",
         homeAllEntries: () => services.actions.homeAllEntries(), homeArtworkEntriesInLayout: () => services.actions.homeArtworkEntriesInLayout(),
         renderHome: options => services.actions.renderHome(options),
         syncFpCatalogFromHome: options => getDiscovery().movieActions.syncFpCatalogFromHome(options),
@@ -155,7 +169,7 @@ export function prepareHome({ intelligence, getHome, personalStorageKey, getDisc
 export function initializeHome({ getHome, artworkUrls, discoveryPolicy, getCore, state, getDiscovery, movieState, getIntegrations }) {
   getHome().hero = createHero(document.getElementById("tab-home"), {
       homeHeroCandidates: () => getHome().actions.homeHeroCandidates(), coverUrl: url => artworkUrls.coverUrl(url),
-      onRendered: entry => discoveryPolicy.recordDiscoveryExposureV2("hero", [entry]),
+      onRendered: entry => getHome().exposureVisibility.syncHero(entry),
       onRender: () => getHome().actions.renderHomeHero(), openEntry: (kind, key) => getHome().actions.openHomeEntry(kind, key),
       openLibrary: () => getCore().actions.switchTab("bibliothek"),
     });
@@ -181,10 +195,10 @@ export function initializeHome({ getHome, artworkUrls, discoveryPolicy, getCore,
     });
   getHome().rows = createHomeRows(document.getElementById("tab-home"), {
       isLoading: () => getHome().homeData.get().loading,
-      onRendered(trackId, entries, options) {
-        const lane = { "home-movies-track": "personal", "home-explore-track": "explore", "home-series-track": "series",
+      onRendered(trackId, entries) {
+        const lane = { "home-movies-track": "personal", "home-discovered-track": "discovered", "home-explore-track": "explore", "home-series-track": "series",
           "home-top-track": "top", "home-genre-track": "genre", "home-gems-track": "gems" }[trackId];
-        if (lane) discoveryPolicy.recordDiscoveryExposureV2(lane, entries.slice(0, options.layout === "spotlight" ? 7 : options.ranked ? 10 : 16));
+        if (lane) getHome().exposureVisibility.syncRail(trackId, lane, entries);
       },
       reconcileHomeRail: (...args) => getHome().actions.reconcileHomeRail(...args), homeRailCardSignature: (...args) => getHome().actions.homeRailCardSignature(...args),
       createHomeCard: (...args) => getHome().actions.createHomeCard(...args), syncHomeCardContent: (...args) => getHome().actions.syncHomeCardContent(...args),

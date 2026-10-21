@@ -393,7 +393,7 @@ export function createStorage(root) {
     scope.listen(document, "visibilitychange", () => { if (!document.hidden) void refreshStatus(true); });
   }
   installStorageUi(root);
-  const autopilot = createStorageAutopilot(root);
+  const autopilot = createStorageAutopilot(root, { onChanged: () => void refreshStatus(false) });
   return {
     mount() {
       if (shell?.active) return;

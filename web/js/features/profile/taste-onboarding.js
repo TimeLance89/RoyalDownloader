@@ -95,7 +95,7 @@ export function createTasteOnboarding(root, {
     try {
       const result = await client.post("/api/taste/onboarding", { items: [...selection.values()].map(item => ({
         item_key: item.key, title: item.title, media_type: item.kind, metadata: item.metadata,
-      })) }, { signal: current.signal });
+      })) }, { signal: current.signal, headers: { "X-Royal-Profile": String(getUser()?.id || "") } });
       if (!current.active) return;
       acceptUser(result.user); close(); onSaved(result.profile);
     } catch (error) {

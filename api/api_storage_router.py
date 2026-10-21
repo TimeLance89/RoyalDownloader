@@ -6,7 +6,7 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from starlette.concurrency import run_in_threadpool
+from api.storage_work import read_storage_telemetry, run_storage_work as run_in_threadpool
 
 import core.config as appconfig
 from storage.storage_locations import (
@@ -79,12 +79,9 @@ class StorageLocationRemoveBody(BaseModel):
 @router.get("/api/v1/storage/status")
 @router.get("/api/storage/status")
 async def api_storage_status():
-    return await run_in_threadpool(
-        combined_storage_status,
-        _media_paths(),
-        appconfig.load_deployment_mode(),
-        load_storage_locations(),
-    )
+    return await read_storage_telemetry("status", lambda: combined_storage_status(
+        _media_paths(), appconfig.load_deployment_mode(), load_storage_locations(),
+    ))
 
 
 @router.get("/api/v1/storage/locations")
@@ -135,12 +132,9 @@ async def api_storage_location_remove(body: StorageLocationRemoveBody):
 @router.post("/api/v1/storage/scan")
 @router.post("/api/storage/scan")
 async def api_storage_scan(body: StorageScanBody):
-    result = await run_in_threadpool(
-        scan_configured_storage,
-        _media_paths(),
-        load_storage_locations(),
-        max_candidates=body.max_candidates,
-    )
+    result = await run_in_threadpool(lambda: scan_configured_storage(
+        _media_paths(), load_storage_locations(), max_candidates=body.max_candidates,
+    ))
     try:
         await run_in_threadpool(observe_scan, result.get("candidates", []))
     except (OSError, ValueError):
@@ -153,16 +147,11 @@ async def api_storage_scan(body: StorageScanBody):
 @router.post("/api/storage/move/plan")
 async def api_storage_move_plan(body: StorageMovePlanBody):
     try:
-        return await run_in_threadpool(
-            plan_move_candidate,
-            _media_paths(),
-            load_storage_locations(),
-            root_key=body.root,
-            relative_path=body.relative_path,
-            token=body.token,
-            expected_size=body.expected_size,
-            expires_at=body.expires_at,
-        )
+        return await run_in_threadpool(lambda: plan_move_candidate(
+            _media_paths(), load_storage_locations(), root_key=body.root,
+            relative_path=body.relative_path, token=body.token,
+            expected_size=body.expected_size, expires_at=body.expires_at,
+        ))
     except FileNotFoundError as exc:
         raise HTTPException(409, "Der Inhalt existiert nicht mehr. Bitte erneut scannen.") from exc
     except (OSError, ValueError) as exc:
@@ -175,17 +164,12 @@ async def api_storage_move(body: StorageMoveBody):
     if not body.confirm:
         raise HTTPException(400, "Das Verschieben muss ausdrücklich bestätigt werden.")
     try:
-        job = await run_in_threadpool(
-            create_move_job,
-            _media_paths(),
-            load_storage_locations(),
-            root_key=body.root,
-            relative_path=body.relative_path,
-            token=body.token,
-            expected_size=body.expected_size,
-            expires_at=body.expires_at,
+        job = await run_in_threadpool(lambda: create_move_job(
+            _media_paths(), load_storage_locations(), root_key=body.root,
+            relative_path=body.relative_path, token=body.token,
+            expected_size=body.expected_size, expires_at=body.expires_at,
             destination_root=body.destination_root,
-        )
+        ))
     except FileNotFoundError as exc:
         raise HTTPException(409, "Der Inhalt existiert nicht mehr. Bitte erneut scannen.") from exc
     except (OSError, ValueError) as exc:
@@ -199,16 +183,11 @@ async def api_storage_cleanup(body: StorageCleanupBody):
     if not body.confirm:
         raise HTTPException(400, "Die dauerhafte Bereinigung muss ausdrücklich bestätigt werden.")
     try:
-        result = await run_in_threadpool(
-            cleanup_configured_candidate,
-            _media_paths(),
-            load_storage_locations(),
-            root_key=body.root,
-            relative_path=body.relative_path,
-            token=body.token,
-            expected_size=body.expected_size,
-            expires_at=body.expires_at,
-        )
+        result = await run_in_threadpool(lambda: cleanup_configured_candidate(
+            _media_paths(), load_storage_locations(), root_key=body.root,
+            relative_path=body.relative_path, token=body.token,
+            expected_size=body.expected_size, expires_at=body.expires_at,
+        ))
     except FileNotFoundError as exc:
         raise HTTPException(409, "Der Inhalt existiert nicht mehr. Bitte erneut scannen.") from exc
     except (OSError, ValueError) as exc:

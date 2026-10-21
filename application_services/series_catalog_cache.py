@@ -3,6 +3,7 @@
 # ruff: noqa: F821
 
 import threading
+from application_services.catalog_prefetch import schedule_prefetch as admit_prefetch
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
 from typing import Callable, Dict, List, Optional
@@ -14,6 +15,8 @@ globals().update(import_backend_namespace())
 
 _LOAD_POOL = ThreadPoolExecutor(max_workers=16, thread_name_prefix="series-catalog")
 _INFLIGHT = {}
+SERIES_PROVIDER_PENDING_LIMIT = 64
+SERIES_PREFETCH_PENDING_LIMIT = 8
 _INFLIGHT_LOCK = threading.Lock()
 _PREFETCH_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="series-prefetch")
 _PREFETCH_INFLIGHT = set()
@@ -155,6 +158,10 @@ def load_pages(
         with _INFLIGHT_LOCK:
             future = _INFLIGHT.get(cache_key)
             if future is None:
+                if len(_INFLIGHT) >= SERIES_PROVIDER_PENDING_LIMIT:
+                    if timed_out is not None:
+                        timed_out[0] = True
+                    continue
                 future = _LOAD_POOL.submit(
                     fetch_provider_page, provider, mode, letter, source_page,
                 )
@@ -206,11 +213,6 @@ def schedule_prefetch(
     if not requests:
         return
     key = (mode, str(letter or "").strip().upper(), requests)
-    with _PREFETCH_LOCK:
-        if key in _PREFETCH_INFLIGHT:
-            return
-        _PREFETCH_INFLIGHT.add(key)
-
     def work():
         try:
             load_pages(
@@ -222,8 +224,6 @@ def schedule_prefetch(
             )
         except Exception as exc:
             log(f"Serienkatalog-Prefetch übersprungen: {exc}", "warn")
-        finally:
-            with _PREFETCH_LOCK:
-                _PREFETCH_INFLIGHT.discard(key)
 
-    _PREFETCH_POOL.submit(work)
+    admit_prefetch(_PREFETCH_POOL, _PREFETCH_INFLIGHT,
+                   _PREFETCH_LOCK, key, work, SERIES_PREFETCH_PENDING_LIMIT)

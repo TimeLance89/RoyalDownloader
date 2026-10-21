@@ -5,6 +5,18 @@ import { fetchMovieAvailability, freshMovieAvailability } from '../../web/js/fea
 import { loadSeriesDetails } from '../../web/js/features/media-details/series-api.js';
 import { createSeriesDetailsLoader } from '../../web/js/features/media-details/series-loader.js';
 
+test('canonical Discovery TMDB series uses the existing detail resolver and cancellation', async () => {
+  const signal = new AbortController().signal;
+  for (const slug of ['tmdb:8001', 'people-tmdb:8001']) {
+    const result = await loadSeriesDetails({ get: async (url, options) => {
+      assert.match(url, /^\/api\/people\/series\/8001\?/);
+      assert.equal(options.signal, signal);
+      return { title: 'Discovery series', seasons: [] };
+    }, post: () => assert.fail('TMDB identity must resolve through existing details') }, slug, slug, { signal });
+    assert.equal(result.title, 'Discovery series');
+  }
+});
+
 test('switching series stops old checks before waiting for the new provider', async () => {
   const events = [], noop = () => {};
   const state = { current: { base_slug: 'old' }, requestSeq: 0, viewGeneration: 0, cache: {} };
@@ -245,4 +257,54 @@ test('provider-only catalog hit retries with late TMDB identity inside the origi
     assert.equal(h.views.at(-1).movie.description, 'Complete');
     assert.equal(h.views.at(-1).movie.hosters.length, 1);
   } finally { h.loader.unmount(); }
+});
+
+test('series detail polling has a deadline even when the modal stays mounted', async () => {
+  let calls = 0, elapsed = 0;
+  const client = { async post() {
+    calls += 1;
+    throw Object.assign(new Error('still preparing'), {
+      status: 503, code: 'series_details_pending',
+    });
+  } };
+  const signal = new AbortController().signal;
+  await assert.rejects(loadSeriesDetails(client, 'episode', 'series', {
+    signal, now: () => elapsed,
+    waitForRetry: async (ms) => { assert.equal(ms, 1000); elapsed += 18_000; },
+  }), error => error.status === 503 && error.code === 'series_details_pending');
+  assert.equal(calls, 2, 'must not start another request after the retry wait exhausts the deadline');
+});
+
+test('series detail HTTP timeouts cannot extend beyond the overall retry deadline', async () => {
+  for (const slug of ['provider:show', 'tmdb:111']) {
+    let elapsed = 0;
+    const timeouts = [];
+    const pending = Object.assign(new Error('pending'), { status: 503, code: 'series_details_pending' });
+    const request = async (...args) => {
+      const options = args.at(-1);
+      timeouts.push(options.timeoutMs);
+      elapsed += options.timeoutMs;
+      throw pending;
+    };
+    await assert.rejects(loadSeriesDetails({ get: request, post: request }, slug, slug, {
+      signal: new AbortController().signal, now: () => elapsed,
+      waitForRetry: async ms => { elapsed += ms; },
+    }), error => error === pending);
+    assert.deepEqual(timeouts, [20_000, 14_000]);
+    assert.equal(elapsed, 35_000);
+  }
+});
+
+test('TMDB series detail uses the bounded progressive people endpoint', async () => {
+  const result = await loadSeriesDetails({
+    async get(url, options) {
+      assert.match(url, /^\/api\/people\/series\/111\?/);
+      assert.match(url, /progressive=true/);
+      assert.match(url, /defer_checks=false/);
+      assert.equal(options.timeoutMs, 20_000);
+      return { seasons: [{ season: 1, episodes: [] }] };
+    },
+    post() { assert.fail('should not submit a provider slug that is only a TMDB identity'); },
+  }, 'tmdb:111', 'tmdb:111');
+  assert.equal(result.seasons.length, 1);
 });
