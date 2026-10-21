@@ -9,7 +9,8 @@ export function createStartupCurtain(document) {
   const minimumRunTime = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 900;
   let finishing = false;
   const remove = () => { loader?.remove(); scope.dispose(); };
-  function finish() {
+  function finish({ notify = true } = {}) {
+    if (notify) document.dispatchEvent(new window.Event("royal:boot-ready"));
     if (finishing || !scope.active || !loader) return;
     finishing = true;
     scope.timeout(() => {
@@ -19,7 +20,7 @@ export function createStartupCurtain(document) {
     }, Math.max(0, minimumRunTime - (performance.now() - startedAt)));
   }
   if (loader) {
-    scope.timeout(finish, 12000);
+    scope.timeout(() => finish({ notify: false }), 12000);
     scope.listen(window, "pagehide", remove, { once: true });
   } else scope.dispose();
   return { finish, dispose: remove };

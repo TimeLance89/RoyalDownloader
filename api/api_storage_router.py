@@ -6,7 +6,7 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from starlette.concurrency import run_in_threadpool
+from api.storage_work import read_storage_telemetry, run_storage_work as run_in_threadpool
 
 import core.config as appconfig
 from storage.storage_locations import (
@@ -79,7 +79,7 @@ class StorageLocationRemoveBody(BaseModel):
 @router.get("/api/v1/storage/status")
 @router.get("/api/storage/status")
 async def api_storage_status():
-    return await run_in_threadpool(lambda: combined_storage_status(
+    return await read_storage_telemetry("status", lambda: combined_storage_status(
         _media_paths(), appconfig.load_deployment_mode(), load_storage_locations(),
     ))
 

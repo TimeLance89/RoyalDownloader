@@ -71,8 +71,9 @@ def test_architecture_and_migration_inventory_are_documented():
 def test_entry_uses_modules_and_no_obsolete_runtime_scripts():
     markup = (WEB / "index.html").read_text(encoding="utf-8")
     scripts = script_tags(markup)
-    assert len(scripts) == 1
-    assert scripts[0].get("type") == "module"
+    assert len(scripts) == 2
+    assert scripts[0].get("src", "").startswith("/boot.js?")
+    assert scripts[1].get("type") == "module"
     for name in ("api.js", "core.js", "store.js", "loading.js", "js/legacy-adapter.js"):
         assert not (WEB / name).exists(), name
     assert not list((WEB / "screens").glob("*.js"))

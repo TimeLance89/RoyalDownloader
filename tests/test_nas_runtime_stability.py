@@ -60,6 +60,8 @@ def test_slow_configuration_reads_keep_health_responsive(monkeypatch, handler, o
 
 
 def test_storage_prepares_arguments_outside_event_loop(monkeypatch):
+    from api.storage_work import invalidate_storage_telemetry
+    invalidate_storage_telemetry()  # exercise a cold mount read, not a recent snapshot
     monkeypatch.setattr(storage, "combined_storage_status", lambda *_: {})
     monkeypatch.setattr(storage, "load_storage_locations", lambda: [])
     assert_health_during_work(storage.api_storage_status, monkeypatch, storage, "_media_paths", {})

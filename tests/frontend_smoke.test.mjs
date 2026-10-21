@@ -234,7 +234,8 @@ test("release calendar routes movies and series and unlocks past dates", () => {
 test("royal startup loader is branded, accessible, and wired to every exit path", () => {
   assert.match(html, /id="royal-loader"[^>]+role="status"[^>]+aria-label="Royal Downloader wird geladen"/);
   assert.match(html, /class="royal-loader-crown"/);
-  assert.doesNotMatch(html, /<script(?![^>]*type="module")/);
+  assert.match(html, /<script src="\/boot\.js\?[^"<>]+"><\/script>/);
+  assert.doesNotMatch(html.replace(/<script src="\/boot\.js\?[^"<>]+"><\/script>/, ""), /<script(?![^>]*type="module")/);
   assert.match(loader, /prefers-reduced-motion: reduce/);
   assert.match(loader, /scope\.dispose\(\)/);
   assert.match(app, /startupCurtain\.finish\(\)/);

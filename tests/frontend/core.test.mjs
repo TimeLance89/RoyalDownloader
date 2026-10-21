@@ -1944,8 +1944,9 @@ test("startup curtain disposes fallback timers after its transition", t => {
   const loader = Object.assign(new EventTarget(), {
     classList: { add() { leaving++; } }, remove() { removals++; },
   });
-  const window = Object.assign(new EventTarget(), { matchMedia: () => ({ matches: true }) });
-  const curtain = createStartupCurtain({ getElementById: () => loader, defaultView: window });
+  const window = Object.assign(new EventTarget(), { Event, matchMedia: () => ({ matches: true }) });
+  const document = Object.assign(new EventTarget(), { getElementById: () => loader, defaultView: window });
+  const curtain = createStartupCurtain(document);
   curtain.finish(); curtain.finish();
   t.mock.timers.tick(1);
   assert.equal(leaving, 1);

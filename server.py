@@ -41,7 +41,7 @@ from typing import Callable, Dict, List, Optional
 from urllib.parse import urljoin, urlparse
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Response, Request
-from fastapi.staticfiles import StaticFiles
+from api.web_static import NoCacheStaticFiles
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
@@ -960,22 +960,6 @@ app.router.routes.extend(websocket_router.routes)
 # Statische Web-Oberfläche (muss NACH allen /api- und /ws-Routen gemountet
 # werden, sonst würde der Catch-all-Mount sie verdecken).
 install_domain_routers(app)
-
-
-class NoCacheStaticFiles(StaticFiles):
-    """Liefert die Oberfläche mit `Cache-Control: no-cache` aus. Grund: die
-    Dateien (index.html/app.js/style.css) werden bei Updates einfach im
-    gemounteten Ordner überschrieben. Ohne no-cache serviert der Browser die
-    ALTE app.js aus dem Cache (Button da, aber Handler fehlt) → „Einstellungen
-    öffnen sich nicht". `no-cache` erzwingt eine Revalidierung (per ETag/
-    Last-Modified → 304 wenn unverändert), sodass Updates sofort greifen."""
-
-    async def get_response(self, path, scope):
-        response = await super().get_response(path, scope)
-        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        response.headers["Pragma"] = "no-cache"
-        response.headers["Expires"] = "0"
-        return response
 
 
 app.mount("/", NoCacheStaticFiles(directory=str(WEB_DIR), html=True), name="web")
