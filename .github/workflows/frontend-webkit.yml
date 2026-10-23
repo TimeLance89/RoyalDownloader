@@ -23,7 +23,14 @@ jobs:
           node-version: "24"
       - name: Install matching Playwright JavaScript package
         run: |
-          npm install --prefix "${RUNNER_TEMP}/royal-webkit" --no-save --ignore-scripts playwright@1.62.1
+          # Retry transient npm ECONNRESET errors without hiding test failures.
+          for attempt in 1 2 3; do
+            if npm install --prefix "${RUNNER_TEMP}/royal-webkit" --no-save --ignore-scripts --fetch-retries=3 --fetch-retry-mintimeout=1000 --fetch-retry-maxtimeout=5000 playwright@1.62.1; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            sleep "$attempt"
+          done
           echo "ROYAL_PLAYWRIGHT=${RUNNER_TEMP}/royal-webkit/node_modules/playwright" >> "$GITHUB_ENV"
       - name: Mobile WebKit real taps and layout contracts
         run: node tests/frontend/webkit-mobile.cjs
