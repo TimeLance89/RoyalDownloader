@@ -159,6 +159,7 @@ export function createAnnouncementSettings(root, client = api) {
         try {
           const response = await client.post("/api/announcements/settings", { enabled: input.checked });
           feedback(status, response.enabled ? "Empfang aktiviert." : "Empfang deaktiviert.");
+          document.dispatchEvent(new Event("royal-announcements-setting-changed"));
         } catch (error) {
           input.checked = !input.checked;
           feedback(status, "Speichern fehlgeschlagen: " + (error.message || error), true);
