@@ -51,7 +51,7 @@ def verify(payload: dict, signature: str) -> bool:
         expected = base64.b64decode(signature, validate=True)
         Ed25519PublicKey.from_public_bytes(base64.b64decode(PUBLIC_KEY_B64)).verify(expected, _canonical(payload))
         return _valid_payload(payload)
-    except (ValueError, TypeError, KeyError, Exception):
+    except Exception:  # Includes InvalidSignature and malformed third-party input.
         return False
 
 
@@ -96,6 +96,10 @@ def _connect():
                 PRIMARY KEY (message_id, installation, profile)
             );
             CREATE TABLE IF NOT EXISTS receipt_outbox (
+                message_id TEXT NOT NULL, profile TEXT NOT NULL, kind TEXT NOT NULL,
+                PRIMARY KEY (message_id, profile, kind)
+            );
+            CREATE TABLE IF NOT EXISTS receipt_sent (
                 message_id TEXT NOT NULL, profile TEXT NOT NULL, kind TEXT NOT NULL,
                 PRIMARY KEY (message_id, profile, kind)
             );
@@ -175,8 +179,10 @@ def _messages() -> list[dict]:
     result = []
     for row in rows:
         try:
-            result.append({"payload": json.loads(row["payload"]), "signature": row["signature"]})
-        except json.JSONDecodeError:
+            payload = json.loads(row["payload"])
+            if verify(payload, row["signature"]):
+                result.append({"payload": payload, "signature": row["signature"]})
+        except (json.JSONDecodeError, TypeError):
             continue
     return result
 
@@ -205,10 +211,10 @@ def _save_signed(items: list[dict]):
 def _get_json(path: str) -> dict:
     req = Request(OFFICIAL_ORIGIN + path, headers={"Accept": "application/json", "User-Agent": "RoyalDownloader-Announcements/1"})
     with _opener.open(req, timeout=3) as response:
-        if response.status != 200 or int(response.headers.get("Content-Length", 0)) > 300000:
+        if response.status != 200 or int(response.headers.get("Content-Length", 0)) > 1000000:
             raise ValueError("Ungültige Announcement-Antwort")
-        raw = response.read(300001)
-        if len(raw) > 300000:
+        raw = response.read(1000001)
+        if len(raw) > 1000000:
             raise ValueError("Announcement-Antwort zu groß")
         return json.loads(raw)
 
@@ -227,9 +233,13 @@ def _post_receipt(items: list[dict]):
 
 def _queue_receipt(message_id: str, user_id: str, kind: str):
     with _lock, _connect() as db:
+        token = _profile_token(user_id)
+        already_sent = db.execute("SELECT 1 FROM receipt_sent WHERE message_id=? AND profile=? AND kind=?", (message_id, token, kind)).fetchone()
+        if already_sent:
+            return
         db.execute(
             "INSERT OR IGNORE INTO receipt_outbox(message_id,profile,kind) VALUES(?,?,?)",
-            (message_id, _profile_token(user_id), kind),
+            (message_id, token, kind),
         )
         db.commit()
 
@@ -242,8 +252,9 @@ def _flush_receipts():
     items = [{"id": r["message_id"], "profile": r["profile"], "kind": r["kind"]} for r in rows]
     _post_receipt(items)
     with _lock, _connect() as db:
-        db.executemany("DELETE FROM receipt_outbox WHERE message_id=? AND profile=? AND kind=?",
-                       [(r["message_id"], r["profile"], r["kind"]) for r in rows])
+        triples = [(r["message_id"], r["profile"], r["kind"]) for r in rows]
+        db.executemany("INSERT OR IGNORE INTO receipt_sent(message_id,profile,kind) VALUES(?,?,?)", triples)
+        db.executemany("DELETE FROM receipt_outbox WHERE message_id=? AND profile=? AND kind=?", triples)
         db.commit()
 
 
@@ -311,7 +322,7 @@ def publish(title: str, body: str, category: str, expires_at: int = 0) -> dict:
         "title": title.strip(), "body": body.strip(), "category": category,
         "created_at": now, "expires_at": expires_at, "revoked": False,
     }
-    if not _valid_payload(payload) or (expires_at and expires_at <= now):
+    if not _valid_payload(payload) or len(_canonical(payload)) > 8192 or (expires_at and expires_at <= now):
         raise ValueError("Ungültige Ankündigung")
     signed = {"payload": payload, "signature": base64.b64encode(key.sign(_canonical(payload))).decode()}
     _save_signed([signed])
