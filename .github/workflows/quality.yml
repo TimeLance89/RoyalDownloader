@@ -18,10 +18,12 @@ concurrency:
 
 jobs:
   frontend-browser:
-    # One-off PR #559 exception: Chromium setup exceeded the runner time budget;
-    # the suite remains mandatory for every other PR, push and dispatch.
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.number != 559 }}
     runs-on: ubuntu-latest
+    # Pin the same Playwright release as the npm package below.
+    # The official image already contains Chromium, WebKit and system libraries;
+    # downloading ~100MB of apt packages in each short-lived job timed out.
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.1-noble
     timeout-minutes: 15
     steps:
       - name: Check out repository and frozen CSS baseline
@@ -39,7 +41,6 @@ jobs:
         shell: bash
         run: |
           npm install --prefix "${RUNNER_TEMP}/royal-frontend-tests" --no-save --ignore-scripts playwright@1.62.1
-          "${RUNNER_TEMP}/royal-frontend-tests/node_modules/.bin/playwright" install --with-deps chromium
           echo "ROYAL_PLAYWRIGHT=${RUNNER_TEMP}/royal-frontend-tests/node_modules/playwright" >> "$GITHUB_ENV"
           echo "ROYAL_BROWSER=chromium" >> "$GITHUB_ENV"
 
@@ -134,7 +135,9 @@ jobs:
 
   frontend-performance:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.1-noble
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
         with:
@@ -146,7 +149,6 @@ jobs:
       - name: Install isolated measurement tooling
         run: |
           npm install --prefix "${RUNNER_TEMP}/royal-perf" --no-save --ignore-scripts playwright@1.62.1 pngjs@7.0.0 pixelmatch@7.2.0
-          "${RUNNER_TEMP}/royal-perf/node_modules/.bin/playwright" install --with-deps chromium
           echo "ROYAL_PLAYWRIGHT=${RUNNER_TEMP}/royal-perf/node_modules/playwright" >> "$GITHUB_ENV"
           git worktree add --detach "${RUNNER_TEMP}/royal-perf-baseline" d3aada9099703c0b9d9b6201f49082c52ddff0d7
       - name: Paired frozen baseline (same worker and browser)
@@ -178,14 +180,9 @@ jobs:
 
     steps:
       - name: Require successful frontend browser gate
-        # Allow only the expected skip for PR #559, never an actual Chromium failure.
-        if: ${{ (needs.frontend-browser.result != 'success' && !(github.event_name == 'pull_request' && github.event.pull_request.number == 559 && needs.frontend-browser.result == 'skipped')) || needs.frontend-performance.result != 'success' || needs.frontend-webkit.result != 'success' }}
+        # All three browser suites are mandatory for every PR and branch push.
+        if: ${{ needs.frontend-browser.result != 'success' || needs.frontend-performance.result != 'success' || needs.frontend-webkit.result != 'success' }}
         run: exit 1
-
-      - name: Disclose PR 559 Chromium gate exception
-        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 559 }}
-        run: |
-          echo "::warning::Chromium browser suite is SKIPPED for PR #559 due to CI environment timeout; it has not passed. All other required gates remain enabled."
 
       - name: Check out repository
         uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # immutable v7 line
@@ -214,7 +211,7 @@ jobs:
           backend=false
           while IFS= read -r path; do
             case "$path" in
-              web/*|tests/frontend/*|tests/frontend_smoke.test.mjs|tests/movie_catalog_refresh.test.mjs|.github/workflows/quality.yml)
+              web/*|tests/frontend/*|tests/frontend_smoke.test.mjs|tests/movie_catalog_refresh.test.mjs|.github/workflows/quality.yml|.github/workflows/frontend-webkit.yml)
                 ;;
               *) backend=true; break ;;
             esac
