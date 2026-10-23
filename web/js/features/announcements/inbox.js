@@ -8,6 +8,7 @@ export function createAnnouncementInbox(root, { onChange, getFilter, isOpen, cli
   let controller = null;
   let mounted = false;
   let reading = "";
+  const settingsChanged = () => { void reload(); };
 
   async function reload() {
     if (!mounted) return;
@@ -119,11 +120,13 @@ export function createAnnouncementInbox(root, { onChange, getFilter, isOpen, cli
     mount() {
       if (mounted) return;
       mounted = true;
+      document.addEventListener("royal-announcements-setting-changed", settingsChanged);
       void reload();
       timer = setInterval(() => void reload(), 5 * 60 * 1000);
     },
     unmount() {
       mounted = false;
+      document.removeEventListener("royal-announcements-setting-changed", settingsChanged);
       if (timer) clearInterval(timer);
       timer = null;
       controller?.abort();
