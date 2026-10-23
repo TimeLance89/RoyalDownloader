@@ -17,7 +17,6 @@ from starlette.concurrency import run_in_threadpool
 
 from application_services import announcements
 
-router = APIRouter(tags=["announcements"])
 _receipt_rate_lock = threading.Lock()
 _receipt_rate = {}
 
@@ -45,6 +44,8 @@ class ReceiptBatch(BaseModel):
 
 
 def create_announcements_router(current_user):
+    router = APIRouter(tags=["announcements"])
+
     def user(request: Request) -> dict:
         identity = current_user(request.headers, request.cookies)
         if not identity:
