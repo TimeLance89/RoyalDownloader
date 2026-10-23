@@ -21,6 +21,8 @@ from core.proxy_security import host_allowed, origin_matches
 
 PUBLIC_API_METHODS = {
     "/api/health": frozenset({"GET"}),
+    "/api/public/announcements/feed": frozenset({"GET"}),
+    "/api/public/announcements/receipts": frozenset({"POST"}),
     "/api/auth/status": frozenset({"GET"}),
     "/api/auth/login": frozenset({"POST"}),
     "/api/auth/first-login": frozenset({"POST"}),

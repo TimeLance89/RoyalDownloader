@@ -9,7 +9,7 @@ permissions:
 jobs:
   webkit-mobile:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
         with:
@@ -19,8 +19,17 @@ jobs:
         with:
           node-version: "24"
       - name: Install isolated WebKit tooling
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
           npm install --prefix "${RUNNER_TEMP}/royal-webkit" --no-save --ignore-scripts playwright@1.62.1
+          # Hosted Azure mirrors occasionally throttle apt to a few KB/s;
+          # prefer Ubuntu's archive mirror before installing *all* real
+          # WebKit dependencies. Do not skip the dependency or browser checks.
+          if [[ -f /etc/apt/apt-mirrors.txt ]]; then
+            sudo sed -i 's#azure.archive.ubuntu.com#archive.ubuntu.com#g' /etc/apt/apt-mirrors.txt
+          fi
+          printf 'Acquire::Retries "2";\nAcquire::http::Timeout "30";\n' | sudo tee /etc/apt/apt.conf.d/98royal-ci-network >/dev/null
           "${RUNNER_TEMP}/royal-webkit/node_modules/.bin/playwright" install --with-deps webkit
           echo "ROYAL_PLAYWRIGHT=${RUNNER_TEMP}/royal-webkit/node_modules/playwright" >> "$GITHUB_ENV"
       - name: Mobile WebKit real taps and layout contracts

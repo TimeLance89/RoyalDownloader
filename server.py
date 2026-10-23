@@ -222,6 +222,7 @@ from api.api_administration_router import (
     create_administration_router,
 )
 from api.api_security import SecurityDependencies, install_authentication_middleware
+from api.api_announcements_router import create_announcements_router
 from core.app_state import AppState, _PreparationSlots
 from core.users import UserStore
 from core.profile_avatars import ProfileAvatarStore, auth_dependency_callbacks
@@ -920,6 +921,7 @@ app.router.routes.extend(queue_router.routes)
 
 administration_router = create_administration_router(sys.modules[__name__])
 administration_router.routes.extend(create_provider_monitor_router(provider_monitor, current_user).routes)
+app.include_router(create_announcements_router(current_user))
 register_domain_router("administration", administration_router)
 app.router.routes.extend(administration_router.routes)
 app.include_router(create_setup_router(SetupDependencies(

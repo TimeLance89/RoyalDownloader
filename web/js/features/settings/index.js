@@ -2,6 +2,7 @@ import { createLanguageSetup } from "./language-setup.js";
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
 import { updateDeploymentModeHints, selectedDeploymentMode } from "./deployment.js";
+import { createAnnouncementSettings } from "../announcements/settings.js";
 
 export function createSettings(root, {
   getFeatures, language, locale, changeLanguage, onSaved = async () => {}, onLanguageReady = onSaved, languageWizard, client = api,
@@ -9,6 +10,7 @@ export function createSettings(root, {
   const byId = id => root.querySelector(`#${id}`);
   let owner = createScope(), scope, pending;
   let config, dirty = false, revision = 0, saving = false;
+  const announcementSettings = createAnnouncementSettings(root, client);
   const languageSetup = languageWizard || createLanguageSetup(root.ownerDocument.getElementById("language-setup-dialog"), {
     client, language, changeLanguage,
     providers: { apply: value => getFeatures().providers.apply(value) },
@@ -99,6 +101,7 @@ export function createSettings(root, {
       const current = scope = createScope();
       saving = false; byId("settings-save").disabled = false; render();
       current.listen(byId("settings-save"), "click", save);
+      announcementSettings.mount();
       const changed = () => { dirty = true; revision++; };
       for (const id of ["save-path", "series-path"]) current.listen(byId(id), "input", changed);
       for (const radio of root.querySelectorAll('input[name="deployment-mode"]')) current.listen(radio, "change", () => {
@@ -112,8 +115,8 @@ export function createSettings(root, {
       });
     },
     refresh() { render(); },
-    unmount() { languageSetup.dispose(); scope?.dispose(); scope = null; saving = false; },
-    dispose() { languageSetup.dispose(); owner.dispose(); scope?.dispose(); scope = null; saving = false; pending = null; },
+    unmount() { announcementSettings.unmount(); languageSetup.dispose(); scope?.dispose(); scope = null; saving = false; },
+    dispose() { announcementSettings.unmount(); languageSetup.dispose(); owner.dispose(); scope?.dispose(); scope = null; saving = false; pending = null; },
     resume() { if (!owner.active) owner = createScope(); },
   };
 }

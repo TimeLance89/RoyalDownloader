@@ -372,3 +372,18 @@
   .inbox-trigger,
   .notif-dropdown button { transition: none; }
 }
+
+
+/* Official messages share the existing Abo-Inbox without touching watchlist rows. */
+.royal-announcement-group { display: grid; gap: 12px; padding: 12px 0; }
+.royal-announcement-heading { margin: 0; color: #e2b986; font-size: .85rem; letter-spacing: .06em; text-transform: uppercase; }
+.royal-announcement { padding: 15px; border: 1px solid rgba(219,168,106,.2); border-radius: 15px; background: rgba(18,20,28,.8); display: grid; gap: 7px; overflow-wrap: anywhere; }
+.royal-announcement.is-unread { border-color: rgba(227,165,85,.65); background: linear-gradient(130deg,rgba(87,45,35,.34),rgba(19,20,28,.92)); }
+.royal-announcement > small { font-size: .7rem; letter-spacing: .11em; font-weight: 800; color: #e4b57d; }
+.royal-announcement > strong { color: #fff; font-size: .98rem; line-height: 1.3; }
+.royal-announcement > p { white-space: pre-line; font-size: .84rem; line-height: 1.5; margin: 0; color: #e3e1e4; }
+.royal-announcement-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.royal-announcement-actions time { font-size: .7rem; color: #a8a8b0; }
+.royal-announcement-actions button { cursor: pointer; color: #ffe2b4; background: rgba(152,76,47,.25); padding: 7px 11px; border: 1px solid rgba(214,154,99,.35); border-radius: 9px; }
+.royal-announcement-actions button:focus-visible { outline: 2px solid #f3d6a4; outline-offset: 2px; }
+@media (max-width: 520px) { .royal-announcement { padding: 12px; } }
