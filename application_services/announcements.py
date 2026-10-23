@@ -16,8 +16,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from urllib.error import URLError
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from core import egress_requests as outbound_requests
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from cryptography.hazmat.primitives.serialization import load_pem_private_key, Encoding, PublicFormat
@@ -30,14 +29,6 @@ MAX_ITEMS = 75
 POLL_SECONDS = 300
 _lock = threading.RLock()
 _last_poll = 0.0
-
-
-class _NoRedirect(HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        raise ValueError("Ankündigungen erlauben keine Weiterleitungen.")
-
-
-_opener = build_opener(_NoRedirect)
 
 
 def _canonical(payload: dict) -> bytes:
@@ -209,25 +200,32 @@ def _save_signed(items: list[dict]):
 
 
 def _get_json(path: str) -> dict:
-    req = Request(OFFICIAL_ORIGIN + path, headers={"Accept": "application/json", "User-Agent": "RoyalDownloader-Announcements/1"})
-    with _opener.open(req, timeout=3) as response:
-        if response.status != 200 or int(response.headers.get("Content-Length", 0)) > 1000000:
+    with outbound_requests.get(
+        OFFICIAL_ORIGIN + path, timeout=3, allow_redirects=False, stream=True,
+        headers={"Accept": "application/json", "User-Agent": "RoyalDownloader-Announcements/1"},
+    ) as response:
+        if response.status_code != 200:
             raise ValueError("Ungültige Announcement-Antwort")
-        raw = response.read(1000001)
-        if len(raw) > 1000000:
+        if int(response.headers.get("Content-Length", "0")) > 1000000:
             raise ValueError("Announcement-Antwort zu groß")
-        return json.loads(raw)
+        chunks = []
+        size = 0
+        for chunk in response.iter_content(chunk_size=16384):
+            size += len(chunk)
+            if size > 1000000:
+                raise ValueError("Announcement-Antwort zu groß")
+            chunks.append(chunk)
+        return json.loads(b"".join(chunks))
 
 
 def _post_receipt(items: list[dict]):
-    body = json.dumps({"installation": installation_id(), "items": items}).encode()
-    req = Request(
+    body = {"installation": installation_id(), "items": items}
+    with outbound_requests.post(
         OFFICIAL_ORIGIN + "/api/public/announcements/receipts",
-        data=body, method="POST",
-        headers={"Content-Type": "application/json", "User-Agent": "RoyalDownloader-Announcements/1"},
-    )
-    with _opener.open(req, timeout=3) as response:
-        if response.status != 200:
+        json=body, timeout=3, allow_redirects=False,
+        headers={"User-Agent": "RoyalDownloader-Announcements/1"},
+    ) as response:
+        if response.status_code != 200:
             raise ValueError("Empfangsbestätigung fehlgeschlagen")
 
 
@@ -263,7 +261,7 @@ def sync():
     if not enabled() or publisher_ready():
         return
     with _lock:
-        if time.monotonic() - _last_poll < POLL_SECONDS:
+        if _last_poll > 0 and time.monotonic() - _last_poll < POLL_SECONDS:
             return
         _last_poll = time.monotonic()
     try:
@@ -274,11 +272,11 @@ def sync():
         if any(not isinstance(x, dict) or not verify(x.get("payload"), x.get("signature")) for x in items):
             raise ValueError("Ungültige Signatur im Feed")
         _save_signed(items)
-    except (OSError, URLError, ValueError, TypeError, json.JSONDecodeError):
+    except (OSError, outbound_requests.exceptions.RequestException, ValueError, TypeError, json.JSONDecodeError):
         pass  # Retain verified offline cache; never trust a partial update.
     try:
         _flush_receipts()
-    except (OSError, URLError, ValueError):
+    except (OSError, outbound_requests.exceptions.RequestException, ValueError):
         pass
 
 
