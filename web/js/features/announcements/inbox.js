@@ -48,6 +48,12 @@ export function createAnnouncementInbox(root, { onChange, getFilter, isOpen, cli
     const badge = root.querySelector("#notif-badge");
     if (!badge) return;
     const total = (Number(badge.textContent) || 0) + unread;
+    for (const [filter, addition] of [["all", visible.length], ["new", unread]]) {
+      const count = root.querySelector('[data-notif-filter="' + filter + '"] .notif-filter-count');
+      if (count) count.textContent = String((Number(count.textContent) || 0) + addition);
+    }
+    const summary = root.querySelector("#notif-summary");
+    if (summary && visible.length) summary.textContent += " · " + visible.length + " Royal-Mitteilungen";
     badge.textContent = String(total);
     badge.classList.toggle("hidden", total === 0);
     root.querySelector("#notif-bell")?.classList.toggle("is-active", total > 0);
@@ -95,7 +101,11 @@ export function createAnnouncementInbox(root, { onChange, getFilter, isOpen, cli
         button.type = "button";
         button.textContent = reading === item.id ? "Speichern …" : "Als gelesen";
         button.disabled = Boolean(reading);
-        button.addEventListener("click", () => void read(item), { once: true });
+        button.addEventListener("click", async () => {
+          button.disabled = true;
+          await read(item);
+          if (button.isConnected) button.disabled = false;
+        });
         footer.append(button);
       }
       card.append(footer);
