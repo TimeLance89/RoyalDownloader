@@ -40,6 +40,9 @@ jobs:
       - name: Install isolated browser test tooling
         shell: bash
         run: |
+          # The container's UID differs from actions/checkout; CSS equivalence
+          # invokes git show directly, so all git commands need the safe path.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           # Retry transient npm registry resets; keep actual browser assertions mandatory.
           for attempt in 1 2 3; do
             if npm install --prefix "${RUNNER_TEMP}/royal-frontend-tests" --no-save --ignore-scripts --fetch-retries=3 --fetch-retry-mintimeout=1000 --fetch-retry-maxtimeout=5000 playwright@1.62.1; then
@@ -155,6 +158,7 @@ jobs:
           node-version: "24"
       - name: Install isolated measurement tooling
         run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           # Registry/network failures are retryable, but test failures are not.
           for attempt in 1 2 3; do
             if npm install --prefix "${RUNNER_TEMP}/royal-perf" --no-save --ignore-scripts --fetch-retries=3 --fetch-retry-mintimeout=1000 --fetch-retry-maxtimeout=5000 playwright@1.62.1 pngjs@7.0.0 pixelmatch@7.2.0; then
