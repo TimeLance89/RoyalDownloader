@@ -42,6 +42,7 @@ export function createAnnouncementInbox(root, { onChange, getFilter, isOpen, cli
 
   function render() {
     if (!mounted) return;
+    root.querySelector(".royal-announcement-group")?.remove();
     const visible = enabled ? items.filter(item => !item.revoked) : [];
     const unread = visible.filter(item => !item.read).length;
     const badge = root.querySelector("#notif-badge");
