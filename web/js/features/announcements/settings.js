@@ -3,6 +3,7 @@ import { api } from "../../core/api.js";
 /** Settings card is public UI; publisher controls are only returned to the one official owner. */
 export function createAnnouncementSettings(root, client = api) {
   let mounted = false, panel = null, admin = null, abort = null;
+  const document = root.ownerDocument;
 
   const element = (tag, className = "", text = "") => {
     const node = document.createElement(tag);
@@ -38,7 +39,7 @@ export function createAnnouncementSettings(root, client = api) {
           const revoke = element("button", "btn btn-ghost", "Zurückziehen");
           revoke.type = "button";
           revoke.addEventListener("click", async () => {
-            if (!window.confirm("Diese Ankündigung auf allen Clients zurückziehen?")) return;
+            if (!document.defaultView.confirm("Diese Ankündigung auf allen Clients zurückziehen?")) return;
             revoke.disabled = true;
             try {
               await client.post("/api/announcements/admin/messages/" + encodeURIComponent(item.id) + "/revoke", {});
@@ -141,7 +142,7 @@ export function createAnnouncementSettings(root, client = api) {
   return {
     initialize,
     mount() {
-      if (mounted) return;
+      if (mounted || !document?.createElement || !document.defaultView) return;
       const container = root.querySelector("#settings-general .settings-card-grid");
       if (!container) return;
       mounted = true;
@@ -159,7 +160,7 @@ export function createAnnouncementSettings(root, client = api) {
         try {
           const response = await client.post("/api/announcements/settings", { enabled: input.checked });
           feedback(status, response.enabled ? "Empfang aktiviert." : "Empfang deaktiviert.");
-          document.dispatchEvent(new Event("royal-announcements-setting-changed"));
+          document.dispatchEvent(new document.defaultView.Event("royal-announcements-setting-changed"));
         } catch (error) {
           input.checked = !input.checked;
           feedback(status, "Speichern fehlgeschlagen: " + (error.message || error), true);
