@@ -2,6 +2,7 @@ import { api } from "../../core/api.js";
 
 /** Separately owned, opt-in official messages; never merge into watchlist data. */
 export function createAnnouncementInbox(root, { onChange, getFilter, isOpen, client = api }) {
+  const document = root.ownerDocument;
   let items = [];
   let enabled = true;
   let timer = null;
@@ -120,9 +121,12 @@ export function createAnnouncementInbox(root, { onChange, getFilter, isOpen, cli
     mount() {
       if (mounted) return;
       mounted = true;
+      // Browser-only network activity: DOM fixtures and server-side tests have no window.
+      if (!document.defaultView) return;
       document.addEventListener("royal-announcements-setting-changed", settingsChanged);
       void reload();
       timer = setInterval(() => void reload(), 5 * 60 * 1000);
+      timer?.unref?.();
     },
     unmount() {
       mounted = false;
