@@ -6,6 +6,10 @@ requires the official server's private signing key AND the configured owner.
 from __future__ import annotations
 
 import uuid
+import time
+import threading
+
+from core.proxy_security import client_ip
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -14,6 +18,8 @@ from starlette.concurrency import run_in_threadpool
 from application_services import announcements
 
 router = APIRouter(tags=["announcements"])
+_receipt_rate_lock = threading.Lock()
+_receipt_rate = {}
 
 
 class PublisherMessage(BaseModel):
@@ -47,7 +53,8 @@ def create_announcements_router(current_user):
 
     def owner(request: Request) -> dict:
         identity = user(request)
-        if not announcements.is_publisher_owner(identity):
+        host = request.headers.get("host", "").split(":", 1)[0].casefold()
+        if host != "royal-downloader.de" or not announcements.is_publisher_owner(identity):
             raise HTTPException(403, "Nur der offizielle Royal-Betreiber darf veröffentlichen.")
         return identity
 
@@ -82,7 +89,8 @@ def create_announcements_router(current_user):
     @router.get("/api/announcements/admin/status")
     async def admin_status(request: Request):
         identity = user(request)
-        return {"can_publish": announcements.is_publisher_owner(identity)}
+        host = request.headers.get("host", "").split(":", 1)[0].casefold()
+        return {"can_publish": host == "royal-downloader.de" and announcements.is_publisher_owner(identity)}
 
     @router.get("/api/announcements/admin/messages")
     async def admin_messages(request: Request):
@@ -119,7 +127,17 @@ def create_announcements_router(current_user):
         return await run_in_threadpool(announcements.feed)
 
     @router.post("/api/public/announcements/receipts")
-    async def receipt_batch(body: ReceiptBatch):
+    async def receipt_batch(body: ReceiptBatch, request: Request):
+        now = int(time.monotonic() // 60)
+        source = client_ip(request)
+        with _receipt_rate_lock:
+            if len(_receipt_rate) > 2000:
+                _receipt_rate.clear()
+            minute, count = _receipt_rate.get(source, (now, 0))
+            count = count + 1 if minute == now else 1
+            _receipt_rate[source] = (now, count)
+        if count > 120:
+            raise HTTPException(429, "Zu viele Empfangsbestätigungen.")
         if not announcements.publisher_ready():
             raise HTTPException(404, "Kein offizieller Announcement-Feed.")
         try:
