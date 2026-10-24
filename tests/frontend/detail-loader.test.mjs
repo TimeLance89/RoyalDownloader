@@ -196,6 +196,28 @@ test('open view adopts a late provider answer after pending status without reope
   } finally { h.loader.unmount(); }
 });
 
+test('retrying movie availability states that provider search is still running', async () => {
+  const h = harness();
+  try {
+    const opened = h.loader.open('tmdb:12', h.item(12));
+    h.requests[0].resolve({ movie: { ...h.item(12), details_loaded: true } });
+    h.requests[1].resolve({
+      hosters: [],
+      availability: { state: 'retrying', complete: false, retry_after_ms: 1200 },
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(h.badges.at(-1), ['Suche läuft weiter · Weitere Anbieter werden geprüft …', 'loading']);
+    assert.equal(h.movieState.detail.availabilityState, 'checking',
+      'a retrying probe must not be treated as an unavailable movie');
+    h.requests[2].resolve({
+      hosters: [{ name: 'VOE' }],
+      availability: { state: 'available', complete: true, expires_at: Date.now() / 1000 + 180 },
+    });
+    await opened;
+    assert.equal(h.movieState.detail.availabilityState, 'available');
+  } finally { h.loader.unmount(); }
+});
+
 test('a usable source is rendered before enrichment finishes', async () => {
   const h = harness();
   try {
