@@ -1,0 +1,35 @@
+name: Dependency lock refresh (temporary)
+
+on:
+  push:
+    branches:
+      - chore/dependabot-runtime-20261026
+    paths:
+      - .github/workflows/dependency-lock-refresh.yml
+
+permissions:
+  contents: read
+
+jobs:
+  regenerate-python312:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+        with:
+          persist-credentials: false
+      - name: Set up Python 3.12
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.12"
+      - name: Resolve and audit Python locks with project script
+        run: |
+          python -m pip install uv
+          bash scripts/update_dependency_lock.sh
+          echo "BEGIN_RUNTIME_LOCK_FILE"
+          cat requirements.lock
+          echo "END_RUNTIME_LOCK_FILE"
+          echo "BEGIN_DEV_LOCK_FILE"
+          cat requirements-dev.lock
+          echo "END_DEV_LOCK_FILE"
