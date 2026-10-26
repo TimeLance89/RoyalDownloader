@@ -14,6 +14,7 @@ from providers.probe_contracts import contract
 from providers.models import parse_episode_slug
 from application_services.source_service_health import source_service_health
 from core.source_urls import valid_source_link
+from application_services.source_watchdog import SourceWatchdog
 
 
 class ProviderMonitor:
@@ -44,6 +45,7 @@ class ProviderMonitor:
         self.scheduler_retrying = False
         from application_services.hoster_monitor import HosterMonitor
         self.hosters = HosterMonitor(self)
+        self.watchdog = SourceWatchdog(self)
         if hoster_intel is not None:
             hoster_intel.health_penalty = self.hosters.penalty
 
@@ -75,7 +77,7 @@ class ProviderMonitor:
         if delay is None and not self.store.entry(provider).get("last_check_at"):
             seconds = 30 + jitter % 30
         else:
-            seconds = config["interval_hours"] * 3600 + jitter if delay is None else delay + jitter
+            seconds = config["interval_hours"] * 3600 + jitter if delay is None else delay + jitter % 30
         self.store.update(provider, deferred=True, next_check_at=self.clock() + seconds)
 
     def start(self):
@@ -95,9 +97,9 @@ class ProviderMonitor:
                     not evidence.get(language) or not 0 <= self.clock() - evidence[language] < 86400
                     for language in languages
                 )
-                if not entry.get("last_check_at") or missing_anime_evidence:
-                    # Older standard checks never inspected anime episodes.
-                    # Do not wait another full interval after this upgrade.
+                if self.store.config()["enabled"] or not entry.get("last_check_at") or missing_anime_evidence:
+                    # Refresh volatile hoster references after restart, staggered
+                    # through the existing two-slot scheduler.
                     jitter = int(hashlib.sha256(provider.encode()).hexdigest()[:6], 16) % 30
                     self.store.update(provider, deferred=True, next_check_at=self.clock() + 30 + jitter)
             self.thread = threading.Thread(target=self._loop, name="provider-sentinel-scheduler", daemon=True)
@@ -222,9 +224,11 @@ class ProviderMonitor:
                 if provider.startswith("hoster:"):
                     key = provider.split(":", 1)[1]
                     self.hosters.store.record(key, {"event": "probe_error", "reason": "internal_probe_error"})
+                    self.watchdog.result(key, kind="hoster", failed=True)
                     self.hosters.schedule(key, 900)
                 else:
                     self.store.record(provider, {"event": "probe_error", "reason": "internal_probe_error"})
+                    self.watchdog.result(provider, failed=True)
                     self._schedule(provider, 900)
         finally:
             with self.lock:
@@ -291,10 +295,11 @@ class ProviderMonitor:
                 if evidence["shadow_passed"]:
                     self.repairs.activate(provider, requested)
                     self.health.mark_success(provider, runtime=False)
+                    diagnosis = "repaired"
                 else:
                     self.store.update(provider, diagnosis="needs_attention")
                     diagnosis = "needs_attention"
-        elif diagnosis in {"broken", "healthy"} and not previous.get("active_repair") and len(canaries) >= 3:
+        elif (diagnosis in {"broken", "healthy"} or any(step.get("ok") is False and step["code"] in {"parser_error", "missing_metadata"} for step in result["steps"])) and not previous.get("active_repair") and len(repair_canaries) >= 3:
             candidates = self.repairs.propose(provider, result, repair_canaries)
             validated = next((candidate for candidate in candidates if candidate["confidence"] == "high"), None)
             if validated and self.store.config()["auto_repair"] and not self.stopped and (generation is None or generation == self.generation):
@@ -311,7 +316,15 @@ class ProviderMonitor:
         elif diagnosis == "broken":
             self.store.update(provider, diagnosis="needs_attention")
             diagnosis = "needs_attention"
-        self._schedule(provider, min(3600, self.store.config()["interval_hours"] * 3600) if isolated else None)
+        meaningful_failure = any(step.get("ok") is False and step.get("code") not in {
+            "removed", "budget_exhausted", "browser_fallback_required", "runtime_validation_required"
+        } for step in result["steps"])
+        recovered = diagnosis == "healthy" and len(successes) >= 3 and intensity != "light"
+        self.watchdog.result(provider, failed=meaningful_failure and diagnosis != "repaired", recovered=recovered)
+        # Activated repairs get a fresh confirmation; unresolved failures retry
+        # at 5/15/60 minutes instead of waiting the normal twelve hours.
+        delay = 300 if diagnosis == "repaired" else self.watchdog.retry_delay(provider)
+        self._schedule(provider, delay if delay is not None else 3600 if isolated else None)
         if self.store.config()["notify_changes"] and (diagnosis != previous.get("diagnosis", "unknown") or isolated and runtime["state"] == "healthy") and diagnosis in {"healthy", "broken", "offline", "blocked", "repaired", "needs_attention"}:
             self._notify(provider, diagnosis)
         return self.store.entry(provider)
@@ -374,6 +387,7 @@ class ProviderMonitor:
             if len(failures) >= 3:
                 self.repairs.rollback(provider, repair, "three_independent_runtime_failures")
                 self.store.update(provider, diagnosis="needs_attention")
+                self.watchdog.result(provider, rollback=True)
                 if self.store.config()["notify_changes"]:
                     self._notify(provider, "repair_rolled_back")
 

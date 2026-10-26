@@ -313,6 +313,7 @@ jobs:
           tests/test_saved_media.py
           tests/test_watchlist_inbox_payload.py
           tests/test_source_monitor_runtime.py
+          tests/test_source_watchdog.py
 
       - name: Storage mount identity, permissions and move safeguards
         if: ${{ steps.change-scope.outputs.backend == 'true' }}

@@ -24,6 +24,7 @@ def create_provider_monitor_router(monitor, current_user):
         user = current_user(request.headers, request.cookies)
         if not user or user.get("role") != "admin":
             raise HTTPException(403, "Administratorrechte erforderlich.")
+        return user
 
     router = APIRouter(tags=["administration"], dependencies=[Depends(administrator)])
 
@@ -36,6 +37,24 @@ def create_provider_monitor_router(monitor, current_user):
     @router.get("/api/v1/providers/diagnostics")
     def overview(summary: bool = False):
         return monitor.diagnostics(details=not summary)
+
+    @router.get("/api/providers/incidents")
+    @router.get("/api/v1/providers/incidents")
+    def incidents(request: Request, user=Depends(administrator)):
+        from api.profile_owner_guard import require_profile_owner
+        require_profile_owner(request.headers, str(user["id"]))
+        return {"items": monitor.watchdog.incidents(str(user["id"]))}
+
+    @router.post("/api/providers/incidents/{incident_id}/read")
+    @router.post("/api/v1/providers/incidents/{incident_id}/read")
+    def read_incident(incident_id: str, request: Request, user=Depends(administrator)):
+        from api.profile_owner_guard import require_profile_owner
+        require_profile_owner(request.headers, str(user["id"]))
+        try:
+            monitor.watchdog.acknowledge(incident_id, str(user["id"]))
+        except KeyError as exc:
+            raise HTTPException(404, "Meldung nicht gefunden.") from exc
+        return {"read": True}
 
     @router.put("/api/providers/monitor/config")
     @router.put("/api/v1/providers/monitor/config")

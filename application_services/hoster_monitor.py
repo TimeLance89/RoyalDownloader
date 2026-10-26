@@ -104,7 +104,7 @@ class HosterMonitor:
                     continue
                 entry = self.store.entry(candidate)
                 last = self._last_activity(entry)
-                if not entry.get("active_repair") and self.clock() - last > CANARY_TTL:
+                if not entry.get("active_repair") and not entry.get("watchdog", {}).get("incident") and self.clock() - last > CANARY_TTL:
                     stale.append((last, candidate))
             if not stale:
                 self.rejected_admissions += 1
@@ -144,6 +144,8 @@ class HosterMonitor:
             entry = self.store.entry(key)
             samples = [row for row in entry.get("samples", []) if now - row["timestamp"] <= 7 * 86400]
             row = {"timestamp": now, "code": code, "identity": identity, "duration_ms": min(300000, max(0, round(duration_ms, 1)))}
+            if ok and media_url:
+                row["media_signature"] = media_identity(media_url)
             samples.append(row)
             samples = samples[-MAX_SAMPLES:]
             buckets = [bucket for bucket in entry.get("runtime_buckets", []) if now - bucket["timestamp"] < 7 * 86400]
@@ -171,6 +173,7 @@ class HosterMonitor:
                 if len(after) >= 5 and len(failures) >= 3 and sum(row["code"] == "resolve_success" for row in after) / len(after) < .5:
                     self.repairs.rollback(key, repair["id"], "runtime_success_rate_regressed")
                     self.store.update(key, diagnosis="needs_attention")
+                    self.owner.watchdog.result(key, kind="hoster", rollback=True)
                     self.owner._notify(key, "repair_rolled_back", "hoster")
             if state != entry.get("diagnosis") and state in {"broken", "offline", "blocked", "healthy"}:
                 self.owner._notify(key, state, "hoster")
@@ -199,6 +202,13 @@ class HosterMonitor:
             identity = canary_identity(url)
             rows = [row for row in self.canaries.get(key, []) if now - row["seen_at"] <= CANARY_TTL]
             prior = next((row for row in rows if row["identity"] == identity), {})
+            # Restore proof only for the same freshly rediscovered embed. URLs
+            # stay in memory; persisted success evidence contains hashes only.
+            if not prior:
+                evidence = self.store.entry(key, ("samples",)).get("samples", [])
+                prior = next(({"proven": True, "media_signature": row["media_signature"]} for row in reversed(evidence)
+                              if row.get("identity") == identity and row.get("code") == "resolve_success"
+                              and row.get("media_signature") and 0 <= now - row["timestamp"] <= CANARY_TTL), {})
             rows = [row for row in rows if row["identity"] != identity]
             rows.append({"url": url, "identity": identity, "seen_at": now, "proven": proven or prior.get("proven", False), "provider": provider, "media_signature": media_signature or prior.get("media_signature", "")})
             rows.sort(key=lambda row: (row["proven"], row["seen_at"]))
@@ -250,14 +260,22 @@ class HosterMonitor:
                     self.store.update(key, diagnosis="repairing")
                 else:
                     self.store.update(key, diagnosis="repair_available" if proposal["confidence"] == "high" else "needs_attention")
-        self.schedule(key)
+        meaningful = [row for row in evidence if row["code"] not in {
+            "removed", "recognition_only", "browser_fallback_required", "runtime_validation_required", "budget_exhausted"
+        } and (row.get("ok") or row.get("probe_complete", False))]
+        self.owner.watchdog.result(key, kind="hoster",
+                                   failed=state in {"broken", "offline", "blocked", "needs_attention"} or bool(meaningful) and not any(row.get("ok") for row in meaningful),
+                                   recovered=state == "healthy" and sum(bool(row.get("ok")) for row in meaningful) >= 3)
+        diagnosis = self.store.entry(key, ("diagnosis",)).get("diagnosis", "unknown")
+        delay = 300 if diagnosis == "repairing" else self.owner.watchdog.retry_delay(key, "hoster")
+        self.schedule(key, delay)
         diagnosis = self.store.entry(key, ("diagnosis",)).get("diagnosis", "unknown")
         if diagnosis != previous.get("diagnosis") and diagnosis in {"broken", "offline", "blocked", "repairing", "repair_available", "needs_attention"}:
             self.owner._notify(key, diagnosis, "hoster")
 
     def schedule(self, key, delay=None):
         jitter = int(hashlib.sha256(key.encode()).hexdigest()[:6], 16) % 900
-        self.store.update(key, next_check_at=self.clock() + (delay if delay is not None else self.store.config()["interval_hours"] * 3600) + jitter)
+        self.store.update(key, next_check_at=self.clock() + (delay if delay is not None else self.store.config()["interval_hours"] * 3600) + (jitter if delay is None else jitter % 30))
 
     def penalty(self, name, url=""):
         key = hoster_key(name, url)

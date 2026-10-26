@@ -21,6 +21,25 @@ from providers.sentinel_runtime import AdapterSession, ProbeFailure, probe_conte
 FIXTURES = Path(__file__).parent / "fixtures" / "provider-sentinel"
 
 
+def test_watchdog_confirms_real_shadow_repair_before_clearing_incident(monkeypatch, tmp_path):
+    transport = FixtureSession()
+    probe = real_probe(monkeypatch, transport)
+    owner = ProviderMonitor(tmp_path / "watchdog.json", ProviderHealth(tmp_path / "health.json"),
+                            lambda: ["filmpalast"], probe=probe)
+    try:
+        owner.check("filmpalast", "full")
+        owner.watchdog.result("filmpalast", rollback=True)
+        transport.changed = True
+        owner.check("filmpalast", "full")
+        assert owner.store.entry("filmpalast")["active_repair"]
+        assert owner.watchdog.incidents("admin"), "Shadow activation alone is not a completed fresh confirmation"
+        owner.check("filmpalast", "full")
+        assert not owner.watchdog.incidents("admin")
+        assert owner.profile("filmpalast")["title_selector"] == "h1.media-heading"
+    finally:
+        owner.stop()
+
+
 class FixtureSession:
     def __init__(self, *, changed=False, domain=None, blocked=False, missing_hosters=False):
         self.changed, self.domain, self.blocked, self.missing_hosters = changed, domain, blocked, missing_hosters

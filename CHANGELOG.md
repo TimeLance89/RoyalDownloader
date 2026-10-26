@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Autonomous source watchdog
+
+- Refresh volatile hoster references after restart and restore proven references
+  only from matching recent hashes, without persisting token-bearing URLs.
+- Retry failed checks after 5/15/60 minutes and confirm activated repairs promptly.
+  Keep the existing bounded, validated repair and rollback safeguards.
+- Persist unresolved individual source incidents independently of overall service
+  availability. Show them to administrators in the Abo-Inbox, with per-account
+  read state, deduplication and automatic clearance after confirmed recovery.
+  Optional push notifications retain the configured preference.
+
 ### Source monitoring runtime and diagnostics
 
 - Coalesce non-critical provider/hoster observations into one bounded background

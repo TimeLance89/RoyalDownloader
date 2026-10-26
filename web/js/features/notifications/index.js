@@ -3,9 +3,10 @@ import { isAbortError } from "../../core/errors.js";
 import { notificationCount } from "./model.js";
 import { createNotificationView } from "./view.js";
 import { notificationApi } from "./api.js";
+import { createSourceIssueInbox } from "./source-issues.js";
 import { createAnnouncementInbox } from "../announcements/inbox.js";
 
-export function createNotifications(root, { getSnapshot, check, onSnapshot, openEntry, openLibrary, coverUrl, subscriptionMonogram, libraryCheckedLabel, requests = notificationApi, getSnapshotVersion = () => 0, beforeOpen = () => {} }) {
+export function createNotifications(root, { getSnapshot, check, onSnapshot, openEntry, openLibrary, coverUrl, subscriptionMonogram, libraryCheckedLabel, requests = notificationApi, getSnapshotVersion = () => 0, beforeOpen = () => {}, getUser = () => null }) {
   const document = root.ownerDocument;
   const find = id => root.querySelector(`#${id}`);
   const ui = { filter: "all", reading: "", feedback: "", feedbackError: false };
@@ -30,10 +31,14 @@ export function createNotifications(root, { getSnapshot, check, onSnapshot, open
   const announcements = createAnnouncementInbox(root, {
     onChange: () => refresh(), getFilter: () => ui.filter, isOpen: () => Boolean(actions?.active),
   });
+  const sourceIssues = createSourceIssueInbox(root, {
+    onChange: () => refresh(), getFilter: () => ui.filter, isOpen: () => Boolean(actions?.active), getUser,
+  });
   function refresh() {
     if (!shell?.active) return;
     view.refresh(Boolean(actions?.active));
     announcements.render();
+    sourceIssues.render();
   }
   function close(restoreFocus = false) {
     actions?.dispose(); actions = null; checking = false; ui.reading = "";
@@ -57,6 +62,7 @@ export function createNotifications(root, { getSnapshot, check, onSnapshot, open
     document.querySelectorAll("[data-notifications-open]").forEach(button => button.setAttribute("aria-expanded", "true"));
     refresh();
     void announcements.reload();
+    void sourceIssues.reload();
     if (document.defaultView?.matchMedia?.("(max-width: 820px)").matches) find("notif-close").focus({ preventScroll: true });
   }
   async function runCheck(slugs) {
@@ -114,8 +120,9 @@ export function createNotifications(root, { getSnapshot, check, onSnapshot, open
         event.stopPropagation(); ui.filter = button.dataset.notifFilter || "all"; refresh();
       }));
       announcements.mount();
+      sourceIssues.mount();
       refresh();
     },
-    unmount() { announcements.unmount(); close(); shell?.dispose(); shell = null; },
+    unmount() { sourceIssues.unmount(); announcements.unmount(); close(); shell?.dispose(); shell = null; },
   };
 }

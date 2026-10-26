@@ -365,6 +365,52 @@ const { fixture } = require("./performance-fixture.cjs");
       await historyPanel.getByText(/fresh_event/).waitFor();
       assert.equal(historyCalls(), 2, "Changed history refreshes only while open");
       await page.waitForFunction(() => document.querySelector('#provider-monitor [data-monitor="runtime-health"]').hidden);
+      // Exercise durable source incidents with the real inbox module and DOM.
+      const incidentCalls = [];
+      let incidentRead = false;
+      await page.route("**/api/providers/incidents**", async route => {
+        incidentCalls.push({ method: route.request().method(), profile: route.request().headers()["x-royal-profile"] });
+        if (route.request().method() === "POST") { incidentRead = true; return route.fulfill({ json: { read: true } }); }
+        return route.fulfill({ json: { items: [{ id: "source-incident", kind: "hoster", key: "voe", label: "VOE <unsafe>",
+          message: "Quellenprüfung benötigt Aufmerksamkeit.", opened_at: 1000, read: incidentRead }] } });
+      });
+      const inboxResult = await page.evaluate(async () => {
+        const { createSourceIssueInbox } = await import("/js/features/notifications/source-issues.js");
+        const root = document.createElement("div");
+        root.innerHTML = '<button id="notif-bell"></button><span id="notif-badge">2</span><span id="notif-trigger-label"></span><div id="notif-list"></div>';
+        let user = { id: "admin-a", role: "admin" }, filter = "all";
+        let inbox;
+        inbox = createSourceIssueInbox(root, {
+          getUser: () => user, getFilter: () => filter, isOpen: () => true,
+          onChange: () => { root.querySelector("#notif-badge").textContent = "2"; inbox.render(); },
+        });
+        inbox.mount(); await inbox.reload();
+        const unreadTotal = root.querySelector("#notif-badge").textContent;
+        const safeLabel = root.querySelector(".source-issue-group strong").textContent;
+        const noInjection = !root.querySelector("unsafe");
+        root.querySelector(".source-issue-group button").click();
+        while (root.querySelector(".source-issue-group button")) await new Promise(resolve => setTimeout(resolve, 10));
+        const readTotal = root.querySelector("#notif-badge").textContent;
+        filter = "issue"; inbox.render();
+        const readStillVisible = Boolean(root.querySelector(".source-issue-group"));
+        filter = "new"; inbox.render();
+        const readAbsentFromNew = !root.querySelector(".source-issue-group");
+        user = { id: "member", role: "member" }; inbox.render();
+        const noMemberLeak = !root.querySelector(".source-issue-group");
+        inbox.unmount();
+        // A late response after unmount must not resurrect another profile's data.
+        let release;
+        user = { id: "admin-a", role: "admin" };
+        const late = createSourceIssueInbox(root, { getUser: () => user, getFilter: () => "all", isOpen: () => true,
+          onChange: () => late.render(), client: { get: () => new Promise(resolve => { release = resolve; }) } });
+        late.mount(); const pending = late.reload(); late.unmount();
+        release({ items: [{ id: "late", label: "private", message: "private" }] }); await pending;
+        return { unreadTotal, safeLabel, noInjection, readTotal, readStillVisible, readAbsentFromNew, noMemberLeak,
+          noLateLeak: !root.querySelector(".source-issue-group") };
+      });
+      assert.deepEqual(inboxResult, { unreadTotal: "3", safeLabel: "VOE <unsafe>", noInjection: true,
+        readTotal: "2", readStillVisible: true, readAbsentFromNew: true, noMemberLeak: true, noLateLeak: true });
+      assert.ok(incidentCalls.some(call => call.method === "POST" && call.profile === "admin-a"));
       assert.deepEqual(errors, []);
       console.log(`provider monitor ${width}px: diagnostics, probe, config, confirmation and rollback passed`);
     } finally { await run.close(); }

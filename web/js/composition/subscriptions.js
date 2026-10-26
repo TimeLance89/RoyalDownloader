@@ -22,7 +22,7 @@ import { createNotifications } from "../features/notifications/index.js";
 
 import { libraryCheckedLabel } from "../features/subscriptions/model.js";
 
-export function composeSubscriptions({ movieSubscriptions, movieSubscriptionRules, subscriptions, seriesState, artworkUrls, getCore, getDiscovery, getHome, getIntegrations }) {
+export function composeSubscriptions({ movieSubscriptions, movieSubscriptionRules, subscriptions, seriesState, artworkUrls, getCore, getDiscovery, getHome, getIntegrations, getProfile }) {
   const services = {
   subscriptionSummary: createSubscriptionSummary(document.getElementById("series-subscriptions-list"), document.getElementById("series-subscriptions-count"), {
         getItems: () => services.subscriptions.get().items, open: ((...args) => services.actions.openWatchlistEntry(...args)),
@@ -51,6 +51,7 @@ export function composeSubscriptions({ movieSubscriptions, movieSubscriptionRule
         WATCH_MODE_LABELS, WATCH_MODE_DEFAULT, WATCH_CLEANUP_LABELS, WATCH_CLEANUP_DEFAULT,
       }),
   notifications: createNotifications(document.querySelector(".bell-wrap"), {
+        getUser: () => getProfile().auth.get().user,
         beforeOpen: () => getCore().actions.closeNavigationMenus(),
         getSnapshot: subscriptions.get,
         getSnapshotVersion: () => subscriptions.revision,

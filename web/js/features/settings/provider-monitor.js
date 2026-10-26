@@ -281,7 +281,7 @@ export function createProviderMonitor(root, { client = api, events = websocket }
       scope.interval(() => { if (!root.ownerDocument.hidden) void refresh(); }, 15000);
       scope.add(events.subscribe("provider_diagnostics", event => {
         if (!value?.config.notify_changes) return;
-        const notices = { source_recovered: "Die betroffenen Bereiche sind wieder verfügbar.", source_unavailable: "Ein eingerichteter Bereich ist nicht verfügbar. Bitte Quellen prüfen.", source_redundancy_reduced: "In einem Bereich stehen weniger Ausweichquellen bereit. Royal verwendet Alternativen." };
+        const notices = { source_attention: "Eine Quelle benötigt nach wiederholter Prüfung Aufmerksamkeit. Details stehen in der Abo-Inbox.", source_recovered: "Die betroffenen Bereiche sind wieder verfügbar.", source_unavailable: "Ein eingerichteter Bereich ist nicht verfügbar. Bitte Quellen prüfen.", source_redundancy_reduced: "In einem Bereich stehen weniger Ausweichquellen bereit. Royal verwendet Alternativen." };
         root.querySelector('[data-monitor="notice"]').textContent = notices[event.message_code] || "";
         void refresh();
       }));

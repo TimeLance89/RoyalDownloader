@@ -73,3 +73,25 @@ The compact service summary matched the original. A new dynamic hoster was
 admitted from a full real inventory while the cap stayed intact. These are
 same-NAS temporary-state measurements, not end-to-end production HTTP latency
 or a guarantee for every filesystem/load. GitHub CI validates the PR separately.
+
+## Autonomous watchdog completion
+
+- On restart, enabled provider checks refresh the volatile hoster references
+  through the existing two-worker scheduler. Only matching recent hashed
+  production successes restore proven media identities; URLs remain in memory.
+- Failed checks retry after 5, 15 and then 60 minutes (plus at most 29 seconds
+  jitter). Activated repairs receive a confirmation check after five minutes.
+  Existing shadow validation, opt-out and rollback rules remain authoritative.
+- Two failed meaningful checks create one persistent source incident. Repair
+  rollback escalates immediately. Partial browser-only/recognition checks and
+  removed references do not themselves claim a broken hoster or recovery.
+- Incidents appear in the administrator Abo-Inbox even when alternative sources
+  work. Read state is per account and profile-guarded; confirmed recovery clears
+  the incident. Read incidents remain under Problems until recovery. Optional
+  status push notices still honor `notify_changes`.
+- The Linux stability failure was a restart test reading intentionally deferred
+  language telemetry before a flush. It now flushes explicitly before loading a
+  second instance, preserving its persistence and privacy assertions.
+- Deterministic tests cover retry/escalation/recovery, restart, hashed reference
+  proof, authorization, profile isolation and browser inbox rendering/lifecycle.
+  Download routing, queue behavior and production NAS deployment are unchanged.
