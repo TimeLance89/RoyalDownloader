@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Source monitoring runtime and diagnostics
+
+- Coalesce non-critical provider/hoster observations into one bounded background
+  writer; keep configuration, manual schedules and repair changes atomic and
+  durable. Accept a manual all-source schedule in one commit instead of rewriting
+  the full monitor state for every source.
+- Keep the scheduler alive after individual source/storage failures and expose
+  retry/persistence health in Settings.
+- Reclaim inactive dynamic hosters after seven days when the bounded inventory
+  is full, protecting built-in contracts, running checks and active repairs.
+  Report rejected admissions when no safe slot can be reclaimed.
+- Poll compact diagnostics and load history/repair profiles on demand, with
+  bounded caching, revision invalidation and cancellation on navigation.
+
 ### Series subscription presentation
 
 - Align the subscribed-series shelf with the cinema catalog: compact poster

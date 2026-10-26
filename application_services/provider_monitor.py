@@ -38,6 +38,10 @@ class ProviderMonitor:
         self.generation = 0
         self.last_service_notice = None
         self.notice_lock = threading.Lock()
+        self.scheduler_errors = 0
+        self.scheduler_last_error_at = 0
+        self.scheduler_last_tick_at = 0
+        self.scheduler_retrying = False
         from application_services.hoster_monitor import HosterMonitor
         self.hosters = HosterMonitor(self)
         if hoster_intel is not None:
@@ -46,7 +50,7 @@ class ProviderMonitor:
     def _notify(self, key, diagnosis, kind="provider"):
         if not self.store.config()["notify_changes"]:
             return
-        service = self.diagnostics()["service"]
+        service = self.diagnostics(details=False)["service"]
         signature = tuple((path["media_type"], path["language"], path["state"]) for path in service["paths"])
         with self.notice_lock:
             previous = self.last_service_notice
@@ -72,7 +76,7 @@ class ProviderMonitor:
             seconds = 30 + jitter % 30
         else:
             seconds = config["interval_hours"] * 3600 + jitter if delay is None else delay + jitter
-        self.store.update(provider, next_check_at=self.clock() + seconds)
+        self.store.update(provider, deferred=True, next_check_at=self.clock() + seconds)
 
     def start(self):
         with self.lock:
@@ -95,7 +99,7 @@ class ProviderMonitor:
                     # Older standard checks never inspected anime episodes.
                     # Do not wait another full interval after this upgrade.
                     jitter = int(hashlib.sha256(provider.encode()).hexdigest()[:6], 16) % 30
-                    self.store.update(provider, next_check_at=self.clock() + 30 + jitter)
+                    self.store.update(provider, deferred=True, next_check_at=self.clock() + 30 + jitter)
             self.thread = threading.Thread(target=self._loop, name="provider-sentinel-scheduler", daemon=True)
             self.thread.start()
 
@@ -106,6 +110,7 @@ class ProviderMonitor:
         self.wake.set()
         if self.thread and self.thread is not threading.current_thread():
             self.thread.join(timeout=2)
+        self.store.close()
         # Running transport calls retain bounded timeouts; no restart creates another pool.
 
     def configure(self, values):
@@ -117,21 +122,58 @@ class ProviderMonitor:
         self.wake.set()
         return config
 
+    def schedule_checks(self, intensity):
+        now = self.clock()
+        changes = [("providers", key, {"next_check_at": now + index * 30, "requested_intensity": intensity})
+                   for index, key in enumerate(self.enabled())]
+        with self.hosters.lock:
+            keys = list(self.hosters.inventory)
+        changes.extend(("hosters", key, {"next_check_at": now + index * 30, "requested_intensity": intensity})
+                       for index, key in enumerate(keys) if self.hosters.candidates(key))
+        self.store.update_many(changes)
+        self.wake.set()
+
     def _loop(self):
         while not self.stop_event.is_set():
-            if self.store.config()["enabled"] or any(self.store.entry(p).get("requested_intensity") for p in self.enabled()):
-                for provider in self.enabled():
-                    entry = self.store.entry(provider)
-                    if not self.store.config()["enabled"] and not entry.get("requested_intensity"):
-                        continue
-                    if not entry.get("next_check_at"):
-                        self._schedule(provider, 300)
-                    elif entry["next_check_at"] <= self.clock():
-                        if self.request(provider, entry.get("requested_intensity"), manual=False):
-                            self.store.update(provider, requested_intensity=None)
-            for hoster in list(self.hosters.inventory):
+            errors_before = self.scheduler_errors
+            try:
+                self._tick()
+            except Exception:
+                self._scheduler_error()
+            try:
+                self.store.flush_background()
+            except Exception:
+                self._scheduler_error()
+            self.scheduler_retrying = self.scheduler_errors != errors_before
+            self.scheduler_last_tick_at = self.clock()
+            self.wake.wait(30)
+            self.wake.clear()
+
+    def _scheduler_error(self):
+        # Fixed fields only: exception strings may contain source URLs/secrets.
+        self.scheduler_errors += 1
+        self.scheduler_last_error_at = self.clock()
+
+    def _tick(self):
+        automatic = self.store.config()["enabled"]
+        for provider in self.enabled():
+            try:
+                entry = self.store.entry(provider)
+                if not automatic and not entry.get("requested_intensity"):
+                    continue
+                if not entry.get("next_check_at"):
+                    self._schedule(provider, 300)
+                elif entry["next_check_at"] <= self.clock():
+                    if self.request(provider, entry.get("requested_intensity"), manual=False):
+                        self.store.update(provider, requested_intensity=None)
+            except Exception:
+                self._scheduler_error()
+        with self.hosters.lock:
+            hosters = list(self.hosters.inventory)
+        for hoster in hosters:
+            try:
                 entry = self.hosters.store.entry(hoster)
-                if not self.store.config()["enabled"] and not entry.get("requested_intensity"):
+                if not automatic and not entry.get("requested_intensity"):
                     continue
                 if not self.hosters.candidates(hoster):
                     continue
@@ -139,8 +181,8 @@ class ProviderMonitor:
                     self.hosters.schedule(hoster, 300)
                 elif entry["next_check_at"] <= self.clock():
                     self.request(f"hoster:{hoster}", entry.get("requested_intensity"), manual=False)
-            self.wake.wait(30)
-            self.wake.clear()
+            except Exception:
+                self._scheduler_error()
 
     def request(self, provider, intensity=None, manual=True, repair_id=None):
         is_hoster = provider.startswith("hoster:")
@@ -286,7 +328,7 @@ class ProviderMonitor:
                 if runtime["state"] == "cooldown":
                     # The existing bounded scheduler owns automatic recovery;
                     # do not leave a real circuit waiting for a 12h diagnosis.
-                    self.store.update(provider, next_check_at=runtime["next_probe_at"])
+                    self.store.update(provider, deferred=True, next_check_at=runtime["next_probe_at"])
                     self.wake.set()
                 self._notify(provider, self.store.entry(provider, ("diagnosis",)).get("diagnosis", "unknown"))
         if not source or self.stopped:
@@ -320,7 +362,7 @@ class ProviderMonitor:
                     canary["cover_identity"] = identity(data["cover_url"]) if data.get("cover_url") else ""
                     canaries = [canary] + [ref for ref in entry.get("canaries", []) if ref["identity"] != canary["identity"]]
                     if canaries[:8] != entry.get("canaries", []):
-                        self.store.update(provider, canaries=canaries[:8])
+                        self.store.update(provider, deferred=True, canaries=canaries[:8])
                         self.last_canary_observation[provider] = self.clock()
             if not repair:
                 return
@@ -328,7 +370,7 @@ class ProviderMonitor:
             failures = [row for row in failures if row["sample"] != sample]
             if not ok:
                 failures.append({"sample": sample, "timestamp": self.clock()})
-            self.store.update(provider, repair_failures=failures)
+            self.store.update(provider, deferred=True, repair_failures=failures)
             if len(failures) >= 3:
                 self.repairs.rollback(provider, repair, "three_independent_runtime_failures")
                 self.store.update(provider, diagnosis="needs_attention")
@@ -351,19 +393,22 @@ class ProviderMonitor:
             if now - evidence.get(media_type, {}).get(language, 0) < 60:
                 return
             evidence.setdefault(media_type, {})[language] = now
-            self.store.update(provider, language_evidence=evidence)
+            self.store.update(provider, deferred=True, language_evidence=evidence)
 
-    def diagnostics(self, provider=None):
+    def diagnostics(self, provider=None, *, details=True):
         enabled = set(self.enabled())
-        hoster_rows = self.hosters.diagnostics()
+        hoster_rows = self.hosters.diagnostics() if details and provider is None else self.hosters.diagnostics(details=False)
         hoster_states = {row["hoster"]: row["diagnosis"] for row in hoster_rows}
         rows = []
         for key, definition in PROVIDER_CATALOG.items():
-            entry = self.store.entry(key)
+            full_entry = details and (provider is None or provider == key)
+            entry = self.store.entry(key) if full_entry else self.store.summary_entry(key)
             priority = {media: order.index(key) + 1 for media in definition.media_types if key in (order := self.priorities(media))}
             history = [item for item in entry.get("history", []) if self.clock() - item["timestamp"] < 86400 and item["event"] == "probe"]
-            failed = sum(item["diagnosis"] != "healthy" for item in history)
-            hoster_names = {str(name) for item in entry.get("history", []) for name in item.get("hoster_names", [])}
+            count = len(history) if full_entry else entry["probe_count"]
+            failed = sum(item["diagnosis"] != "healthy" for item in history) if full_entry else entry["probe_failures"]
+            duration = sum(item["duration_ms"] for item in history) if full_entry else entry["probe_duration"]
+            hoster_names = {str(name) for item in entry.get("history", []) for name in item.get("hoster_names", [])} if full_entry else set(entry["observed_hosters"])
             from media.hoster_contracts import hoster_key
             hosters = [{"name": name, "state": hoster_states.get(hoster_key(name), "unknown")} for name in sorted(hoster_names)]
             rows.append({"provider": key, "label": definition.label, "enabled": key in enabled, "priority": priority,
@@ -379,8 +424,10 @@ class ProviderMonitor:
                          "last_error": entry.get("last_error", ""), "last_error_at": entry.get("last_error_at", 0),
                          "changed": entry.get("changed", False), "active_repair": entry.get("active_repair"),
                          "repairs": entry.get("repairs", []), "history": entry.get("history", []), "hosters": hosters,
-                         "error_rate_24h": round(failed / len(history), 3) if history else None,
-                         "average_duration_ms": round(sum(item["duration_ms"] for item in history) / len(history), 1) if history else None})
+                         "repairs_count": len(entry.get("repairs", [])) if full_entry else entry["repairs_count"],
+                         "history_count": len(entry.get("history", [])) if full_entry else entry["history_count"], "revision": entry.get("revision", 0),
+                         "error_rate_24h": round(failed / count, 3) if count else None,
+                         "average_duration_ms": round(duration / count, 1) if count else None})
         service = source_service_health(rows, hoster_rows, self.clock(), self.languages() if self.languages else None)
         for row in rows:
             row["user_impact"] = service["sources"]["providers"].get(row["provider"], {"impact": "none", "action_required": False})
@@ -389,6 +436,10 @@ class ProviderMonitor:
         active = [row for row in rows if row["enabled"]]
         return {"config": self.store.config(), "providers": rows, "hosters": hoster_rows,
                 "service": service,
+                "compact": not details, "persistence": self.store.persistence_status(),
+                "scheduler": {"running": bool(self.thread and self.thread.is_alive()), "retrying": self.scheduler_retrying,
+                              "errors": self.scheduler_errors, "last_error_at": self.scheduler_last_error_at, "last_tick_at": self.scheduler_last_tick_at},
+                "hoster_inventory": {"count": len(self.hosters.inventory), "limit": 64, "rejected": self.hosters.rejected_admissions},
                 "hoster_summary": {state: sum(row["diagnosis"] == state for row in hoster_rows) for state in {"healthy", "degraded", "offline", "broken", "blocked", "unknown", "needs_attention", "repair_available"}},
                 "last_complete_check_at": min((row["last_check_at"] for row in active), default=0),
                 "next_check_at": min((row["next_check_at"] for row in active if row["next_check_at"]), default=0),

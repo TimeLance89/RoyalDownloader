@@ -17,6 +17,69 @@ export function createProviderMonitor(root, { client = api, events = websocket }
   let scope, pending, value, dirty = false, tab = "providers", actionPending = false, refreshError = false;
   let revision = 0;
   const snapshots = new WeakMap();
+  const detailCache = new Map(), detailPending = new Map();
+  const detailKey = (kind, id, field) => `${kind}:${id}:${field}`;
+  function applyCachedDetails() {
+    const live = new Set();
+    for (const kind of ["providers", "hosters"]) for (const source of value[kind] || []) {
+      for (const field of ["history", "repairs"]) {
+        const key = detailKey(kind, source.provider || source.hoster, field);
+        live.add(key);
+        const cached = detailCache.get(key);
+        if (cached && cached.revision === source.revision) source[field] = cached.items;
+        else detailCache.delete(key);
+      }
+    }
+    for (const key of detailCache.keys()) if (!live.has(key)) detailCache.delete(key);
+  }
+  function prepareDetailPanels() {
+    if (!value?.compact || !technical().open) return;
+    for (const kind of ["providers", "hosters"]) for (const source of value[kind] || []) {
+      const id = source.provider || source.hoster;
+      for (const field of ["history", "repairs"]) {
+        const panelId = `${kind === "hosters" ? "hoster-" : ""}${id}-${field}`;
+        const panel = [...root.querySelectorAll("details[data-panel]")].find(node => node.dataset.panel === panelId);
+        if (panel) Object.assign(panel.dataset, { detailKind: kind, detailSource: id, detailField: field });
+      }
+    }
+    for (const panel of root.querySelectorAll("details[data-detail-source][open]")) void loadDetail(panel);
+  }
+  async function loadDetail(panel) {
+    if (!value?.compact || !scope?.active) return;
+    if (panel.closest("[hidden]") || !technical().open) return;
+    for (let parent = panel.parentElement?.closest("details"); parent; parent = parent.parentElement?.closest("details")) {
+      if (!parent.open) return;
+    }
+    const current = scope;
+    const { detailKind: kind, detailSource: id, detailField: field } = panel.dataset;
+    if (!["providers", "hosters"].includes(kind) || !["history", "repairs"].includes(field)) return;
+    const source = value[kind].find(row => (row.provider || row.hoster) === id);
+    if (!source) return;
+    const key = detailKey(kind, id, field), version = source.revision;
+    if (detailPending.has(key) || detailCache.get(key)?.revision === version) return;
+    const task = {};
+    detailPending.set(key, task);
+    panel.querySelector("[data-detail-feedback]")?.remove();
+    const feedback = root.ownerDocument.createElement("p");
+    feedback.dataset.detailFeedback = ""; feedback.setAttribute("role", "status");
+    feedback.textContent = "Details werden geladen …"; panel.append(feedback);
+    try {
+      const result = await client.get(`/api/${kind}/${encodeURIComponent(id)}/${field}`, { signal: current.signal });
+      if (!current.active || value[kind].find(row => (row.provider || row.hoster) === id)?.revision !== version) return;
+      if (!Array.isArray(result[field])) throw new Error("Invalid detail response");
+      detailCache.set(key, { revision: version, items: result[field] });
+      applyCachedDetails(); render(); renderHosters(); prepareDetailPanels();
+    } catch {
+      if (current.active) {
+        feedback.textContent = "Details konnten nicht geladen werden. ";
+        const retry = root.ownerDocument.createElement("button");
+        retry.type = "button"; retry.dataset.action = "detail-retry"; retry.textContent = "Erneut laden";
+        feedback.append(retry);
+      }
+    } finally {
+      if (detailPending.get(key) === task) detailPending.delete(key);
+    }
+  }
   function updateList(node, data, markup) {
     const snapshot = JSON.stringify(data);
     if (snapshots.get(node) === snapshot) return;
@@ -50,6 +113,15 @@ export function createProviderMonitor(root, { client = api, events = websocket }
     text("impact", state === "healthy" ? "Downloads: Keine Einschränkungen erkannt." : state === "action_required" ? "Auswirkung auf Downloads: Mindestens ein eingerichteter Bereich ist derzeit nicht verfügbar." : service?.user_impact === "reduced_redundancy" ? "Auswirkung auf Downloads: Verfügbare Alternativen bleiben nutzbar." : "Auswirkung auf Downloads: Noch nicht zuverlässig bewertet.");
     text("required", `Aktion erforderlich: ${service?.action_required ? "Ja – betroffene Quellen prüfen." : "Nein"}`);
     text("last-check", `Letzte Prüfung: ${recentDate(service?.last_check_at)}`);
+    const runtime = root.querySelector('[data-monitor="runtime-health"]');
+    if (runtime) {
+      const warnings = [];
+      if (value.config.enabled && value.scheduler?.running === false) warnings.push("Die automatische Quellenprüfung läuft derzeit nicht.");
+      else if (value.scheduler?.retrying) warnings.push("Bei der Quellenprüfung gab es einen Fehler. Royal versucht es erneut.");
+      if (value.persistence?.write_failed) warnings.push("Prüfergebnisse konnten nicht gespeichert werden. Royal versucht es erneut.");
+      if (value.hoster_inventory?.rejected) warnings.push("Das Hoster-Inventar ist belegt. Neue Videoanbieter konnten noch nicht aufgenommen werden.");
+      runtime.textContent = warnings.join(" "); runtime.hidden = warnings.length === 0;
+    }
     root.querySelector('[data-action="details"]').hidden = !service?.action_required;
   }
   function sourceImpact(kind, key) {
@@ -73,7 +145,7 @@ export function createProviderMonitor(root, { client = api, events = websocket }
     const opened = new Set([...list.querySelectorAll("details[open]")].map(node => node.dataset.panel || node.dataset.provider));
     updateList(list, [value.providers, value.config.enabled, value.service?.sources?.providers], () => value.providers.map(provider => {
       const esc = escapeHtml, id = esc(provider.provider);
-      const repair = provider.repairs.find(item => item.id === provider.active_repair);
+      const repair = Boolean(provider.active_repair);
       return `<details data-provider="${id}" ${opened.has(provider.provider) ? "open" : ""}>
         <summary><strong>${esc(provider.label)}</strong> · ${provider.enabled ? labels[provider.diagnosis] || esc(provider.diagnosis) : "Pausiert"}${provider.running ? " · Prüfung läuft" : ""}${repair ? " · Reparatur aktiv" : ""}</summary>
         ${sourceImpact("providers", provider.provider)}
@@ -84,8 +156,8 @@ export function createProviderMonitor(root, { client = api, events = websocket }
         <p>${provider.hosters.map(hoster => `${esc(hoster.name)}: ${esc(labels[hoster.state] || hoster.state)}`).join(" · ")}</p>
         <button type="button" class="btn-ghost" data-action="probe" data-provider="${id}" ${provider.running ? "disabled" : ""}>Jetzt prüfen</button>
         <button type="button" class="btn-ghost" data-action="full" data-provider="${id}" ${provider.running ? "disabled" : ""}>Vollständigen Test starten</button>
-        <details data-panel="${id}-repairs" ${opened.has(`${provider.provider}-repairs`) ? "open" : ""}><summary>Reparaturen (${provider.repairs.length})</summary>${provider.repairs.map(item => `<article><p>Repair ${esc(item.id.slice(0, 8))} · ${esc(item.state)} · Sicherheit: ${esc(item.confidence)}<br>Validierung: ${item.validation.validated_detail_pages}/${item.validation.known_detail_pages} unabhängige bekannte Titel</p><div class="table-scroll"><pre>${esc(JSON.stringify({ vorher: item.previous_profile, nachher: item.profile }, null, 2))}</pre></div>${item.id === provider.active_repair ? `<button type="button" class="btn-ghost" data-action="rollback" data-provider="${id}" data-repair="${esc(item.id)}">Reparatur zurücksetzen</button>` : item.state === "available" && item.confidence === "high" ? `<button type="button" class="btn-ghost" data-action="activate" data-provider="${id}" data-repair="${esc(item.id)}">Erneut validieren und aktivieren</button>` : ""}</article>`).join("")}</details>
-        <details data-panel="${id}-history" ${opened.has(`${provider.provider}-history`) ? "open" : ""}><summary>Verlauf (${provider.history.length})</summary><ul>${provider.history.slice().reverse().map(event => `<li>${date(event.timestamp)} · ${esc(event.event)} · ${esc(labels[event.diagnosis] || event.reason || "")}${event.changed ? " · Strukturänderung" : ""}${event.isolated ? " · temporär isoliert" : ""}</li>`).join("")}</ul></details>
+        <details data-panel="${id}-repairs" ${opened.has(`${provider.provider}-repairs`) ? "open" : ""}><summary>Reparaturen (${provider.repairs_count ?? provider.repairs.length})</summary>${provider.repairs.map(item => `<article><p>Repair ${esc(item.id.slice(0, 8))} · ${esc(item.state)} · Sicherheit: ${esc(item.confidence)}<br>Validierung: ${item.validation.validated_detail_pages}/${item.validation.known_detail_pages} unabhängige bekannte Titel</p><div class="table-scroll"><pre>${esc(JSON.stringify({ vorher: item.previous_profile, nachher: item.profile }, null, 2))}</pre></div>${item.id === provider.active_repair ? `<button type="button" class="btn-ghost" data-action="rollback" data-provider="${id}" data-repair="${esc(item.id)}">Reparatur zurücksetzen</button>` : item.state === "available" && item.confidence === "high" ? `<button type="button" class="btn-ghost" data-action="activate" data-provider="${id}" data-repair="${esc(item.id)}">Erneut validieren und aktivieren</button>` : ""}</article>`).join("")}</details>
+        <details data-panel="${id}-history" ${opened.has(`${provider.provider}-history`) ? "open" : ""}><summary>Verlauf (${provider.history_count ?? provider.history.length})</summary><ul>${provider.history.slice().reverse().map(event => `<li>${date(event.timestamp)} · ${esc(event.event)} · ${esc(labels[event.diagnosis] || event.reason || "")}${event.changed ? " · Strukturänderung" : ""}${event.isolated ? " · temporär isoliert" : ""}</li>`).join("")}</ul></details>
       </details>`;
     }).join(""));
   }
@@ -104,11 +176,15 @@ export function createProviderMonitor(root, { client = api, events = websocket }
         <p>24 h: ${metric.attempts} Versuche · Erfolg ${metric.success_rate === null ? "—" : `${Math.round(metric.success_rate * 100)} %`} · Median ${metric.median_resolve_ms ?? "—"} ms<br>7 Tage: ${hoster.metrics_7d.attempts} Versuche · Erfolg ${hoster.metrics_7d.success_rate === null ? "—" : `${Math.round(hoster.metrics_7d.success_rate * 100)} %`}<br>Letzter Erfolg: ${date(hoster.last_success_at)} · Letzter Fehler: ${date(hoster.last_failure_at)}<br>Letzte Prüfung: ${date(hoster.last_check_at)} · Nächste Prüfung: ${date(hoster.next_check_at)}</p>
         <div class="table-scroll"><table><thead><tr><th>Test</th><th>Ergebnis</th><th>Zeit</th></tr></thead><tbody>${hoster.steps.map(step => `<tr><td>${esc(steps[step.name] || step.name)}</td><td>${["browser_fallback_required", "runtime_validation_required"].includes(step.code) ? "⚠" : step.ok === null ? "—" : step.ok ? "✓" : "✕"} ${esc(reasons[step.code] || step.code)}</td><td>${step.duration_ms ? `${step.duration_ms} ms` : "—"}</td></tr>`).join("")}</tbody></table></div>
         <button type="button" class="btn-ghost" data-kind="hoster" data-provider="${id}" data-action="probe" ${hoster.running ? "disabled" : ""}>Jetzt prüfen</button><button type="button" class="btn-ghost" data-kind="hoster" data-provider="${id}" data-action="full" ${hoster.running ? "disabled" : ""}>Vollständigen Test starten</button>
-        <details data-panel="${esc(panel)}-repairs" ${opened.has(`${panel}-repairs`) ? "open" : ""}><summary>Reparaturen (${hoster.repairs.length})</summary>${hoster.repairs.map(item => `<article><p>Repair ${esc(item.id.slice(0, 8))} · ${esc(item.state)} · ${esc(item.confidence)} · Shadow ${item.validation.validated_detail_pages}/${item.validation.known_detail_pages}</p><div class="table-scroll"><pre>${esc(JSON.stringify({ vorher: item.previous_profile, nachher: item.profile }, null, 2))}</pre></div><button type="button" class="btn-ghost" data-kind="hoster" data-provider="${id}" data-repair="${esc(item.id)}" data-action="${hoster.active_repair === item.id ? "rollback" : "activate"}">${hoster.active_repair === item.id ? "Reparatur zurücksetzen" : "Erneut validieren und aktivieren"}</button></article>`).join("")}</details>
+        <details data-panel="${esc(panel)}-repairs" ${opened.has(`${panel}-repairs`) ? "open" : ""}><summary>Reparaturen (${hoster.repairs_count ?? hoster.repairs.length})</summary>${hoster.repairs.map(item => `<article><p>Repair ${esc(item.id.slice(0, 8))} · ${esc(item.state)} · ${esc(item.confidence)} · Shadow ${item.validation.validated_detail_pages}/${item.validation.known_detail_pages}</p><div class="table-scroll"><pre>${esc(JSON.stringify({ vorher: item.previous_profile, nachher: item.profile }, null, 2))}</pre></div><button type="button" class="btn-ghost" data-kind="hoster" data-provider="${id}" data-repair="${esc(item.id)}" data-action="${hoster.active_repair === item.id ? "rollback" : "activate"}">${hoster.active_repair === item.id ? "Reparatur zurücksetzen" : "Erneut validieren und aktivieren"}</button></article>`).join("")}</details>
         <details data-panel="${esc(panel)}-history" ${opened.has(`${panel}-history`) ? "open" : ""}><summary>Verlauf</summary><ul>${hoster.history.slice().reverse().map(event => `<li>${date(event.timestamp)} · ${esc(event.event)} · ${esc(event.reason || event.diagnosis || "")}</li>`).join("")}</ul></details></details>`;
     }).join(""));
     const history = root.querySelector('[data-monitor="history"]');
-    if (history) updateList(history, [value.providers, value.hosters], () => [...value.providers, ...(value.hosters || [])].map(source => `<details><summary>${esc(source.label)} · ${source.repairs.length} Reparaturen</summary><ul>${source.history.slice().reverse().map(event => `<li>${date(event.timestamp)} · ${esc(event.event)} · ${esc(event.reason || event.diagnosis || "")}</li>`).join("")}</ul></details>`).join(""));
+    const openedHistory = new Set([...(history?.querySelectorAll("details[open]") || [])].map(node => node.dataset.panel));
+    if (history) updateList(history, [value.providers, value.hosters], () => [...value.providers, ...(value.hosters || [])].map(source => {
+      const kind = source.provider ? "providers" : "hosters", id = source.provider || source.hoster, panel = `history-${kind}-${id}`;
+      return `<details data-panel="${esc(panel)}" data-detail-kind="${kind}" data-detail-source="${esc(id)}" data-detail-field="history" ${openedHistory.has(panel) ? "open" : ""}><summary>${esc(source.label)} · ${source.repairs_count ?? source.repairs.length} Reparaturen</summary><ul>${source.history.slice().reverse().map(event => `<li>${date(event.timestamp)} · ${esc(event.event)} · ${esc(event.reason || event.diagnosis || "")}</li>`).join("")}</ul></details>`;
+    }).join(""));
     for (const name of ["providers", "hosters", "history"]) root.querySelector(`[data-monitor="${name}"]`).hidden = name !== tab;
     for (const button of root.querySelectorAll('[data-action="tab"]')) button.setAttribute("aria-pressed", String(button.dataset.tab === tab));
   }
@@ -120,12 +196,12 @@ export function createProviderMonitor(root, { client = api, events = websocket }
       if (!afterMutation || !current.active) return;
     }
     const request = (async () => { try {
-      const result = await client.get("/api/providers/diagnostics", { signal: current.signal });
+      const result = await client.get("/api/providers/diagnostics?summary=true", { signal: current.signal });
       if (!current.active) return;
       if (!result?.config || !Array.isArray(result.providers)) throw new Error("Provider-Diagnosen sind derzeit nicht verfügbar.");
       // Background polling must not remove feedback and move controls between
       // pointerdown and pointerup. A new action/mount owns status replacement.
-      value = result; render(); renderHosters();
+      value = result; applyCachedDetails(); render(); renderHosters(); prepareDetailPanels();
       if (refreshError) { status().textContent = ""; refreshError = false; }
     } catch (error) {
       if (current.active) { refreshError = true; status().textContent = error.status === 403 ? "Die Quellenübersicht ist nur für Administratoren verfügbar." : "Die Quellenübersicht ist vorübergehend nicht erreichbar. Bitte später erneut versuchen."; }
@@ -138,8 +214,9 @@ export function createProviderMonitor(root, { client = api, events = websocket }
     if (!button || !scope?.active) return;
     const current = scope;
     const { action: name, provider, repair, kind } = button.dataset;
-    if (name === "details") { technical().open = true; render(); renderHosters(); technical().querySelector("summary").focus(); return; }
-    if (name === "tab") { tab = button.dataset.tab; renderHosters(); return; }
+    if (name === "detail-retry") { await loadDetail(button.closest("details")); return; }
+    if (name === "details") { technical().open = true; render(); renderHosters(); prepareDetailPanels(); technical().querySelector("summary").focus(); return; }
+    if (name === "tab") { tab = button.dataset.tab; renderHosters(); prepareDetailPanels(); return; }
     const sourcePath = kind === "hoster" ? "hosters" : "providers";
     if (["rollback", "activate"].includes(name)) {
       const confirmation = root.querySelector('[data-monitor="confirmation"]');
@@ -181,6 +258,12 @@ export function createProviderMonitor(root, { client = api, events = websocket }
     mount() {
       if (!root || scope) return;
       scope = createScope(); pending = null; actionPending = false; refreshError = false;
+      detailCache.clear(); detailPending.clear();
+      if (!root.querySelector('[data-monitor="runtime-health"]')) {
+        const warning = root.ownerDocument.createElement("p");
+        warning.dataset.monitor = "runtime-health"; warning.setAttribute("role", "status"); warning.hidden = true;
+        root.querySelector('[data-monitor="notice"]').after(warning);
+      }
       root.setAttribute("aria-busy", "false"); status().textContent = "";
       scope.listen(root, "click", event => { void action(event); });
       const changed = () => { dirty = true; revision++; };
@@ -189,8 +272,12 @@ export function createProviderMonitor(root, { client = api, events = websocket }
       scope.listen(technical(), "toggle", event => {
         // Nested disclosure events must not rebuild the control being opened.
         if (event.target !== technical()) return;
-        if (value && technical().open) { render(); renderHosters(); }
+        if (value && technical().open) { render(); renderHosters(); prepareDetailPanels(); }
       });
+      scope.listen(root, "toggle", event => {
+        const panel = event.target;
+        if (panel.matches?.("details[data-detail-source]") && panel.open) void loadDetail(panel);
+      }, true);
       scope.interval(() => { if (!root.ownerDocument.hidden) void refresh(); }, 15000);
       scope.add(events.subscribe("provider_diagnostics", event => {
         if (!value?.config.notify_changes) return;
@@ -200,6 +287,6 @@ export function createProviderMonitor(root, { client = api, events = websocket }
       }));
       void refresh();
     }, refresh,
-    unmount() { scope?.dispose(); scope = null; pending = null; actionPending = false; root.setAttribute("aria-busy", "false"); },
+    unmount() { scope?.dispose(); scope = null; pending = null; actionPending = false; detailCache.clear(); detailPending.clear(); root.setAttribute("aria-busy", "false"); },
   };
 }

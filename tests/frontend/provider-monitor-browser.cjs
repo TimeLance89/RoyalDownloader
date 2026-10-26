@@ -9,7 +9,8 @@ const { fixture } = require("./performance-fixture.cjs");
     const calls = [];
     let config = { enabled: true, auto_repair: true, notify_changes: false, interval_hours: 12, intensity: "standard" };
     let unavailable = false, failSave = false, languageProblem = false, diagnosticOnly = false, diagnosticsUnavailable = false;
-    let saveGate = null;
+    let saveGate = null, compact = false, detailRevision = 1, runtimeFault = false;
+    const brief = row => compact ? { ...row, history: [], repairs: [], history_count: row.history.length, repairs_count: row.repairs.length, revision: detailRevision } : row;
     const service = { service_health: "healthy", user_impact: "none", action_required: false,
       coverage: { movies: "healthy", series: "healthy", anime: "healthy" }, active_sources: 1, available_video_services: 1, last_check_at: Date.now() / 1000 - 18 * 60,
       paths: ["de", "en"].map(language => ({ media_type: "anime", language, state: "healthy" })),
@@ -34,6 +35,8 @@ const { fixture } = require("./performance-fixture.cjs");
       await page.route("**/api/hosters/**", async route => {
         const request = route.request(), path = new URL(request.url()).pathname;
         calls.push({ path, method: request.method(), body: request.method() === "GET" ? null : request.postDataJSON() });
+        if (path.endsWith("/history")) return route.fulfill({ json: { history: hoster.history } });
+        if (path.endsWith("/repairs")) return route.fulfill({ json: { repairs: hoster.repairs } });
         if (path.endsWith("/activate")) { hoster.active_repair = "hoster-repair"; hoster.repairs[0].state = "active"; }
         if (path.endsWith("/rollback")) { hoster.active_repair = null; hoster.repairs[0].state = "rolled_back"; }
         return route.fulfill({ json: { started: true } });
@@ -42,8 +45,10 @@ const { fixture } = require("./performance-fixture.cjs");
         const request = route.request(), path = new URL(request.url()).pathname;
         const body = request.method() === "GET" ? null : request.postDataJSON();
         calls.push({ path, method: request.method(), body });
+        if (path.endsWith("/history")) return route.fulfill({ json: { history: provider.history } });
+        if (path.endsWith("/repairs")) return route.fulfill({ json: { repairs: provider.repairs } });
         if (path.endsWith("/diagnostics") && diagnosticsUnavailable) return route.fulfill({ status: 502, json: { detail: "Cloudflare token=secret" } });
-        if (path.endsWith("/diagnostics")) return route.fulfill({ json: { config, service: diagnosticOnly ? { ...service, service_health: "degraded", user_impact: "unconfirmed", coverage: { ...service.coverage, anime: "unconfirmed" }, paths: [{ media_type: "anime", language: "de", state: "unconfirmed" }] } : languageProblem ? { ...service, service_health: "action_required", user_impact: "blocking", action_required: true, coverage: { ...service.coverage, anime: "action_required" }, paths: service.paths.map(p => ({ ...p, state: p.language === "de" ? "action_required" : "healthy" })) } : unavailable ? { ...service, service_health: "action_required", user_impact: "blocking", action_required: true, coverage: { ...service.coverage, series: "action_required" } } : service, providers: [provider], hosters: [hoster], summary: { healthy: 1 } } });
+        if (path.endsWith("/diagnostics")) return route.fulfill({ json: { config, service: diagnosticOnly ? { ...service, service_health: "degraded", user_impact: "unconfirmed", coverage: { ...service.coverage, anime: "unconfirmed" }, paths: [{ media_type: "anime", language: "de", state: "unconfirmed" }] } : languageProblem ? { ...service, service_health: "action_required", user_impact: "blocking", action_required: true, coverage: { ...service.coverage, anime: "action_required" }, paths: service.paths.map(p => ({ ...p, state: p.language === "de" ? "action_required" : "healthy" })) } : unavailable ? { ...service, service_health: "action_required", user_impact: "blocking", action_required: true, coverage: { ...service.coverage, series: "action_required" } } : service, providers: [brief(provider)], hosters: [brief(hoster)], compact, scheduler: { running: true, retrying: runtimeFault }, persistence: { write_failed: runtimeFault }, summary: { healthy: 1 } } });
         if (path.endsWith("/monitor/config")) { if (failSave) return route.fulfill({ status: 502, json: { detail: "The origin web server returned an invalid or incomplete response to Cloudflare token=secret" } }); config = body; if (saveGate) await saveGate; return route.fulfill({ json: config }); }
         if (path.endsWith("/rollback")) { assert.equal(body.confirmed, true); provider.active_repair = null; provider.repairs[0].state = "rolled_back"; }
         if (path.endsWith("/config")) return route.fallback();
@@ -227,7 +232,7 @@ const { fixture } = require("./performance-fixture.cjs");
         if (firstPoll) { firstPoll = false; await heldPoll; }
         await route.fallback();
       };
-      await page.route("**/api/providers/diagnostics", holdDiagnostics);
+      await page.route("**/api/providers/diagnostics*", holdDiagnostics);
       const diagnosticCount = calls.filter(call => call.path === "/api/providers/diagnostics").length;
       const polling = page.waitForRequest(request => new URL(request.url()).pathname === "/api/providers/diagnostics");
       await page.evaluate(() => sentinelPoll());
@@ -238,7 +243,7 @@ const { fixture } = require("./performance-fixture.cjs");
       assert.equal(await monitor.getAttribute("aria-busy"), "true", "Mutation waits for overlapping poll");
       releasePoll();
       await completed;
-      await page.unroute("**/api/providers/diagnostics", holdDiagnostics);
+      await page.unroute("**/api/providers/diagnostics*", holdDiagnostics);
       assert.ok(calls.filter(call => call.path === "/api/providers/diagnostics").length >= diagnosticCount + 2, "Mutation refreshes after pending poll");
       await page.waitForFunction(() => {
         const button = document.querySelector('#provider-monitor [data-action="all"]');
@@ -323,6 +328,43 @@ const { fixture } = require("./performance-fixture.cjs");
       await monitor.locator('[data-action="save"]').evaluate(button => button.click());
       assert.equal((await retry).postDataJSON().interval_hours, 36);
       await page.waitForFunction(() => document.querySelector("#provider-monitor").getAttribute("aria-busy") === "false");
+      // Production uses compact polling: history/repairs load only on demand.
+      compact = true; runtimeFault = true;
+      provider.active_repair = "fixture-repair";
+      provider.repairs[0].state = "active";
+      await page.evaluate(() => {
+        const technical = document.querySelector('#provider-monitor [data-monitor="technical"]');
+        technical.open = false;
+        for (const panel of technical.querySelectorAll("details")) panel.open = false;
+      });
+      await page.evaluate(() => sentinelPoll());
+      await monitor.locator('[data-monitor="runtime-health"]').getByText(/konnten nicht gespeichert/).waitFor();
+      const historyCalls = () => calls.filter(call => call.path.endsWith("/history")).length;
+      const repairCalls = () => calls.filter(call => call.path.endsWith("/repairs")).length;
+      assert.equal(historyCalls(), 0);
+      assert.equal(repairCalls(), 0);
+      await monitor.locator('[data-monitor="technical"] > summary')[interact]();
+      await monitor.locator('[data-action="tab"][data-tab="providers"]')[interact]();
+      await monitor.locator('details[data-provider="filmpalast"] > summary').getByText(/Reparatur aktiv/).waitFor();
+      await monitor.locator('details[data-provider="filmpalast"]').evaluate(node => node.open = true);
+      const historyPanel = monitor.locator('[data-panel="filmpalast-history"]');
+      await historyPanel.locator('summary')[interact]();
+      await historyPanel.locator('li').first().waitFor();
+      assert.equal(historyCalls(), 1);
+      assert.equal(repairCalls(), 0, "Opening history must not load repair profiles");
+      await historyPanel.locator('summary')[interact]();
+      await historyPanel.locator('summary')[interact]();
+      assert.equal(historyCalls(), 1, "Reopening unchanged history reuses its cache");
+      const repairPanel = monitor.locator('[data-panel="filmpalast-repairs"]');
+      await repairPanel.locator('summary')[interact]();
+      await repairPanel.locator('article').first().waitFor();
+      assert.equal(repairCalls(), 1);
+      detailRevision++; runtimeFault = false;
+      provider.history.push({ timestamp: 2000, event: "fresh_event" });
+      await page.evaluate(() => sentinelPoll());
+      await historyPanel.getByText(/fresh_event/).waitFor();
+      assert.equal(historyCalls(), 2, "Changed history refreshes only while open");
+      await page.waitForFunction(() => document.querySelector('#provider-monitor [data-monitor="runtime-health"]').hidden);
       assert.deepEqual(errors, []);
       console.log(`provider monitor ${width}px: diagnostics, probe, config, confirmation and rollback passed`);
     } finally { await run.close(); }

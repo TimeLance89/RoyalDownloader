@@ -34,8 +34,8 @@ def create_provider_monitor_router(monitor, current_user):
 
     @router.get("/api/providers/diagnostics")
     @router.get("/api/v1/providers/diagnostics")
-    def overview():
-        return monitor.diagnostics()
+    def overview(summary: bool = False):
+        return monitor.diagnostics(details=not summary)
 
     @router.put("/api/providers/monitor/config")
     @router.put("/api/v1/providers/monitor/config")
@@ -47,13 +47,7 @@ def create_provider_monitor_router(monitor, current_user):
     def probe_all(body: ProbeBody):
         # Use the scheduler, not an unbounded job queue. All enabled sources get
         # staggered due times and run as concurrency slots become free.
-        now = monitor.clock()
-        for index, provider in enumerate(monitor.enabled()):
-            monitor.store.update(provider, next_check_at=now + index * 30, requested_intensity=body.intensity)
-        for index, hoster in enumerate(monitor.hosters.inventory):
-            if monitor.hosters.candidates(hoster):
-                monitor.hosters.store.update(hoster, next_check_at=now + index * 30, requested_intensity=body.intensity)
-        monitor.wake.set()
+        monitor.schedule_checks(body.intensity)
         return {"scheduled": True}
 
     @router.get("/api/providers/{provider}/diagnostics")
