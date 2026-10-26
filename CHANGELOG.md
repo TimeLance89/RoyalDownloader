@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## v2.0.2 – 2026-10-26
+
+Promote the Overnight changes since v2.0.1, preserving existing Stable release
+history, API contracts and persistent settings.
+
 ### Subscribed series
 
 - Show compact posters in the subscribed-series shelf with separate title,
