@@ -865,6 +865,7 @@ def _delete_user_owned_data(user_id: str) -> dict:
                 state.watchlist_new_slugs.pop(str(entry.get("base_slug") or ""), None)
             erased["watchlist_entries"] = len(removed_watchlist)
     erased["personal_requests"] = state.personal_requests.delete_for_user(owner)
+    erased["inbox_dismissals"] = inbox_dismissals.delete_for_user(owner)
     erased["saved_media"] = state.saved_media.delete_for_user(owner)
     erased["taste_profile"] = state.taste_profiles.delete_for_user(owner)
     return erased
@@ -929,6 +930,10 @@ from api.api_remote_access_router import create_remote_access_router
 from core.remote_access import RemoteAccessVerifier
 remote_access_verifier = RemoteAccessVerifier()
 app.include_router(create_remote_access_router(current_user, remote_access_verifier))
+from api.api_inbox_router import create_inbox_router
+from core.inbox_dismissals import InboxDismissals
+inbox_dismissals = InboxDismissals(appconfig.users_file().with_name("inbox.sqlite3"))
+app.include_router(create_inbox_router(inbox_dismissals, current_user))
 app.include_router(create_announcements_router(current_user))
 register_domain_router("administration", administration_router)
 app.router.routes.extend(administration_router.routes)

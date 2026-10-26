@@ -264,7 +264,7 @@ class HosterMonitor:
             "removed", "recognition_only", "browser_fallback_required", "runtime_validation_required", "budget_exhausted"
         } and (row.get("ok") or row.get("probe_complete", False))]
         self.owner.watchdog.result(key, kind="hoster",
-                                   failed=state in {"broken", "offline", "blocked", "needs_attention"} or bool(meaningful) and not any(row.get("ok") for row in meaningful),
+                                   failed=bool(meaningful) and not any(row.get("ok") for row in meaningful),
                                    recovered=state == "healthy" and sum(bool(row.get("ok")) for row in meaningful) >= 3)
         diagnosis = self.store.entry(key, ("diagnosis",)).get("diagnosis", "unknown")
         delay = 300 if diagnosis == "repairing" else self.owner.watchdog.retry_delay(key, "hoster")

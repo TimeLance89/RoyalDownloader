@@ -52,7 +52,9 @@ jobs:
       - name: Source Sentinel settings and hoster repair confirmation
         env:
           ROYAL_BROWSER: webkit
-        run: node tests/frontend/provider-monitor-browser.cjs
+        run: |
+          node tests/frontend/provider-monitor-browser.cjs
+          node tests/frontend/inbox-dismissal-browser.cjs
 
       - name: Personal Jellyfin wishes and profile isolation
         env:
