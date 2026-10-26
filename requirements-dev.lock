@@ -35,7 +35,7 @@ nodriver==0.50.6
 opentelemetry-api==1.45.1
 packageurl-python==0.17.6
 packaging==26.2
-pip==26.2.1
+pip==26.2.2
 pip-api==0.0.34
 pip-audit==2.10.1
 pip-requirements-parser==32.0.1
