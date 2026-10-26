@@ -76,6 +76,15 @@ const baselineRef = process.env.ROYAL_CSS_BASELINE || "7d93908";
         // still protects desktop and every mobile style outside these rules;
         // mobile-layout.cjs checks the new geometry and touch contracts.
         await page.addStyleTag({ content: readFileSync(resolve(root, "web/styles/mobile.css"), "utf8") });
+        // The requested Inbox redesign intentionally changes its mobile header.
+        // Apply only that marked block after legacy mobile overrides on both
+        // sides; inbox-dismissal-browser checks its layout and real controls.
+        // All other shell styles remain compared against the frozen baseline.
+        const inbox = readFileSync(resolve(root, "web/styles/subscription-center.css"), "utf8");
+        const block = inbox.split("/* Inbox removal and compact source presentation. */")[1]
+          ?.split("/* End inbox removal presentation. */")[0];
+        assert.ok(block, "Missing explicitly scoped Inbox presentation rules");
+        await page.addStyleTag({ content: block });
       }
     }
     const snapshot = () => page.evaluate(() => [...document.querySelectorAll("body, body *")]

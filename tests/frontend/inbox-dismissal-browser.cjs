@@ -41,6 +41,18 @@ const { fixture } = require("./performance-fixture.cjs");
       assert.equal(await inbox.locator('[data-notif-filter="all"] .notif-filter-count').textContent(), "3");
       assert.equal(await inbox.locator('[data-notif-filter="new"] .notif-filter-count').textContent(), "2");
       assert.equal(await inbox.locator('[data-notif-filter="issue"] .notif-filter-count').textContent(), "1");
+      const bounds = await inbox.evaluate(node => {
+        const title = node.querySelector(".notif-head-copy").getBoundingClientRect();
+        const range = document.createRange(); range.selectNodeContents(node.querySelector("#notif-title"));
+        const titleText = range.getBoundingClientRect();
+        const actions = node.querySelector(".notif-head-actions").getBoundingClientRect();
+        const close = node.querySelector("#notif-close").getBoundingClientRect();
+        const refresh = node.querySelector("#notif-refresh").getBoundingClientRect();
+        const remove = node.querySelector("#notif-dismiss-all").getBoundingClientRect();
+        return { separateRows: actions.top >= title.bottom, buttonsFit: refresh.right <= remove.left && remove.right <= node.getBoundingClientRect().right,
+          closeClear: close.left >= titleText.right };
+      });
+      if (width !== 1440) assert.deepEqual(bounds, { separateRows: true, buttonsFit: true, closeClear: true });
       await inbox.screenshot({ path: require("node:path").join(require("node:os").tmpdir(), `royal-inbox-${width}.png`) });
       await inbox.getByRole("button", { name: "Meldung für Serie Eins entfernen", exact: true }).click();
       await page.waitForFunction(() => !document.querySelector('.notif-item[data-base-slug="series-one"]'));

@@ -6,7 +6,6 @@ Wall-clock measurements are diagnostic; structural counters are CI budgets.
 from __future__ import annotations
 
 import argparse
-import concurrent.futures
 import json
 import os
 from pathlib import Path
@@ -19,6 +18,8 @@ import tempfile
 import threading
 import time
 import tracemalloc
+
+from enqueue_measurement import measure_enqueue
 
 
 def timed(function, repeat=7):
@@ -133,10 +134,7 @@ def measure(root, size):
         def cancel(self):
             release.set()
     queue = DownloadQueue(max_parallel=4, per_host_limit=1)
-    enqueued_at = time.perf_counter()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
-        list(pool.map(lambda _i: queue.add(Blocked()), range(size)))
-    result['enqueue_ms'] = (time.perf_counter() - enqueued_at) * 1000
+    result.update(measure_enqueue(queue, Blocked, size))
     first_at = time.perf_counter()
     queue.start()
     assert running.wait(2)

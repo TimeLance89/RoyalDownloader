@@ -388,6 +388,7 @@
 .royal-announcement-actions button:focus-visible { outline: 2px solid #f3d6a4; outline-offset: 2px; }
 @media (max-width: 520px) { .royal-announcement { padding: 12px; } }
 
+/* Inbox removal and compact source presentation. */
 .source-issue-group { border: 1px solid var(--border, #31373b); border-radius: 12px; padding: 14px; margin: 12px 0; background: rgba(255,255,255,.025); }
 .source-issue-group > summary { cursor: pointer; font-weight: 650; font-size: .9rem; color: var(--muted, #aab3bb); }
 .source-issue-group .notif-context { margin: 12px 0; }
@@ -403,3 +404,4 @@
   .notif-head > .notif-head-actions { grid-row: 2; justify-content: flex-start; gap: 8px; flex-wrap: wrap; }
   .notif-head .notif-close { position: absolute; top: 14px; right: 12px; }
 }
+/* End inbox removal presentation. */
