@@ -11,6 +11,9 @@ updates:
       timezone: Europe/Berlin
     target-branch: overnight
     open-pull-requests-limit: 5
+    # Legacy updater requires this migration sentinel to remain byte-identical.
+    exclude-paths:
+      - "requirements.txt"
     groups:
       pip-minor-patch:
         applies-to: version-updates
