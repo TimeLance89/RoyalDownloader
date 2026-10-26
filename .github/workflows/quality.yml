@@ -365,12 +365,12 @@ jobs:
         run: |
           # Identical official digest at each registry: never fall back to an
           # unpinned or floating base image if a public mirror is rate-limited.
-          digest="sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2"
-          local_tag="python:3.12.13-slim-bookworm"
+          digest="sha256:6a0e06f5ba0b373d051aabd3fffb9b873f27f9a2a3a14bcbe37dee6f0e3bbc70"
+          local_tag="python:3.12.15-slim-bookworm"
           images=(
-            "public.ecr.aws/docker/library/python:3.12.13-slim-bookworm@${digest}"
-            "mirror.gcr.io/library/python:3.12.13-slim-bookworm@${digest}"
-            "docker.io/library/python:3.12.13-slim-bookworm@${digest}"
+            "public.ecr.aws/docker/library/python:3.12.15-slim-bookworm@${digest}"
+            "mirror.gcr.io/library/python:3.12.15-slim-bookworm@${digest}"
+            "docker.io/library/python:3.12.15-slim-bookworm@${digest}"
           )
           for attempt in 1 2; do
             for image in "${images[@]}"; do
