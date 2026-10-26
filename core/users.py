@@ -30,6 +30,9 @@ class UserStore:
     def __init__(self, path: Path, legacy_account: dict) -> None:
         self._path, self._lock, self._users = Path(path), threading.RLock(), {}
         self._load()
+        mfa_key = self._path.with_name("mfa.key")
+        if not self._users and (mfa_key.exists() or mfa_key.is_symlink()):
+            raise RuntimeError("2FA-Schlüssel vorhanden, aber Kontodaten fehlen oder sind beschädigt. users.json und mfa.key aus derselben Sicherung wiederherstellen.")
         if not self._users and legacy_account.get("configured"):
             self._migrate_legacy(legacy_account)
 

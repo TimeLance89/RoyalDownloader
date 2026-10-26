@@ -58,6 +58,9 @@ Bei fehlendem oder beschädigtem Schlüssel scheitert TOTP geschlossen. Ein noch
 gültiger Wiederherstellungscode kann weiterhin zur Wiederherstellung verwendet
 werden. RD ersetzt einen fehlenden Schlüssel bei vorhandenen aktiven 2FA-Konten
 nicht automatisch. Speicherfehler erzeugen keine erfolgreiche Anmeldung.
+Sind Kontodaten bei vorhandenem 2FA-Schlüssel verschwunden oder nicht mehr
+einlesbar, verweigert RD den Start statt ein altes Passwortkonto neu anzulegen.
+Auch hier die zusammengehörigen Dateien aus einer Sicherung wiederherstellen.
 
 Sitzungen enthalten die bestätigte 2FA-Generation. Eine Aktivierung oder erneute
 Einrichtung macht ältere und kontolose Altsitzungen ungültig, selbst wenn deren

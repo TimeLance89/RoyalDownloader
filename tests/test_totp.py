@@ -129,3 +129,15 @@ def test_regeneration_replaces_all_old_codes_and_rotation_changes_epoch(state):
     enroll(state)
     assert users.mfa_state(uid)["epoch"] != epoch
     assert json.loads(users._path.read_text())["users"][0]["mfa"]["enabled"]
+
+
+@pytest.mark.parametrize("damage", ["missing", "invalid_json", "empty_accounts"])
+def test_damaged_account_store_never_falls_back_to_legacy_password(state, damage):
+    users, _, _, _ = state
+    enroll(state)
+    if damage == "missing":
+        users._path.unlink()
+    else:
+        users._path.write_text("{" if damage == "invalid_json" else '{"users":[]}', encoding="utf-8")
+    with pytest.raises(RuntimeError, match="2FA-Schlüssel vorhanden"):
+        UserStore(users._path, {"configured": True, "username": "royal", "password_hash": "old-password-hash"})
