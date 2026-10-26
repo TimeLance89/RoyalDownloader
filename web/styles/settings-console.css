@@ -621,3 +621,16 @@ body.settings-active .bg-decor { opacity: .12; }
 .royal-admin-item { display: grid; gap: 5px; padding: 13px; border: 1px solid rgba(255,255,255,.12); border-radius: 10px; }
 .royal-admin-item small { color: #b7b4b9; }
 .royal-admin-item button { justify-self: start; }
+
+/* Own-domain setup reuses the settings cards and account controls. */
+.remote-access-wizard { display: grid; gap: 14px; min-width: 0; }
+.remote-access-wizard[hidden], .remote-access-wizard [hidden] { display: none !important; }
+.remote-access-wizard input { width: 100%; max-width: 640px; box-sizing: border-box; }
+.remote-access-wizard h3 { margin: 18px 0 8px; }
+.remote-access-wizard p, .remote-access-wizard li { line-height: 1.6; overflow-wrap: anywhere; }
+.remote-access-wizard button { justify-self: start; max-width: 100%; white-space: normal; }
+.remote-access-wizard [data-remote="instructions"] > * { margin-bottom: 14px; }
+.remote-access-command { white-space: pre-wrap; overflow-wrap: anywhere; padding: 16px; background: rgba(0,0,0,.25); border-radius: 10px; }
+.remote-access-wizard [data-remote="qr"] { display: block; margin: 16px 0; }
+
+#tab-einstellungen .settings-panel.is-remote-access > .settings-actions { display: none; }

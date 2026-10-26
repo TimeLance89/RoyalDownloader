@@ -1578,6 +1578,9 @@
             <a href="#settings-automation" data-settings-target="settings-automation">
               <span aria-hidden="true">↻</span><strong>Automatik</strong><small>Prüfpläne &amp; Zeitfenster</small>
             </a>
+            <a href="#settings-remote-access" data-settings-target="settings-remote-access">
+              <span aria-hidden="true">↗</span><strong>Externer Zugriff</strong><small>Eigene Domain &amp; Tunnel</small>
+            </a>
             <a href="#settings-account" data-settings-target="settings-account">
               <span aria-hidden="true">⚿</span><strong>Zugang</strong><small>Anmeldung &amp; Sitzungen</small>
             </a>
@@ -1621,6 +1624,10 @@
                 <span class="settings-launch-symbol" aria-hidden="true">↻</span>
                 <span class="settings-launch-copy"><small>DAUERBETRIEB</small><strong>Automatik</strong><em>Prüfintervalle und Download-Zeitfenster</em></span>
                 <i aria-hidden="true">→</i>
+              </button>
+              <button class="settings-launch-card is-access" type="button" data-settings-open="settings-remote-access">
+                <span class="settings-launch-symbol" aria-hidden="true">↗</span>
+                <span class="settings-launch-copy"><small>EIGENE DOMAIN</small><strong>Externer Zugriff</strong><em>Dein NAS unter deiner HTTPS-Adresse erreichen</em></span><i aria-hidden="true">→</i>
               </button>
               <button class="settings-launch-card is-access" type="button" data-settings-open="settings-account">
                 <span class="settings-launch-symbol" aria-hidden="true">⚿</span>
@@ -2009,6 +2016,57 @@
           <div id="auto-status" class="dim small-status">—</div>
         </div>
 
+            </div>
+          </section>
+
+          <section id="settings-remote-access" class="settings-section" data-settings-section aria-labelledby="remote-access-title">
+            <header class="settings-section-heading">
+              <span class="settings-section-mark" aria-hidden="true">↗</span>
+              <div><span>DEINE EIGENE ADRESSE</span><h2 id="remote-access-title">Dein NAS unter deiner Domain</h2>
+                <p>Einrichten mit deinem Cloudflare-Konto und deiner eigenen Domain, zum Beispiel royal.meine-domain.de.</p></div>
+            </header>
+            <p data-remote="admin-note" hidden>Für die Einrichtung ist ein Administratorkonto erforderlich.</p>
+            <div class="settings-group settings-card remote-access-wizard" data-remote="form">
+              <h3>1 · Eigene Adresse wählen</h3>
+              <p class="dim settings-hint">Du benötigst eine eigene Domain mit aktivem DNS bei Cloudflare. Domain und Konto bleiben bei dir; mögliche Domainkosten trägst du selbst.</p>
+              <label for="remote-domain">Deine HTTPS-Adresse</label>
+              <input id="remote-domain" data-remote="domain" type="text" inputmode="url" placeholder="royal.meine-domain.de" autocomplete="off" maxlength="512" spellcheck="false">
+              <details><summary>Bestehende NAS-Installation</summary>
+                <p>Die erzeugten Dateien ergänzen ein bestehendes Docker-Compose-Projekt. Medienpfade bleiben aus dessen Konfiguration erhalten. Bei einer NAS-Container-Oberfläche ohne Compose zuerst ein passendes Projekt mit denselben Mounts erstellen.</p>
+                <label for="remote-service">Royal-Dienstname in docker-compose.yml</label>
+                <input id="remote-service" data-remote="service" value="seriendownloader" maxlength="64" autocomplete="off" spellcheck="false">
+              </details>
+              <button class="btn btn-accent" type="button" data-remote-action="plan">Einrichtung vorbereiten</button>
+              <div data-remote="instructions" hidden>
+                <h3>2 · Tunnel bei Cloudflare anlegen</h3>
+                <ol>
+                  <li>Eigene Domain zu Cloudflare hinzufügen und die dort angezeigte DNS-Aktivierung abschließen.</li>
+                  <li>Im <a href="https://one.dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare-Dashboard</a> unter Netzwerke → Connectors / Cloudflare Tunnels einen Tunnel vom Typ cloudflared erstellen.</li>
+                  <li>Docker wählen und den angezeigten Tunnel-Token kopieren. Den dortigen Startbefehl noch nicht ausführen.</li>
+                  <li>Eine öffentliche Anwendungsroute für <strong data-remote="hostname"></strong> hinzufügen. Service-Typ HTTP; Service-URL:</li>
+                </ol>
+                <div class="account-actions"><code data-remote="origin"></code><button class="btn btn-ghost btn-sm" type="button" data-remote-action="copy-origin">Service-URL kopieren</button></div>
+                <p class="dim settings-hint">Den Host-Header nicht überschreiben. Diese lokale Adresse funktioniert mit dem hier erzeugten Tunnel-Container. <a href="https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/get-started/create-remote-tunnel/" target="_blank" rel="noopener noreferrer">Cloudflare-Anleitung</a></p>
+                <h3>3 · NAS-Konfiguration herunterladen</h3>
+                <label for="remote-token">Tunnel-Token</label>
+                <input id="remote-token" data-remote="token" type="password" autocomplete="off" spellcheck="false" maxlength="8192" placeholder="Nur den Token, keinen Docker-Befehl">
+                <p class="dim settings-hint">Der Token wird nur zur Dateierstellung übertragen und nicht in Royal gespeichert. Die ZIP enthält ihn: vertraulich behandeln. Sie ergänzt dein Compose-Projekt und startet Royal kurz neu. Bestehende Tunnel vorher sichern.</p>
+                <button class="btn btn-accent" type="button" data-remote-action="bundle">NAS-Dateien herunterladen</button>
+                <p>ZIP neben deiner bestehenden docker-compose.yml auf dem NAS entpacken. README befolgen, Token-Datei mit passendem Besitzer und chmod 600 schützen. Dann im Projektordner ausführen:</p>
+                <pre class="remote-access-command"><code data-remote="command"></code></pre>
+                <button class="btn btn-ghost btn-sm" type="button" data-remote-action="copy-command">NAS-Befehl kopieren</button>
+                <h3>4 · Eigene Adresse prüfen</h3>
+                <p>Keine Router-Portfreigabe nötig. Bestehende WAN-Portfreigaben entfernen und die IPv6-Firewall prüfen. Der LAN-Zugang bleibt erhalten.</p>
+                <button class="btn btn-accent" type="button" data-remote-action="verify">HTTPS-Verbindung prüfen</button>
+                <div data-remote="result" hidden>
+                  <ul data-remote="checks"></ul>
+                  <a data-remote="url" target="_blank" rel="noopener noreferrer"></a>
+                  <img data-remote="qr" width="168" height="168" alt="QR-Code deiner eigenen Royal-Adresse">
+                  <p class="dim settings-hint">Geprüft werden Erreichbarkeit, Zertifikat, Installation und anonymer API-Zugang. Dies ersetzt keine vollständige Sicherheitsprüfung. Cloudflare Access kann die automatische Prüfung blockieren.</p>
+                  <button class="btn btn-ghost" type="button" data-settings-open="settings-account">Authenticator einrichten</button>
+                </div>
+              </div>
+              <p data-remote="status" class="settings-hint" role="status" aria-live="polite"></p>
             </div>
           </section>
 
@@ -2628,7 +2686,7 @@
           <p class="setup-copy">Das Passwort wird nur als Hashwert gespeichert und lässt sich später in den Einstellungen unter „Zugang“ ändern.</p>
           <label id="setup-bootstrap-field" class="setup-field" hidden for="setup-bootstrap-token"><span>Einmaliger Sicherheitscode</span><input id="setup-bootstrap-token" type="password" autocomplete="one-time-code" maxlength="256"><small id="setup-bootstrap-hint">Du findest den Code im Royal-Server- oder Container-Log.</small></label>
         </div>
-        <div class="setup-panel hidden" data-setup-step="7"><div id="setup-review" class="setup-review"></div><p class="setup-copy">Royal speichert dein Profil und bereitet die Oberfläche vor. Vorhandene Dateien bleiben erhalten.</p></div>
+        <div class="setup-panel hidden" data-setup-step="7"><div id="setup-review" class="setup-review"></div><label class="setup-copy"><input id="setup-remote-access" type="checkbox"> Danach eigene Domain für externen Zugriff einrichten (Cloudflare Tunnel).</label><p class="setup-copy">Royal speichert dein Profil und bereitet die Oberfläche vor. Vorhandene Dateien bleiben erhalten.</p></div>
       </div>
 
       <div id="setup-preparing" class="setup-preparing" hidden role="status"><div class="language-studio-orbit" aria-hidden="true"><span>RD</span></div><h2 id="setup-preparing-title">Royal macht alles bereit.</h2><p id="setup-preparing-copy">Dein Profil wird gespeichert …</p><ol><li>Profil speichern</li><li>Quellen und Katalog vorbereiten</li><li>Oberfläche bereitstellen</li></ol></div>

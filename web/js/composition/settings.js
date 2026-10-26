@@ -1,3 +1,4 @@
+import { createRemoteAccess } from "../features/settings/remote-access.js";
 import { api } from "../core/api.js";
 import { createSetup } from "../features/setup/index.js";
 import { createIntelligenceSettings } from "../features/settings/intelligence.js";
@@ -61,6 +62,7 @@ export function composeSettings({ i18n, movieState, seriesState, intelligence, s
           if (getSubscriptions().subscriptions.get().loaded) void getSubscriptions().actions.refreshWatchlist();
         },
       }),
+  remoteAccess: createRemoteAccess(document.getElementById("settings-remote-access"), { getUser: () => getProfile().auth.get().user }),
   directory: createDirectoryPicker(document.getElementById("dir-modal")),
   updater: createUpdater(document.getElementById("updater-card")),
   intelligence,
@@ -99,6 +101,10 @@ export function initializeSettings({ getSettings, getIntegrations, i18n, getCore
   getSettings().setup = createSetup(document.getElementById("setup-wizard"), {
       providers: getSettings().providers, jellyfin: getIntegrations().setupJellyfin,
       directory: getSettings().directory, i18n,
+      onRemoteAccess() {
+        getCore().actions.switchTab("einstellungen");
+        document.querySelector('[data-settings-target="settings-remote-access"]').click();
+      },
       onVisibility: visible => document.body.classList.toggle("setup-open", visible),
       async onComplete() {
         const session = await api.get("/api/auth/status");

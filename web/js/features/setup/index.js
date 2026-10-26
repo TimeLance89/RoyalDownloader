@@ -4,7 +4,7 @@ import { selectedDeploymentMode, updateDeploymentModeHints } from "../settings/d
 import { setupStepCopy, setupEnglishStepCopy } from "./copy.js";
 
 export function createSetup(root, { providers, jellyfin, directory, i18n, onComplete,
-  onVisibility = () => {}, onError = console.error, client = api }) {
+  onRemoteAccess = () => {}, onVisibility = () => {}, onError = console.error, client = api }) {
   const byId = id => root.querySelector(`#${id}`);
   let scope, saving = false, committed = false, loadFailed = false, existingSeriesCount = 0;
 // ── Ersteinrichtung ─────────────────────────────────────────────────────────
@@ -311,8 +311,10 @@ async function finishSetup() {
     onVisibility(false);
     providers.setup.unmount();
     jellyfin.unmount();
+    const connectDomain = byId("setup-remote-access").checked;
     root.classList.add("hidden");
     unmount();
+    if (connectDomain) onRemoteAccess();
 
   } catch (e) {
     if (!current.active) return;

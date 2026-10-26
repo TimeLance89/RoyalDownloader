@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Own-domain NAS access
+
+- Add an administrator wizard for each operator's own domain and Cloudflare account,
+  with a Compose overlay, private tunnel-token file and NAS instructions.
+- Keep existing media mounts and LAN access; run cloudflared without elevated
+  privileges or a Docker socket, trusting only its shared loopback origin.
+- Verify public HTTPS with DNS-pinned requests, a short-lived own-instance proof,
+  required login and anonymous API rejection. Bound concurrent checks and clear
+  token fields on download, navigation and session expiry.
+- Offer the wizard after initial setup. Cloudflare account/domain activation and
+  applying the NAS files remain explicit operator steps; no automatic publication.
+
+
 ### Authenticator two-factor authentication
 
 - Add per-account TOTP enrollment with locally generated QR codes, encrypted

@@ -45,7 +45,9 @@ jobs:
       - name: Authenticator setup, recovery and second-factor login
         env:
           ROYAL_BROWSER: webkit
-        run: node tests/frontend/totp-browser.cjs
+        run: |
+          node tests/frontend/totp-browser.cjs
+          node tests/frontend/remote-access-browser.cjs
 
       - name: Source Sentinel settings and hoster repair confirmation
         env:
