@@ -25,6 +25,8 @@ export function createHousehold(root, { userRoleLabel }) {
     find("household-unlock").hidden = true;
     find("household-manage").hidden = true;
     find("household-password").value = "";
+    if (find("household-otp")) find("household-otp").value = "";
+    if (find("household-otp-field")) find("household-otp-field").hidden = true;
     find("household-password-repeat").value = "";
     find("household-password-repeat").hidden = true;
     find("household-password-repeat-label").hidden = true;
@@ -149,13 +151,16 @@ export function createHousehold(root, { userRoleLabel }) {
       ? `Administrator bestätigen: Gib das Passwort von ${currentUser?.display_name || currentUser?.username || 'deinem Administratorkonto'} ein.`
       : firstLogin
         ? `Dieser Zugang wird zum ersten Mal verwendet. Lege jetzt ein eigenes Passwort für ${user.display_name} fest. Loginname: „${user.username}“.`
-        : `Gib einmal das Passwort von ${user.display_name} ein. Danach kannst du in dieser Sitzung frei zwischen den Profilen wechseln.`;
+        : user.mfa_enabled
+          ? `Gib für ${user.display_name} das Passwort und einen aktuellen Authenticator-Code oder Wiederherstellungscode ein.`
+          : `Gib einmal das Passwort von ${user.display_name} ein. Danach kannst du in dieser Sitzung frei zwischen den Profilen wechseln.`;
     find("household-password-label").textContent = firstLogin ? "Neues Passwort" : "Passwort";
     password.autocomplete = firstLogin ? "new-password" : "current-password";
     repeat.hidden = !firstLogin;
     repeatLabel.hidden = !firstLogin;
     repeat.required = firstLogin;
     find("household-unlock").hidden = false;
+    if (find("household-otp-field")) find("household-otp-field").hidden = action === "manage" || !user.mfa_enabled;
     password.focus();
   }
 
@@ -168,7 +173,7 @@ export function createHousehold(root, { userRoleLabel }) {
     try {
       await api.post(
         "/api/me/household/switch",
-        { user_id: user.id, password },
+        { user_id: user.id, password, otp_code: find("household-otp")?.value.trim() || "" },
         { signal: current.signal },
       );
       if (!current.active) return;
@@ -186,7 +191,7 @@ export function createHousehold(root, { userRoleLabel }) {
       showUnlock(user, "first-login");
       return;
     }
-    if (root.dataset.switchingUnlocked === "true") {
+    if (root.dataset.switchingUnlocked === "true" && !user.mfa_enabled) {
       void switchHouseholdUser(user);
       return;
     }
@@ -208,7 +213,7 @@ export function createHousehold(root, { userRoleLabel }) {
     try {
       await api.post(
         "/api/auth/first-login",
-        { username: user.username, password, password_repeat: repeat },
+        { username: user.username, password, password_repeat: repeat, otp_code: find("household-otp")?.value.trim() || "" },
         { signal: current.signal },
       );
       if (!current.active) return;

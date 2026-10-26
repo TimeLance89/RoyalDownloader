@@ -30,6 +30,7 @@ class AuthRuntimeDependencies:
 
     basic_auth_guard: Any
     session_store: Any
+    user_store: Any = None
 
 
 _injected_dependencies: AuthRuntimeDependencies | None = None
@@ -51,6 +52,10 @@ def _runtime_dependencies() -> AuthRuntimeDependencies:
         basic_auth_guard=backend_value("BASIC_AUTH_GUARD"),
         session_store=backend_value("SESSION_STORE"),
     )
+
+
+def _session_users():
+    return getattr(_runtime_dependencies(), "user_store", None) or backend_value("USER_STORE")
 
 
 # This service is imported before AppState is constructed.  Security-sensitive
@@ -168,6 +173,10 @@ def _authorized_basic_header(value: str, guard_key: str = "") -> bool:
     guard = _runtime_dependencies().basic_auth_guard
     if guard.retry_after(key):
         return False
+    user = _session_users().find(username)
+    if user and user.get("mfa", {}).get("enabled"):
+        # Reject before hashing: Basic has no second-factor exchange.
+        return False
     authenticated = verify_credentials(username, password)
     if authenticated:
         guard.register_success(key)
@@ -198,7 +207,7 @@ def authenticated_mobile_token(headers, *, touch: bool = True) -> str:
     if bearer and _runtime_dependencies().session_store.validate(
         bearer, appauth.SESSION_KIND_MOBILE, touch=touch,
     ):
-        return bearer
+        return bearer if _mfa_session_valid(bearer) else ""
     return ""
 
 
@@ -208,8 +217,25 @@ def authenticated_web_token(cookies, *, touch: bool = True) -> str:
     if cookie and _runtime_dependencies().session_store.validate(
         cookie, appauth.SESSION_KIND_WEB, touch=touch,
     ):
-        return cookie
+        return cookie if _mfa_session_valid(cookie) else ""
     return ""
+
+
+def _mfa_session_valid(token) -> bool:
+    store = _runtime_dependencies().session_store
+    users = _session_users()
+    user = users.get(store.user_id(token, touch=False))
+    if not user:
+        # Pre-household tokens have no owner and therefore cannot prove MFA.
+        return not any(value.get("mfa_enabled") for value in users.list())
+    if not user.get("enabled", True) or user.get("setup_required"):
+        return False
+    state = user.get("mfa", {})
+    if not state.get("enabled"):
+        return True
+    # Enrollment invalidates pre-2FA sessions even if revocation fsync fails.
+    epoch = state.get("epoch")
+    return bool(epoch and secrets.compare_digest(str(epoch), store.auth_epoch(token)))
 
 
 def request_auth_method(

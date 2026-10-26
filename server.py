@@ -224,6 +224,7 @@ from api.api_administration_router import (
 from api.api_security import SecurityDependencies, install_authentication_middleware
 from api.api_announcements_router import create_announcements_router
 from core.app_state import AppState, _PreparationSlots
+from core.totp import TotpService
 from core.users import UserStore
 from core.profile_avatars import ProfileAvatarStore, auth_dependency_callbacks
 from core.websocket_manager import WSManager, _WSClient
@@ -611,6 +612,7 @@ def _capabilities_payload():
             "required": auth_required(),
             "methods": ["bearer"],
             "legacy_methods": ["cookie", "basic"],
+            "second_factor": {"type": "totp", "login_field": "otp_code", "recovery_codes": True},
             "token_ttl_seconds": appauth.DEFAULT_SESSION_TTL_SECONDS,
             "token_idle_timeout_seconds": appauth.DEFAULT_SESSION_IDLE_SECONDS,
         },
@@ -896,6 +898,7 @@ app.include_router(create_auth_router(AuthDependencies(
     request_is_secure=lambda request: _request_is_secure(request),
     log=lambda *args, **kwargs: log(*args, **kwargs),
     user_store=lambda: USER_STORE,
+    mfa=TotpService(USER_STORE),
     current_user=lambda headers, cookies: current_user(headers, cookies),
     delete_user_data=_delete_user_owned_data,
     profile_summary=_profile_summary,

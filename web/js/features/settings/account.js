@@ -1,10 +1,12 @@
 import { api } from "../../core/api.js";
+import { createTotpSettings } from "./totp.js";
 import { createScope } from "../../core/lifecycle.js";
 
 export function createAccountSettings(root, { client = api, getUser, onSaved, logout,
   confirm = message => window.confirm(message),
 }) {
   const byId = id => root.querySelector(`#${id}`);
+  const totp = createTotpSettings(root.querySelector("[data-totp-settings]"), { client, getUser, onUser: user => { onSaved({ user }, user.username); applyAccountCfg({ configured: true, user }); } });
   let scope;
   let users = [];
   let profileAvatars = [];
@@ -19,6 +21,7 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
   function applyAccountCfg(cfg) {
     const activeUser = getUser();
     const configured = !!cfg.configured;
+    if (byId("account-otp-field")) byId("account-otp-field").hidden = !activeUser?.mfa_enabled;
     const card = byId("account-card");
     card.dataset.state = configured ? "configured" : "open";
     byId("account-warning").classList.toggle("hidden", configured);
@@ -312,11 +315,12 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
     try {
       const result = await client.post(
         "/api/me/username",
-        { username, current_password: currentPassword },
+        { username, current_password: currentPassword, otp_code: byId("account-otp")?.value.trim() || "" },
         { signal: currentScope.signal },
       );
       if (!currentScope.active) return;
       byId("account-current-password").value = "";
+      if (byId("account-otp")) byId("account-otp").value = "";
       onSaved(result, username);
       applyAccountCfg(result);
       setAccountStatus(`✓ Neuer Loginname: „${result.user?.username || username}“. Dein Profilname bleibt unverändert.`);
@@ -354,12 +358,13 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
     setAccountStatus("Wird gespeichert …");
     try {
       const result = getUser()
-        ? await client.post("/api/me/password", { current_password: current, password, password_repeat: repeat }, { signal: currentScope.signal })
+        ? await client.post("/api/me/password", { current_password: current, password, password_repeat: repeat, otp_code: byId("account-otp")?.value.trim() || "" }, { signal: currentScope.signal })
         : await client.post("/api/auth/config", { username, password, current_password: current }, { signal: currentScope.signal });
       if (!currentScope.active) return;
       byId("account-password").value = "";
       byId("account-password-repeat").value = "";
       byId("account-current-password").value = "";
+      if (byId("account-otp")) byId("account-otp").value = "";
       onSaved(result, username);
       applyAccountCfg(result);
       setAccountStatus("✓ Passwort geändert. Andere Sitzungen wurden beendet.");
@@ -406,6 +411,7 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
     mount() {
       if (scope) return;
       scope = createScope();
+      totp.mount();
       for (const id of ["account-save", "account-username-save", "new-user-create", "account-revoke", "account-avatar-upload"]) byId(id).disabled = false;
       scope.listen(byId("account-save"), "click", saveAccount);
       scope.listen(byId("account-username-save"), "click", saveUsername);
@@ -418,6 +424,8 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
       void refresh();
     },
     unmount() {
+      totp.unmount();
+      if (byId("account-otp")) byId("account-otp").value = "";
       scope?.dispose(); scope = null; pending = null; users = []; profileAvatars = [];
       for (const id of ["account-password", "account-password-repeat", "account-current-password"]) byId(id).value = "";
     },

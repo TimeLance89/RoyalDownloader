@@ -13,7 +13,7 @@ export function createAuthentication(root, {
   function status(message = "", error = false) {
     byId("login-status").textContent = message; byId("login-status").classList.toggle("error", Boolean(error));
   }
-  function clearSecrets() { for (const id of ["login-password", "first-login-password", "first-login-repeat"]) byId(id).value = ""; }
+  function clearSecrets() { for (const id of ["login-password", "first-login-password", "first-login-repeat", "login-otp", "first-login-otp"]) { const node = byId(id); if (node) node.value = ""; } }
   function hide() {
     visible = false; onVisibility(false); root.classList.add("hidden"); clearSecrets(); status();
     scope?.dispose(); scope = null; busy = false;
@@ -28,6 +28,14 @@ export function createAuthentication(root, {
     if (resolveLogin) { const resolve = resolveLogin; resolveLogin = null; resolve(); }
     else reload();
   }
+  function requestOtp(error, first = false) {
+    if (!["mfa_required", "mfa_invalid", "mfa_rate_limited"].includes(error.code)) return false;
+    const prefix = first ? "first-login" : "login";
+    const field = byId(prefix + "-otp-field"), input = byId(prefix + "-otp");
+    if (field && input) { field.hidden = false; input.value = ""; input.focus(); }
+    status(error.message, error.code !== "mfa_required");
+    return true;
+  }
   async function submit(event) {
     event.preventDefault();
     if (!scope?.active || busy) return;
@@ -36,10 +44,11 @@ export function createAuthentication(root, {
     if (!username || !password) { status("Benutzername und Passwort werden benötigt.", true); return; }
     busy = true; byId("login-submit").disabled = true; status("Anmeldung läuft …");
     try {
-      const value = await client.post("/api/auth/login", { username, password }, { signal: current.signal });
+      const value = await client.post("/api/auth/login", { username, password, otp_code: byId("login-otp")?.value.trim() || "" }, { signal: current.signal });
       if (current.active) authenticated(value);
     } catch (error) {
       if (!current.active) return;
+      if (requestOtp(error)) return;
       if (error.status === 409) firstLogin(username);
       else { status(error.message, true); byId("login-password").select(); }
     } finally { if (current.active) { busy = false; byId("login-submit").disabled = false; } }
@@ -53,9 +62,9 @@ export function createAuthentication(root, {
     if (!password || password !== repeat) { status("Passwörter stimmen nicht überein.", true); return; }
     busy = true;
     try {
-      const value = await client.post("/api/auth/first-login", { username, password, password_repeat: repeat }, { signal: current.signal });
+      const value = await client.post("/api/auth/first-login", { username, password, password_repeat: repeat, otp_code: byId("first-login-otp")?.value.trim() || "" }, { signal: current.signal });
       if (current.active) { accept(value); hide(); reload(); }
-    } catch (error) { if (current.active) status(error.message, true); }
+    } catch (error) { if (current.active && !requestOtp(error, true)) status(error.message, true); }
     finally { if (current.active) busy = false; }
   }
   function bind() {
@@ -76,6 +85,7 @@ export function createAuthentication(root, {
     byId("login-form").classList.remove("hidden"); byId("first-login-form").classList.add("hidden");
     finishLoading(); status(expired ? "Die Sitzung ist abgelaufen. Bitte erneut anmelden." : "", expired);
     clearSecrets();
+    for (const id of ["login-otp-field", "first-login-otp-field"]) { const field = byId(id); if (field) field.hidden = true; }
     scope.timeout(() => (byId("login-username").value.trim() ? byId("login-password") : byId("login-username")).focus(), 60);
   }
   function unauthorized() {

@@ -1515,6 +1515,7 @@
           <span id="household-unlock-copy">Gib das Passwort des Profils ein, zu dem du wechseln möchtest.</span>
           <label id="household-password-label" for="household-password">Passwort</label>
           <div><input id="household-password" type="password" autocomplete="current-password" required><button type="submit">Weiter</button></div>
+          <div id="household-otp-field" hidden><label for="household-otp">Authenticator-Code oder Wiederherstellungscode</label><input id="household-otp" type="text" autocomplete="one-time-code" maxlength="128" autocapitalize="off" spellcheck="false"></div>
           <label id="household-password-repeat-label" for="household-password-repeat" hidden>Passwort wiederholen</label>
           <input id="household-password-repeat" type="password" autocomplete="new-password" hidden>
           <small id="household-status" role="status" aria-live="polite"></small>
@@ -2037,16 +2038,43 @@
           <label id="account-current-label" class="dim auto-lbl" for="account-current-password">Aktuelles Passwort</label>
           <input id="account-current-password" type="password" autocomplete="current-password" placeholder="Zur Bestätigung">
           <label class="dim auto-lbl" for="account-password">Neues Passwort</label>
-          <input id="account-password" type="password" autocomplete="new-password" placeholder="Mindestens 8 Zeichen">
+          <input id="account-password" type="password" autocomplete="new-password" placeholder="Mindestens 12 Zeichen">
           <label class="dim auto-lbl" for="account-password-repeat">Neues Passwort wiederholen</label>
           <input id="account-password-repeat" type="password" autocomplete="new-password">
+          <div id="account-otp-field" hidden><label class="dim auto-lbl" for="account-otp">Authenticator-Code oder Wiederherstellungscode</label><input id="account-otp" type="text" autocomplete="one-time-code" maxlength="128" autocapitalize="off" spellcheck="false"></div>
           <div class="account-actions">
-            <button id="account-save" class="btn btn-primary btn-sm" type="button">Zugangsdaten speichern</button>
+          <button id="account-save" class="btn btn-primary btn-sm" type="button">Zugangsdaten speichern</button>
             <button id="account-logout" class="btn btn-ghost btn-sm" type="button">Abmelden</button>
           </div>
           <div id="account-status" class="dim small-status" role="status" aria-live="polite"></div>
         </div>
 
+        <section class="settings-group settings-card account-sessions" data-totp-settings>
+          <h3>Zwei-Faktor-Anmeldung</h3>
+          <p class="dim settings-hint">Schütze dein Konto zusätzlich mit einer Authenticator-App, zum Beispiel Google Authenticator aus dem Play Store. Nach der Aktivierung brauchst du bei neuen Anmeldungen auch im LAN einen Code. Ältere Android-/TV-Clients benötigen Unterstützung für die Code-Eingabe.</p>
+          <p data-totp="state" class="dim small-status" role="status" aria-live="polite">Wird geladen …</p>
+          <label class="dim auto-lbl" for="totp-password">Aktuelles Passwort zur Bestätigung</label>
+          <input id="totp-password" data-totp="password" type="password" autocomplete="current-password">
+          <label class="dim auto-lbl" for="totp-code">Authenticator-Code oder Wiederherstellungscode</label>
+          <input id="totp-code" data-totp="code" type="text" autocomplete="one-time-code" maxlength="128" autocapitalize="off" spellcheck="false">
+          <div data-totp="setup" hidden>
+            <p class="dim settings-hint">In der Authenticator-App „Code hinzufügen“ und „QR-Code scannen“ wählen. Alternativ den Einrichtungsschlüssel eingeben. Danach den sechsstelligen Code unten bestätigen. Der Schlüssel ist zehn Minuten gültig.</p>
+            <img data-totp="qr" width="220" height="220" alt="QR-Code für die Authenticator-Einrichtung">
+            <label class="dim auto-lbl" for="totp-secret">Einrichtungsschlüssel</label><input id="totp-secret" data-totp="secret" type="text" readonly autocomplete="off" spellcheck="false">
+            <button data-totp-action="confirm" class="btn btn-primary btn-sm" type="button">Code bestätigen und 2FA aktivieren</button>
+          </div>
+          <div class="account-actions">
+            <button data-totp-action="setup" class="btn btn-primary btn-sm" type="button" disabled>Authenticator einrichten</button>
+            <button data-totp-action="recovery-codes" class="btn btn-ghost btn-sm" type="button" hidden>Neue Wiederherstellungscodes</button>
+            <button data-totp-action="disable" class="btn btn-ghost btn-sm" type="button" hidden>2FA deaktivieren</button>
+          </div>
+          <div data-totp="recovery" hidden>
+            <p class="dim settings-hint">Diese zehn Wiederherstellungscodes werden nur jetzt angezeigt. Jeden Code kannst du einmal statt eines Authenticator-Codes verwenden. Bewahre sie getrennt vom Telefon auf.</p>
+            <pre data-totp="recovery-list"></pre>
+            <button data-totp-action="saved" class="btn btn-ghost btn-sm" type="button">Codes gesichert – ausblenden</button>
+          </div>
+          <p data-totp="status" class="dim small-status" role="status" aria-live="polite"></p>
+        </section>
         <div class="settings-group settings-card account-sessions">
           <h3>Angemeldete Geräte</h3>
           <p class="dim settings-hint">Jede Anmeldung erzeugt eine Sitzung, die einen Neustart überdauert. Bei Verdacht auf einen fremden Zugriff hier alle anderen Geräte abmelden.</p>
@@ -2314,6 +2342,10 @@
           </button>
         </div>
 
+        <div id="login-otp-field" hidden>
+          <label for="login-otp">Authenticator-Code oder Wiederherstellungscode</label>
+          <input id="login-otp" name="otp_code" type="text" autocomplete="one-time-code" maxlength="128" autocapitalize="off" spellcheck="false">
+        </div>
         <button id="login-submit" class="btn btn-primary login-submit" type="submit">
           <span>Anmelden</span><span aria-hidden="true">→</span>
         </button>
@@ -2324,6 +2356,7 @@
         <input id="first-login-password" type="password" autocomplete="new-password" required>
         <label for="first-login-repeat">Passwort bestätigen</label>
         <input id="first-login-repeat" type="password" autocomplete="new-password" required>
+        <div id="first-login-otp-field" hidden><label for="first-login-otp">Authenticator-Code oder Wiederherstellungscode</label><input id="first-login-otp" type="text" autocomplete="one-time-code" maxlength="128" autocapitalize="off" spellcheck="false"></div>
         <button class="btn btn-primary login-submit" type="submit"><span>Passwort festlegen</span><span aria-hidden="true">→</span></button>
       </form>
       <div id="login-status" class="login-status" role="status" aria-live="polite"></div>
