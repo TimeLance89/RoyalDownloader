@@ -606,3 +606,18 @@ body.settings-active .bg-decor { opacity: .12; }
   #tab-einstellungen,
   #tab-einstellungen * { scroll-behavior: auto !important; animation: none !important; }
 }
+
+
+/* Royal announcements: a local receiver option and the official-only publisher. */
+.royal-announcement-settings .royal-announcement-toggle { display: flex; gap: 12px; align-items: center; cursor: pointer; padding: 14px; border-radius: 12px; background: rgba(255,255,255,.035); }
+.royal-announcement-settings input[type="checkbox"] { accent-color: #bd4047; width: 18px; height: 18px; }
+.royal-announcement-setting-status, .royal-admin-feedback { min-height: 1.2em; font-size: .82rem; color: #9bd3b5; }
+.royal-announcement-setting-status.is-error, .royal-admin-feedback.is-error { color: #ff9c9c; }
+.royal-admin { display: grid; gap: 12px; }
+.royal-admin input, .royal-admin textarea, .royal-admin select { display: block; width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; padding: 11px 13px; border: 1px solid rgba(255,255,255,.15); border-radius: 11px; background: rgba(15,17,23,.7); color: #f3f3f3; font: inherit; }
+.royal-admin textarea { resize: vertical; min-height: 105px; }
+.royal-admin input:focus-visible, .royal-admin textarea:focus-visible, .royal-admin select:focus-visible { outline: 2px solid #c67c55; outline-offset: 2px; }
+.royal-admin-list { display: grid; gap: 10px; }
+.royal-admin-item { display: grid; gap: 5px; padding: 13px; border: 1px solid rgba(255,255,255,.12); border-radius: 10px; }
+.royal-admin-item small { color: #b7b4b9; }
+.royal-admin-item button { justify-self: start; }

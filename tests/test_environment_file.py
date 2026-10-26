@@ -92,3 +92,25 @@ def test_project_env_replaces_empty_container_placeholder(monkeypatch, tmp_path:
     load_project_env(target)
 
     assert os.environ["UPDATE_GITHUB_TOKEN"] == "configured-token"
+
+
+def test_env_example_documents_container_media_paths_and_safe_publisher_defaults():
+    example = Path(__file__).resolve().parents[1] / ".env.example"
+    values = read_env(example)
+    assert values["DOWNLOAD_DIR"] == "/movies"
+    assert values["SERIES_DIR"] == "/serien"
+    assert values["ROYAL_ANNOUNCEMENTS_PUBLISHER"] == "0"
+    assert values["ROYAL_ANNOUNCEMENTS_OWNER_USER_ID"] == ""
+    assert values["ROYAL_ANNOUNCEMENTS_PRIVATE_KEY_FILE"] == ""
+    assert values["APP_PASSWORD"] == ""
+    assert values["UPDATE_GITHUB_TOKEN"] == ""
+    assert "BIND_ADDRESS" not in values
+    assert "ROYAL_DEMO_MODE" not in values
+
+    # Duplicates silently overwrite one another in the project env parser.
+    names = [
+        line.split("=", 1)[0].strip()
+        for line in example.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#") and "=" in line
+    ]
+    assert len(names) == len(set(names))
