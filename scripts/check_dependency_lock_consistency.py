@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 REQUIREMENT = re.compile(
-    r"^([A-Za-z0-9_.-]+)(?:\[[^\]]+\])?\s*(==|>=)\s*([0-9][A-Za-z0-9.+_-]*)"
+    r"^([A-Za-z0-9_.-]+)(?:\[[^\]]+\])?(?:\s*(==|>=)\s*([0-9][A-Za-z0-9.+_-]*))?$"
 )
 
 
@@ -17,7 +17,7 @@ def read_requirements(name: str) -> dict[str, tuple[str, str]]:
         line = raw.strip()
         if not line or line.startswith("#") or line.startswith(("-r ", "--requirement ")):
             continue
-        match = REQUIREMENT.match(line)
+        match = REQUIREMENT.fullmatch(line.split(" ;", 1)[0].strip())
         if match is None:
             raise ValueError(f"{name}:{number}: unsupported requirement: {line}")
         package, operator, version = match.groups()
