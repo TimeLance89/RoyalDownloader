@@ -10,8 +10,11 @@ def totp_error(error):
 
 
 def verify_second_factor(dependencies, user, code):
-    if not user or not user.get("mfa", {}).get("enabled"):
+    if not user:
         return {}
+    state = user.get("mfa", {})
+    if not state.get("enabled"):
+        return {"auth_epoch": state["epoch"]} if state.get("epoch") else {}
     if dependencies.mfa is None:
         raise HTTPException(503, "2FA-Prüfung nicht verfügbar.")
     try:

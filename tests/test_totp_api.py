@@ -203,3 +203,29 @@ def test_failed_counter_persistence_never_issues_a_session(context, monkeypatch)
     assert ctx.mfa.status(ctx.uid)["recovery_codes_remaining"] == 10
     monkeypatch.setattr(ctx.users, "_save", save)
     assert ctx.client.post("/api/auth/login", json=body).status_code == 200
+
+
+def test_disable_and_reenrollment_do_not_resurrect_old_or_orphaned_sessions(context, monkeypatch):
+    ctx = context
+    orphaned = ctx.sessions.create(user_id="")
+    _, codes = enroll(ctx)
+    old = ctx.client.cookies.get(appauth.SESSION_COOKIE_NAME)
+    def fail(_uid): raise appauth.SessionPersistenceError("simulated revoke failure")
+    revoke = ctx.sessions.revoke_user
+    monkeypatch.setattr(ctx.sessions, "revoke_user", fail)
+    with pytest.raises(appauth.SessionPersistenceError):
+        ctx.client.post("/api/me/totp/disable", json={"current_password": "correct-password", "otp_code": codes[0]})
+    assert not ctx.mfa.enabled(ctx.uid)
+    assert ctx.sessions.validate(old)
+    assert ctx.client.get("/api/me").status_code == 401
+    ctx.client.cookies.clear(); ctx.client.cookies.set(appauth.SESSION_COOKIE_NAME, orphaned)
+    assert ctx.client.get("/api/me").status_code == 401
+    monkeypatch.setattr(ctx.sessions, "revoke_user", revoke)
+    ctx.client.cookies.clear()
+    # A fresh password login is intentionally sufficient when MFA is disabled.
+    assert ctx.client.post("/api/auth/login", json={"username": "royal", "password": "correct-password"}).status_code == 200
+    epoch = ctx.users.mfa_state(ctx.uid)["epoch"]
+    assert ctx.client.post("/api/me/totp/setup", json={"current_password": "correct-password"}).status_code == 200
+    assert ctx.users.mfa_state(ctx.uid)["epoch"] == epoch
+    ctx.client.cookies.clear(); ctx.client.cookies.set(appauth.SESSION_COOKIE_NAME, old)
+    assert ctx.client.get("/api/me").status_code == 401

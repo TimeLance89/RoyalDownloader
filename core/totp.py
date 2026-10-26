@@ -79,7 +79,8 @@ class TotpService:
                 raise TotpError("mfa_already_enabled", "2FA ist bereits aktiv. Zum Wechsel zuerst mit Passwort und Code deaktivieren.", 409)
             secret = base64.b32encode(secrets.token_bytes(20)).decode()
             encrypted = self._cipher(create=True).encrypt(secret.encode()).decode()
-            self._save(user_id, {"enabled": False, "pending": encrypted, "expires_at": self.clock() + 600})
+            self._save(user_id, {"enabled": False, "pending": encrypted, "expires_at": self.clock() + 600,
+                                 "epoch": state.get("epoch", "")})
             uri = "otpauth://totp/" + quote("RoyalDownloader:" + username, safe="") + "?" + urlencode({
                 "secret": secret, "issuer": "RoyalDownloader", "algorithm": "SHA1", "digits": 6, "period": 30})
             return {"secret": secret, "otpauth_uri": uri, "expires_in": 600}
@@ -151,7 +152,9 @@ class TotpService:
     def disable(self, user_id, code):
         with self.lock:
             self.verify(user_id, code)
-            self._save(user_id, {})
+            # Retain a new session generation after disabling, too. An old
+            # pre-enrollment token must not become valid again on a failed revoke.
+            self._save(user_id, {"enabled": False, "epoch": secrets.token_hex(16)})
 
     def regenerate(self, user_id, code):
         with self.lock:

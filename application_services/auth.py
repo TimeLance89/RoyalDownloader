@@ -227,11 +227,11 @@ def _mfa_session_valid(token) -> bool:
     user = users.get(store.user_id(token, touch=False))
     if not user:
         # Pre-household tokens have no owner and therefore cannot prove MFA.
-        return not any(value.get("mfa_enabled") for value in users.list())
+        return not any((users.get(value["id"]) or {}).get("mfa", {}).get("epoch") for value in users.list())
     if not user.get("enabled", True) or user.get("setup_required"):
         return False
     state = user.get("mfa", {})
-    if not state.get("enabled"):
+    if not state.get("enabled") and not state.get("epoch"):
         return True
     # Enrollment invalidates pre-2FA sessions even if revocation fsync fails.
     epoch = state.get("epoch")

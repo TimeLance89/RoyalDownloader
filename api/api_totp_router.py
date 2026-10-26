@@ -47,7 +47,7 @@ def create_totp_router(dependencies, set_cookie):
         kind = dependencies.appauth.SESSION_KIND_MOBILE if mobile else dependencies.appauth.SESSION_KIND_WEB
         state = dependencies.user_store().mfa_state(user_id)
         token = store.create(label=request.headers.get("user-agent", "")[:120], kind=kind, user_id=user_id,
-                             auth_epoch=state.get("epoch", "") if state.get("enabled") else "")
+                             auth_epoch=state.get("epoch", ""))
         payload["user"] = dependencies.user_store().public(dependencies.user_store().get(user_id))
         if mobile:
             payload.update(access_token=token, token_type="Bearer", expires_in=dependencies.appauth.DEFAULT_SESSION_TTL_SECONDS)

@@ -482,6 +482,8 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
             )
         proof = {}
         target_mfa = bool(target.get("mfa", {}).get("enabled"))
+        if not target_mfa:
+            proof = verify_second_factor(dependencies, target, "")
         if not switching_unlocked or target_mfa:
             confirmed = dependencies.verify_credentials(str(target.get('username') or ''), body.password)
             if not confirmed:
