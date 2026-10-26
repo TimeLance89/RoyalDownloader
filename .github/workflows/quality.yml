@@ -400,7 +400,7 @@ jobs:
       - name: Scan container for high and critical CVEs
         if: ${{ steps.change-scope.outputs.backend == 'true' }}
         timeout-minutes: 5
-        uses: aquasecurity/trivy-action@d2a0b60797ff03db6132bd4e2b293f9b37081297 # trivy 0.74 line
+        uses: aquasecurity/trivy-action@8f28faec26515256b6d22074d1d2a8986f4cbd87 # trivy 0.74 line
         with:
           image-ref: royal-downloader:quality
           format: table
@@ -414,7 +414,7 @@ jobs:
       - name: Generate container SBOM
         if: ${{ steps.change-scope.outputs.backend == 'true' }}
         timeout-minutes: 5
-        uses: aquasecurity/trivy-action@d2a0b60797ff03db6132bd4e2b293f9b37081297
+        uses: aquasecurity/trivy-action@8f28faec26515256b6d22074d1d2a8986f4cbd87
         with:
           image-ref: royal-downloader:quality
           format: cyclonedx
