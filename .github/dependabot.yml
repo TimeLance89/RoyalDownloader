@@ -30,6 +30,10 @@ updates:
     target-branch: overnight
     open-pull-requests-limit: 5
     groups:
+      codeql-together:
+        applies-to: version-updates
+        patterns:
+          - "github/codeql-action/*"
       actions-minor-patch:
         applies-to: version-updates
         patterns:
@@ -47,6 +51,12 @@ updates:
       timezone: Europe/Berlin
     target-branch: overnight
     open-pull-requests-limit: 3
+    # Python interpreter jumps require coordinated lock and CI changes.
+    ignore:
+      - dependency-name: "python"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-major"
     groups:
       docker-minor-patch:
         applies-to: version-updates
