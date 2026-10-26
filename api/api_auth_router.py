@@ -21,6 +21,8 @@ from pydantic import BaseModel, Field
 from core.auth import MAX_PASSWORD_LENGTH, MAX_USERNAME_LENGTH
 from api.totp_support import verify_second_factor
 from api.api_totp_router import create_totp_router
+from api.api_account_sessions_router import create_account_sessions_router
+from api.profile_owner_guard import require_profile_owner
 
 
 class LoginBody(BaseModel):
@@ -512,6 +514,7 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         user = dependencies.current_user(request.headers, request.cookies)
         if not user:
             raise HTTPException(401, "Anmeldung erforderlich.")
+        require_profile_owner(request.headers, str(user["id"]))
         if not dependencies.verify_credentials(user['username'], body.current_password):
             raise HTTPException(403, "Das aktuelle Passwort ist falsch.")
         proof = verify_second_factor(dependencies, user, body.otp_code)
@@ -532,6 +535,7 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         user = dependencies.current_user(request.headers, request.cookies)
         if not user:
             raise HTTPException(401, "Anmeldung erforderlich.")
+        require_profile_owner(request.headers, str(user["id"]))
         if body.password != body.password_repeat:
             raise HTTPException(400, "Die beiden Passwörter stimmen nicht überein.")
         if not dependencies.verify_credentials(user['username'], body.current_password):
@@ -842,39 +846,33 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
             "device_label": session_label,
         }
 
+    def revoke_owned_or_legacy(request, kind, token):
+        user = dependencies.current_user(request.headers, request.cookies)
+        store = dependencies.session_store()
+        try:
+            if user:
+                require_profile_owner(request.headers, str(user["id"]))
+                removed = store.revoke_user(str(user["id"]), keep_token=token)
+                active = len(store.list_for_user(str(user["id"]), token))
+            else:
+                # Compatibility for the original single-account environment setup.
+                removed = store.revoke_all(keep_token=token, kind=kind)
+                active = store.count(kind)
+        except appauth.SessionPersistenceError as exc:
+            raise HTTPException(503, "Sitzungsänderung konnte nicht gespeichert werden.") from exc
+        return {"ok": True, "revoked": removed, "active_sessions": active,
+                "current_session_preserved": bool(token)}
+
     @router.post("/api/auth/sessions/revoke")
     def api_auth_sessions_revoke(request: Request):
-        session_store = dependencies.session_store()
-        removed = session_store.revoke_all(
-            keep_token=dependencies.authenticated_web_token(request.cookies),
-            kind=appauth.SESSION_KIND_WEB,
-        )
-        dependencies.log(f"{removed} andere Sitzung(en) beendet.")
-        return {
-            "ok": True,
-            "revoked": removed,
-            "active_sessions": session_store.count(
-                appauth.SESSION_KIND_WEB,
-            ),
-        }
+        return revoke_owned_or_legacy(request, appauth.SESSION_KIND_WEB,
+                                      dependencies.authenticated_web_token(request.cookies))
 
     @router.post("/api/v1/auth/sessions/revoke")
     def api_v1_auth_sessions_revoke(request: Request):
-        keep_token = dependencies.authenticated_mobile_token(request.headers)
-        session_store = dependencies.session_store()
-        removed = session_store.revoke_all(
-            keep_token=keep_token,
-            kind=appauth.SESSION_KIND_MOBILE,
-        )
-        dependencies.log(f"{removed} andere Sitzung(en) beendet.")
-        return {
-            "ok": True,
-            "revoked": removed,
-            "active_sessions": session_store.count(
-                appauth.SESSION_KIND_MOBILE,
-            ),
-            "current_session_preserved": bool(keep_token),
-        }
+        return revoke_owned_or_legacy(request, appauth.SESSION_KIND_MOBILE,
+                                      dependencies.authenticated_mobile_token(request.headers))
 
     router.include_router(create_totp_router(dependencies, set_session_cookie))
+    router.include_router(create_account_sessions_router(dependencies))
     return router

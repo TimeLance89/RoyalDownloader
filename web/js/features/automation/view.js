@@ -170,11 +170,21 @@ export function createAutomationView(root) {
     setField("movie-upgrade-window-start", hourTime(policy.movie_upgrade_window_start ?? NIGHT_START));
     setField("movie-upgrade-window-end", hourTime(policy.movie_upgrade_window_end ?? NIGHT_END));
 
+    renderStatus(policy);
+    byId("jellyfin-streaming-bandwidth-mbps").disabled = !policy.jellyfin_throttle_enabled;
+    for (const id of ["movie-upgrade-window-start", "movie-upgrade-window-end"]) byId(id).disabled = !policy.movie_upgrades_night_only;
+  }
+
+  function renderStatus(policy) {
+    const weekdayStart = policy.weekday_window_start ?? policy.dl_window_start ?? null;
+    const weekdayEnd = policy.weekday_window_end ?? policy.dl_window_end ?? null;
+    const weekendStart = policy.weekend_window_start ?? null;
+    const weekendEnd = policy.weekend_window_end ?? null;
     const state = policy.policy_state || {};
     const weekday = windowText(weekdayStart, weekdayEnd);
     const weekend = windowText(weekendStart, weekendEnd);
     const scheduleOpen = state.schedule_open !== false;
-    dashboardCell("schedule", scheduleOpen ? "Automatik offen" : "Automatik wartet", `Mo–Fr ${weekday} · Wochenende ${weekend}`, scheduleOpen ? "ok" : "waiting");
+    dashboardCell("schedule", !policy.auto_download ? "Auto-Download aus" : scheduleOpen ? "Zeitfenster offen" : "Wartet auf Zeitfenster", `Mo–Fr ${weekday} · Wochenende ${weekend}`, scheduleOpen ? "ok" : "waiting");
 
     const bandwidth = state.bandwidth || {};
     const configuredBandwidth = Number(policy.max_bandwidth_mbps || 0);
@@ -199,9 +209,9 @@ export function createAutomationView(root) {
     const summary = byId("auto-status");
     if (summary) summary.textContent = !policy.auto_download ? "Auto-Download aus · Regeln bleiben gespeichert." : [state.schedule_open === false ? "Auto-Download wartet" : "Auto-Download bereit", `alle ${policy.check_interval_min} Min.`, `${policy.max_parallel_downloads} Slot${policy.max_parallel_downloads === 1 ? "" : "s"}`, configuredBandwidth > 0 ? `max. ${configuredBandwidth} MB/s` : "ohne Bandbreitenlimit"].join(" · ");
 
-    byId("jellyfin-streaming-bandwidth-mbps").disabled = !policy.jellyfin_throttle_enabled;
-    for (const id of ["movie-upgrade-window-start", "movie-upgrade-window-end"]) byId(id).disabled = !policy.movie_upgrades_night_only;
+    const section = byId("smart-automation-policy")?.closest("[data-settings-section]");
+    if (section) section.dataset.automationEnabled = String(Boolean(policy.auto_download));
   }
 
-  return { bind, sync() { syncScheduleControls(); syncDisabled(); }, render: renderPolicy, build: buildPolicy, get ready() { return latestPolicy !== null; } };
+  return { bind, sync() { syncScheduleControls(); syncDisabled(); }, render: renderPolicy, renderStatus, build: buildPolicy, get ready() { return latestPolicy !== null; } };
 }

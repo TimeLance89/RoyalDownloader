@@ -1568,7 +1568,7 @@
               <span aria-hidden="true">◆</span><strong>Übersicht</strong><small>Alle Systembereiche</small>
             </a>
             <a href="#settings-general" data-settings-target="settings-general">
-              <span aria-hidden="true">⌂</span><strong>Betrieb</strong><small>Modus, Sprache &amp; Speicher</small>
+              <span aria-hidden="true">⌂</span><strong>Betrieb</strong><small>Installation &amp; Oberfläche</small>
             </a>
             <a href="#settings-sources" data-settings-target="settings-sources">
               <span aria-hidden="true">⇄</span><strong>Quellen</strong><small>Katalog &amp; Routing</small>
@@ -1608,7 +1608,7 @@
             <div class="settings-launch-grid" aria-label="Einstellungsbereiche">
               <button class="settings-launch-card is-core" type="button" data-settings-open="settings-general">
                 <span class="settings-launch-symbol" aria-hidden="true">⌂</span>
-                <span class="settings-launch-copy"><small>GRUNDSYSTEM</small><strong>Betrieb und Speicher</strong><em>Servermodus, Oberfläche und Medienpfade</em></span>
+                <span class="settings-launch-copy"><small>GRUNDSYSTEM</small><strong>Betrieb &amp; Einrichtung</strong><em>Installation, Oberfläche und persönliche Einstellungen</em></span>
                 <i aria-hidden="true">→</i>
               </button>
               <button class="settings-launch-card is-route" type="button" data-settings-open="settings-sources">
@@ -1652,30 +1652,19 @@
               <span class="settings-section-mark" aria-hidden="true">⌂</span>
               <div>
                 <span>BASIS</span>
-                <h2 id="settings-general-title">Betrieb und Speicher</h2>
-                <p>Lege fest, wo Royal läuft, wie es aussieht und wohin Medien geschrieben werden.</p>
+                <h2 id="settings-general-title">Betrieb &amp; Einrichtung</h2>
+                <p>Deine laufende Installation und deine persönlichen Einstellungen. Speicherziele und Verteilung haben einen eigenen Bereich.</p>
               </div>
             </header>
             <div class="settings-card-grid settings-general-grid">
-        <div class="settings-group settings-card deployment-settings settings-card-wide">
-          <h3>Betriebsmodus</h3>
-          <p class="dim settings-hint">Bestimmt, ob Royal nur auf diesem Computer oder dauerhaft im Netzwerk läuft.</p>
-          <div class="runtime-mode-selector" role="radiogroup" aria-label="Betriebsmodus">
-            <label class="runtime-mode-card">
-              <input id="deployment-mode-desktop" type="radio" name="deployment-mode" value="desktop">
-              <span class="runtime-mode-visual is-desktop" aria-hidden="true"><i></i><b></b></span>
-              <span><strong>Computer</strong><small>Windows, macOS oder Linux · Browser öffnet lokal</small></span>
-              <em>Dieser PC</em>
-            </label>
-            <label class="runtime-mode-card">
-              <input id="deployment-mode-nas" type="radio" name="deployment-mode" value="nas">
-              <span class="runtime-mode-visual is-nas" aria-hidden="true"><i></i><i></i><i></i></span>
-              <span><strong>NAS / Server</strong><small>Dauerbetrieb · Netzwerkzugriff · start.sh</small></span>
-              <em>24 / 7</em>
-            </label>
-          </div>
-          <p id="deployment-mode-status" class="dim small-status" role="status" aria-live="polite"></p>
-        </div>
+        <section class="operation-installation settings-card-wide" aria-labelledby="operation-title">
+          <div class="operation-server-art" aria-hidden="true"><i></i><i></i><i></i><span>R</span></div>
+          <div class="operation-installation-copy"><span class="operation-live"><i></i>Aktuelle Installation</span><h3 id="operation-title">Royal wird geprüft …</h3><p id="operation-description">Die laufende Umgebung wird vom Server ermittelt.</p><div class="operation-facts"><span id="operation-runtime-label">—</span><span id="operation-network-label">—</span></div></div>
+          <button id="operation-change" class="btn btn-ghost" type="button">Installation ändern</button>
+          <div class="operation-installation-footer"><span id="deployment-mode-status" role="status"></span><details><summary>Technische Details</summary><dl><div><dt>Startprofil</dt><dd id="operation-profile">—</dd></div><div><dt>Datenordner</dt><dd><code id="operation-data-path">—</code></dd></div><div><dt>Erreichbar über</dt><dd id="operation-address">—</dd></div></dl></details></div>
+          <div hidden aria-hidden="true"><input id="deployment-mode-desktop" type="radio" name="deployment-mode" value="desktop"><input id="deployment-mode-nas" type="radio" name="deployment-mode" value="nas"></div>
+        </section>
+        <section class="operation-storage-link settings-card-wide" aria-labelledby="operation-storage-title"><span class="operation-storage-symbol" aria-hidden="true">▰</span><div><h3 id="operation-storage-title">Speicher &amp; Verteilung</h3><p id="operation-storage-summary">Speicherstrategie wird geladen …</p></div><button class="btn btn-ghost" type="button" data-storage-open-manager>Speicher verwalten <span aria-hidden="true">↗</span></button></section>
         <div class="settings-group settings-card language-settings">
           <h3>Sprache &amp; Oberfläche</h3>
           <p class="dim settings-hint">Oberfläche, Inhaltswahl und künftige Serien-Downloads gemeinsam anpassen.</p>
@@ -1696,21 +1685,14 @@
           <div id="ui-language-status" class="dim small-status" role="status" aria-live="polite">Deutsch · Ausgangssprache</div>
         </div>
 
-        <div id="settings-storage-card" class="settings-group settings-card">
-          <h3>Standard-Zielordner</h3>
-          <p class="dim settings-hint">Hier starten Filme und Serien standardmäßig. Wenn du unter <strong>Speicher</strong> „Automatisch verteilen“ aktivierst, darf Royal neue Downloads stattdessen auf einen anderen passenden Medien-Speicher legen.</p>
-          <button class="btn btn-ghost btn-sm" type="button" data-storage-open-manager>Speicher &amp; automatische Verteilung öffnen</button>
-          <label class="dim auto-lbl">Standard für Filme</label>
-          <div class="path-input-row">
-            <input id="save-path" type="text" placeholder="/Deluxe/downloads/Filme">
-            <button id="browse-dir-btn" class="btn btn-ghost btn-sm">…</button>
-          </div>
-          <label class="dim auto-lbl">Standard für Serien</label>
-          <div class="path-input-row">
-            <input id="series-path" type="text" placeholder="/Deluxe/downloads/Serien">
-            <button id="browse-series-btn" class="btn btn-ghost btn-sm">…</button>
-          </div>
-        </div>
+        <section id="settings-storage-card" class="operation-destinations" hidden aria-labelledby="operation-destinations-title">
+          <div class="operation-destination-heading"><div><span class="operation-policy-label" id="operation-policy-label">Verteilung wird geprüft</span><h3 id="operation-destinations-title">Downloadziele</h3><p id="operation-policy-description">Die aktuelle Speicherstrategie wird geladen.</p></div><span class="operation-volume-count" id="operation-volume-count">—</span></div>
+          <div class="operation-placement-flow" aria-label="So wählt Royal das Ziel"><span>Film oder Serie</span><i aria-hidden="true">›</i><strong id="operation-placement-choice">Speicherstrategie</strong><i aria-hidden="true">›</i><span id="operation-placement-result">Passendes Ziel</span></div>
+          <div class="operation-base-heading"><div><h4 id="operation-base-title">Basisordner</h4><p id="operation-base-explanation">Diese Ordner sind der Ausgangspunkt für die Ablage.</p></div><button class="btn btn-ghost btn-sm" type="button" data-operation-policy-open>Verteilung ändern</button></div>
+          <dl class="operation-base-paths"><div><dt><span aria-hidden="true">▣</span>Filme</dt><dd><code id="operation-movie-path">—</code></dd></div><div><dt><span aria-hidden="true">▤</span>Serien &amp; Anime</dt><dd><code id="operation-series-path">—</code></dd></div></dl>
+          <details id="storage-base-editor" class="operation-path-editor"><summary>Basisordner ändern</summary><p class="settings-hint">Pfade gelten auf dem Gerät, auf dem Royal läuft. Im Container sind das eingebundene Container-Pfade. Bestehende Dateien werden durch diese Änderung nicht verschoben.</p><div class="operation-path-fields"><div><label for="save-path">Filmordner</label><div class="path-input-row"><input id="save-path" type="text" placeholder="/movies"><button id="browse-dir-btn" class="btn btn-ghost btn-sm" type="button" aria-label="Filmordner auswählen">…</button></div></div><div><label for="series-path">Serienordner</label><div class="path-input-row"><input id="series-path" type="text" placeholder="/serien"><button id="browse-series-btn" class="btn btn-ghost btn-sm" type="button" aria-label="Serienordner auswählen">…</button></div></div></div><div class="operation-path-save"><button id="storage-base-save" class="btn btn-accent" type="button">Ordner speichern</button><span id="storage-base-status" role="status"></span></div></details>
+          <details class="operation-path-health"><summary>Verfügbarkeit der Basisordner</summary><div id="operation-base-health-slot"></div></details>
+        </section>
         <div class="settings-group settings-card taste-settings">
           <h3>Dein Geschmack</h3>
           <p class="dim settings-hint">Royal lernt lokal aus Suche, Auswahl, Downloads, Abos und deinem Jellyfin-Verlauf. Das Profil gilt für alle Geräte.</p>
@@ -1995,15 +1977,11 @@
               </div>
             </header>
             <div class="settings-card-grid settings-automation-grid">
-        <div class="settings-group settings-card">
-          <h3>Automatik (24/7)</h3>
-          <p class="dim settings-hint">Neue Folgen abonnierter Serien im Hintergrund automatisch laden.</p>
-          <label class="auto-toggle-row">
-            <input id="auto-download" type="checkbox">
-            <span>Neue Folgen abonnierter Serien automatisch laden</span>
-          </label>
+        <div class="settings-group settings-card automation-console">
+          <header class="automation-control"><div class="automation-control-copy"><h3>Neue Serienfolgen automatisch laden</h3><p>Royal prüft deine Abos und lädt neue Folgen nach deinen Regeln. Manuelle Downloads bleiben verfügbar.</p></div><label class="automation-switch"><input id="auto-download" type="checkbox"><span aria-hidden="true"></span><b>Auto-Download</b></label></header>
+          <div class="automation-saved-state"><span class="automation-status-dot" aria-hidden="true"></span><p id="auto-status" role="status">Regeln werden geladen …</p></div>
           <div class="path-input-row auto-fields">
-            <label class="dim auto-lbl">Prüfen alle</label>
+            <label for="check-interval" class="dim auto-lbl">Alle</label>
             <input id="check-interval" type="number" min="5" step="5" value="30" class="auto-num">
             <span class="dim">Min.</span>
           </div>
@@ -2014,7 +1992,6 @@
             <input id="dl-window-end" type="number" min="0" max="23" placeholder="–" class="auto-num">
             <span class="dim">Uhr (leer = jederzeit)</span>
           </div>
-          <div id="auto-status" class="dim small-status">—</div>
         </div>
 
             </div>
@@ -2071,104 +2048,48 @@
             </div>
           </section>
 
-          <section id="settings-account" class="settings-section" data-settings-section aria-labelledby="settings-account-title">
-            <header class="settings-section-heading">
-              <span class="settings-section-mark is-account" aria-hidden="true">⚿</span>
-              <div>
-                <span>MEIN ACCOUNT</span>
-                <h2 id="settings-account-title">Konto &amp; Sicherheit</h2>
-                <p>Dein Passwort und angemeldete Geräte verwalten.</p>
+          <section id="settings-account" class="settings-section account-workspace" data-settings-section aria-labelledby="settings-account-title">
+            <header class="settings-section-heading"><span class="settings-section-mark is-account" aria-hidden="true">⚿</span><div><span>DEIN ZUGANG</span><h2 id="settings-account-title">Konto &amp; Sicherheit</h2><p>Dein Profil, deine Anmeldung und die Geräte, mit denen du Royal nutzt.</p></div></header>
+            <section class="account-identity" aria-labelledby="account-display-name"><div id="account-identity-avatar" class="account-identity-avatar" aria-hidden="true">R</div><div class="account-identity-copy"><h3 id="account-display-name">Dein Konto</h3><div><span id="account-login-summary">Anmeldung wird geprüft …</span><span id="account-role-label" class="account-role-label"></span></div></div><div class="account-identity-actions"><button id="account-profile-edit" class="btn btn-ghost" type="button">Profil bearbeiten</button><button id="account-logout" class="btn btn-ghost btn-sm" type="button">Abmelden</button></div></section>
+            <section id="account-profile-editor" class="account-inline-editor" hidden aria-labelledby="account-profile-title"><div class="account-editor-heading"><h3 id="account-profile-title">Dein Profil</h3><button id="account-profile-cancel" class="btn btn-ghost btn-sm" type="button">Schließen</button></div><label for="account-profile-name">Sichtbarer Profilname</label><input id="account-profile-name" type="text" maxlength="120" autocomplete="nickname"><label>Dein Profilbild</label><div id="account-profile-avatars" class="account-profile-choices" role="group" aria-label="Profilbild wählen"></div><div class="account-inline-actions"><button id="account-profile-save" class="btn btn-accent" type="button">Profil speichern</button><p id="account-profile-status" role="status"></p></div></section>
+            <nav class="account-subnav" aria-label="Kontobereiche"><button type="button" data-account-tab="security" aria-current="page">Anmeldung &amp; Schutz</button><button type="button" data-account-tab="devices">Geräte &amp; Sitzungen <span id="account-device-count">—</span></button><button type="button" data-account-tab="household" hidden>Haushalt <span id="account-household-count"></span></button></nav>
+            <div data-account-panel="security">
+              <div class="account-security-grid">
+                <section id="account-card" class="account-access-card" data-state="unknown" aria-labelledby="account-access-title">
+                  <header class="account-card-heading"><span class="account-line-icon" aria-hidden="true">⚿</span><div><h3 id="account-access-title">Zugangsdaten</h3><p>Loginname und Passwort für dieses Konto.</p></div></header>
+                  <div id="account-warning" class="account-warning hidden"><strong>Es fehlt ein Anmeldekonto.</strong><span>Richte Loginname und Passwort für Royal ein.</span></div>
+                  <div class="account-setting-row"><div><span>Loginname</span><strong id="account-login-value">—</strong></div><button class="btn btn-ghost btn-sm" type="button" data-account-credential="username">Ändern</button></div>
+                  <div class="account-setting-row"><div><span>Passwort</span><strong id="account-password-value">Eingerichtet</strong></div><button class="btn btn-ghost btn-sm" type="button" data-account-credential="password">Passwort ändern</button></div>
+                  <div id="account-credential-editor" class="account-credential-editor" hidden><div class="account-editor-heading"><h4 id="account-credential-title">Zugangsdaten ändern</h4><button id="account-credential-cancel" class="btn btn-ghost btn-sm" type="button">Schließen</button></div>
+                    <div id="account-login-fields"><label for="account-username">Loginname</label><input id="account-username" type="text" autocomplete="username"><p id="account-username-hint" class="settings-hint">Der Loginname wird für die Anmeldung verwendet. Deinen sichtbaren Namen änderst du unter „Profil bearbeiten“.</p></div>
+                    <div id="account-new-password-fields"><label for="account-password">Neues Passwort</label><input id="account-password" type="password" autocomplete="new-password" placeholder="Mindestens 12 Zeichen"><label for="account-password-repeat">Neues Passwort wiederholen</label><input id="account-password-repeat" type="password" autocomplete="new-password"></div>
+                    <label id="account-current-label" for="account-current-password">Aktuelles Passwort zur Bestätigung</label><input id="account-current-password" type="password" autocomplete="current-password">
+                    <div id="account-otp-field" hidden><label for="account-otp">Authenticator-Code oder Wiederherstellungscode</label><input id="account-otp" type="text" autocomplete="one-time-code" maxlength="128" autocapitalize="off" spellcheck="false"></div>
+                    <div class="account-inline-actions"><button id="account-username-save" class="btn btn-accent" type="button" hidden>Loginname speichern</button><button id="account-save" class="btn btn-accent" type="button">Passwort speichern</button></div>
+                  </div>
+                  <p id="account-status" class="account-action-status" role="status" aria-live="polite"></p><details class="account-small-detail"><summary>Kontoinformationen</summary><p id="account-state" role="status">Wird geladen …</p></details>
+                </section>
+                <section class="account-factor-card" data-totp-settings aria-labelledby="account-factor-title"><header class="account-card-heading"><span class="account-line-icon" aria-hidden="true">◇</span><div><h3 id="account-factor-title">Authenticator</h3><p>Ein zweiter Nachweis bei der Anmeldung.</p></div><span data-totp="badge" class="account-state-badge">Wird geprüft</span></header>
+                  <p data-totp="state" class="account-factor-state" role="status" aria-live="polite">Status wird geladen …</p><p class="account-factor-copy">Dein Passwort und ein Code aus deiner Authenticator-App schützen den Zugang gemeinsam.</p><button data-totp-ui="manage" class="btn btn-ghost" type="button">Authenticator verwalten</button>
+                  <div data-totp="editor" class="account-credential-editor" hidden><div class="account-editor-heading"><h4 data-totp="editor-title">Authenticator einrichten</h4><button data-totp-ui="close" class="btn btn-ghost btn-sm" type="button">Schließen</button></div>
+                    <label for="totp-password">Aktuelles Passwort zur Bestätigung</label><input id="totp-password" data-totp="password" type="password" autocomplete="current-password">
+                    <div data-totp="code-field" hidden><label for="totp-code">Authenticator-Code oder Wiederherstellungscode</label><input id="totp-code" data-totp="code" type="text" autocomplete="one-time-code" maxlength="128" autocapitalize="off" spellcheck="false"></div>
+                    <div data-totp="setup" hidden><p>QR-Code mit deiner Authenticator-App scannen. Danach den sechsstelligen Code bestätigen. Der Einrichtungsschlüssel gilt zehn Minuten.</p><img data-totp="qr" width="220" height="220" alt="QR-Code für die Authenticator-Einrichtung"><label for="totp-secret">Einrichtungsschlüssel</label><input id="totp-secret" data-totp="secret" type="text" readonly autocomplete="off" spellcheck="false"><button data-totp-action="confirm" class="btn btn-accent" type="button">Code bestätigen und 2FA aktivieren</button></div>
+                    <div class="account-inline-actions"><button data-totp-action="setup" class="btn btn-accent" type="button" disabled>QR-Code erstellen</button><button data-totp-action="recovery-codes" class="btn btn-ghost" type="button" hidden>Wiederherstellungscodes erneuern</button></div>
+                    <details data-totp="disable-section" class="account-critical-detail" hidden><summary>Zwei-Faktor-Anmeldung deaktivieren</summary><p>Bestätige mit deinem Passwort und einem gültigen Code.</p><button data-totp-action="disable" class="btn btn-ghost" type="button" hidden>2FA deaktivieren</button></details>
+                    <details class="account-small-detail"><summary>Hinweis für Android &amp; TV</summary><p>Nach der Aktivierung ist auch im LAN ein Code erforderlich. Deine Android-/TV-App muss dafür die Code-Eingabe unterstützen.</p></details>
+                  </div>
+                  <div data-totp="recovery" class="account-recovery" hidden><h4>Wiederherstellungscodes sichern</h4><p>Jeder Code ersetzt einmal den Authenticator-Code. Nur jetzt sichtbar; getrennt vom Telefon aufbewahren.</p><pre data-totp="recovery-list"></pre><div class="account-inline-actions"><button data-totp-ui="download" class="btn btn-ghost" type="button">Als Datei sichern</button><button data-totp-action="saved" class="btn btn-accent" type="button">Codes gesichert – ausblenden</button></div></div><p data-totp="status" class="account-action-status" role="status" aria-live="polite"></p>
+                </section>
               </div>
-            </header>
-            <div class="settings-card-grid">
-        <div id="account-card" class="settings-group settings-card account-settings" data-state="unknown">
-          <h3>Login &amp; Passwort</h3>
-          <div id="account-warning" class="account-warning hidden">
-            <strong>Diese Instanz ist ungeschützt.</strong>
-            <span>Ohne Konto kann jedes Gerät im Netzwerk den Downloader steuern. Lege jetzt Loginname und Passwort fest.</span>
-          </div>
-          <p id="account-state" class="dim settings-hint" role="status" aria-live="polite">Wird geladen …</p>
-          <label class="dim auto-lbl" for="account-username">Loginname</label>
-          <input id="account-username" type="text" autocomplete="username">
-          <p id="account-username-hint" class="dim account-login-hint">Der Loginname ist nur für die Anmeldung. Deinen sichtbaren Profilnamen änderst du unter „Wer schaut gerade?“.</p>
-          <div class="account-actions account-login-actions">
-            <button id="account-username-save" class="btn btn-ghost btn-sm" type="button" hidden>Loginname ändern</button>
-          </div>
-          <label id="account-current-label" class="dim auto-lbl" for="account-current-password">Aktuelles Passwort</label>
-          <input id="account-current-password" type="password" autocomplete="current-password" placeholder="Zur Bestätigung">
-          <label class="dim auto-lbl" for="account-password">Neues Passwort</label>
-          <input id="account-password" type="password" autocomplete="new-password" placeholder="Mindestens 12 Zeichen">
-          <label class="dim auto-lbl" for="account-password-repeat">Neues Passwort wiederholen</label>
-          <input id="account-password-repeat" type="password" autocomplete="new-password">
-          <div id="account-otp-field" hidden><label class="dim auto-lbl" for="account-otp">Authenticator-Code oder Wiederherstellungscode</label><input id="account-otp" type="text" autocomplete="one-time-code" maxlength="128" autocapitalize="off" spellcheck="false"></div>
-          <div class="account-actions">
-          <button id="account-save" class="btn btn-primary btn-sm" type="button">Zugangsdaten speichern</button>
-            <button id="account-logout" class="btn btn-ghost btn-sm" type="button">Abmelden</button>
-          </div>
-          <div id="account-status" class="dim small-status" role="status" aria-live="polite"></div>
-        </div>
-
-        <section class="settings-group settings-card account-sessions" data-totp-settings>
-          <h3>Zwei-Faktor-Anmeldung</h3>
-          <p class="dim settings-hint">Schütze dein Konto zusätzlich mit einer Authenticator-App, zum Beispiel Google Authenticator aus dem Play Store. Nach der Aktivierung brauchst du bei neuen Anmeldungen auch im LAN einen Code. Ältere Android-/TV-Clients benötigen Unterstützung für die Code-Eingabe.</p>
-          <p data-totp="state" class="dim small-status" role="status" aria-live="polite">Wird geladen …</p>
-          <label class="dim auto-lbl" for="totp-password">Aktuelles Passwort zur Bestätigung</label>
-          <input id="totp-password" data-totp="password" type="password" autocomplete="current-password">
-          <label class="dim auto-lbl" for="totp-code">Authenticator-Code oder Wiederherstellungscode</label>
-          <input id="totp-code" data-totp="code" type="text" autocomplete="one-time-code" maxlength="128" autocapitalize="off" spellcheck="false">
-          <div data-totp="setup" hidden>
-            <p class="dim settings-hint">In der Authenticator-App „Code hinzufügen“ und „QR-Code scannen“ wählen. Alternativ den Einrichtungsschlüssel eingeben. Danach den sechsstelligen Code unten bestätigen. Der Schlüssel ist zehn Minuten gültig.</p>
-            <img data-totp="qr" width="220" height="220" alt="QR-Code für die Authenticator-Einrichtung">
-            <label class="dim auto-lbl" for="totp-secret">Einrichtungsschlüssel</label><input id="totp-secret" data-totp="secret" type="text" readonly autocomplete="off" spellcheck="false">
-            <button data-totp-action="confirm" class="btn btn-primary btn-sm" type="button">Code bestätigen und 2FA aktivieren</button>
-          </div>
-          <div class="account-actions">
-            <button data-totp-action="setup" class="btn btn-primary btn-sm" type="button" disabled>Authenticator einrichten</button>
-            <button data-totp-action="recovery-codes" class="btn btn-ghost btn-sm" type="button" hidden>Neue Wiederherstellungscodes</button>
-            <button data-totp-action="disable" class="btn btn-ghost btn-sm" type="button" hidden>2FA deaktivieren</button>
-          </div>
-          <div data-totp="recovery" hidden>
-            <p class="dim settings-hint">Diese zehn Wiederherstellungscodes werden nur jetzt angezeigt. Jeden Code kannst du einmal statt eines Authenticator-Codes verwenden. Bewahre sie getrennt vom Telefon auf.</p>
-            <pre data-totp="recovery-list"></pre>
-            <button data-totp-action="saved" class="btn btn-ghost btn-sm" type="button">Codes gesichert – ausblenden</button>
-          </div>
-          <p data-totp="status" class="dim small-status" role="status" aria-live="polite"></p>
-        </section>
-        <div class="settings-group settings-card account-sessions">
-          <h3>Angemeldete Geräte</h3>
-          <p class="dim settings-hint">Jede Anmeldung erzeugt eine Sitzung, die einen Neustart überdauert. Bei Verdacht auf einen fremden Zugriff hier alle anderen Geräte abmelden.</p>
-          <p id="account-sessions-count" class="dim small-status" role="status" aria-live="polite">—</p>
-          <button id="account-revoke" class="btn btn-ghost btn-sm" type="button">Andere Sitzungen beenden</button>
-          <div id="account-revoke-status" class="dim small-status" role="status" aria-live="polite"></div>
-        </div>
-        <div id="account-users-card" class="settings-group settings-card account-sessions" hidden>
-          <h3>Benutzer</h3>
-          <p class="dim settings-hint">Jedes Konto hat einen sichtbaren Profilnamen und einen separaten Loginnamen. Neue Benutzer legen ihr Passwort beim ersten Wechsel oder Login selbst fest.</p>
-          <div id="account-users-list" class="small-status">Wird geladen …</div>
-          <label class="dim auto-lbl" for="new-user-display-name">Profilname</label>
-          <input id="new-user-display-name" type="text" autocomplete="off">
-          <label class="dim auto-lbl" for="new-user-username">Loginname</label>
-          <input id="new-user-username" type="text" autocomplete="off">
-          <label class="dim auto-lbl" for="new-user-role">Rolle</label>
-          <select id="new-user-role"><option value="member">Mitglied</option><option value="admin">Administrator</option></select>
-          <div class="account-actions"><button id="new-user-create" class="btn btn-primary btn-sm" type="button">Benutzer hinzufügen</button></div>
-          <div id="account-users-status" class="dim small-status" role="status"></div>
-        </div>
-        <div id="account-avatar-card" class="settings-group settings-card account-avatar-settings" hidden>
-          <div class="account-avatar-heading">
-            <div>
-              <h3>Profilbilder verwalten</h3>
-              <p class="dim settings-hint">Eigene Bilder hochladen, die anschließend unter „Wer schaut gerade?“ von allen Profilen ausgewählt werden können.</p>
+              <button type="button" class="account-devices-link" data-account-open="devices"><span class="account-line-icon" aria-hidden="true">▱</span><span><strong>Deine angemeldeten Geräte</strong><small id="account-devices-summary">Sitzungen werden geladen …</small></span><span aria-hidden="true">›</span></button>
             </div>
-            <span class="account-avatar-admin-badge">ADMIN</span>
-          </div>
-          <div id="account-avatar-library" class="account-avatar-library" aria-live="polite"></div>
-          <label class="dim auto-lbl" for="account-avatar-file">Neues Profilbild</label>
-          <input id="account-avatar-file" type="file" accept="image/png,image/jpeg,image/webp">
-          <p class="dim account-avatar-note">PNG, JPEG oder WebP · maximal 4 MB · quadratische Bilder funktionieren am besten.</p>
-          <div class="account-actions"><button id="account-avatar-upload" class="btn btn-primary btn-sm" type="button">Profilbild hochladen</button></div>
-          <div id="account-avatar-status" class="dim small-status" role="status" aria-live="polite"></div>
-        </div>
+            <section data-account-panel="devices" hidden class="account-devices-panel"><header class="account-device-header"><div><h3>Geräte &amp; Sitzungen</h3><p>Hier verwaltest du die Anmeldungen dieses Kontos.</p></div><button id="account-revoke" class="btn btn-ghost" type="button">Alle anderen abmelden</button></header><p id="account-sessions-count" role="status">Wird geladen …</p><div id="account-device-list" class="account-device-list"></div><p id="account-revoke-status" role="status" aria-live="polite"></p></section>
+            <div data-account-panel="household" hidden>
+              <section id="account-users-card" class="account-household-card" hidden><header class="account-device-header"><div><h3>Konten in deinem Haushalt</h3><p>Jedes Konto hat eigene Zugangsdaten, Abos und Sicherheitseinstellungen.</p></div><button id="account-user-add" class="btn btn-ghost" type="button">Konto hinzufügen</button></header><div id="account-users-list">Konten werden geladen …</div>
+                <div id="account-user-create-editor" class="account-inline-editor" hidden><h4>Neues Konto</h4><div class="account-user-create-grid"><div><label for="new-user-display-name">Profilname</label><input id="new-user-display-name" type="text" maxlength="120" autocomplete="off"></div><div><label for="new-user-username">Loginname</label><input id="new-user-username" type="text" autocomplete="off"></div><div><label for="new-user-role">Rolle</label><select id="new-user-role"><option value="member">Mitglied</option><option value="admin">Administrator</option></select></div></div><p>Neue Konten legen ihr Passwort bei der ersten Anmeldung selbst fest. Administratoren dürfen die Installation und andere Konten verwalten.</p><button id="new-user-create" class="btn btn-accent" type="button">Konto anlegen</button></div><p id="account-users-status" role="status" aria-live="polite"></p>
+              </section>
+              <details id="account-avatar-card" class="account-avatar-settings account-shared-avatars" hidden><summary>Gemeinsame Profilbilder verwalten</summary><p>Eigene Bilder stehen anschließend allen Profilen zur Auswahl.</p><div id="account-avatar-library" class="account-avatar-library" aria-live="polite"></div><label for="account-avatar-file">Neues Profilbild</label><input id="account-avatar-file" type="file" accept="image/png,image/jpeg,image/webp"><p class="account-avatar-note">PNG, JPEG oder WebP · maximal 4 MB</p><button id="account-avatar-upload" class="btn btn-ghost" type="button">Profilbild hochladen</button><p id="account-avatar-status" role="status" aria-live="polite"></p></details>
             </div>
           </section>
 
@@ -2892,5 +2813,14 @@
     </div>
   </dialog>
 
+
+<div id="installation-dialog" class="installation-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="installation-title"><section class="installation-dialog-panel">
+<header><div><span id="installation-progress">Schritt 1 von 3</span><h2 id="installation-title">Wie soll Royal weiterlaufen?</h2></div><button id="installation-close" class="btn btn-ghost" type="button" aria-label="Installationsassistent schließen">×</button></header>
+<div class="installation-dialog-content">
+<section data-installation-step="1"><p>Ein anderes Betriebsprofil ist eine bewusste Änderung. Wähle zuerst dein Ziel.</p><div class="installation-targets"><button type="button" data-installation-target="desktop" aria-pressed="false"><span aria-hidden="true">▱</span><strong>Computer</strong><small>Royal lokal auf Windows, macOS oder Linux nutzen.</small></button><button type="button" data-installation-target="nas" aria-pressed="false"><span aria-hidden="true">▤</span><strong>NAS / Server</strong><small>Royal als Dienst im Netzwerk betreiben.</small></button></div><p id="installation-change-note" class="installation-context"></p></section>
+<section data-installation-step="2" hidden><label id="installation-transfer-choice"><input id="installation-transfer" type="checkbox" checked>Auf ein anderes Gerät umziehen</label><p id="installation-host-note" class="installation-context"></p><div id="installation-target-paths"><label for="installation-os">Zielsystem</label><select id="installation-os"><option value="windows">Windows</option><option value="macos">macOS</option><option value="linux">Linux</option></select><label for="installation-movie-path">Filmordner auf dem Zielgerät</label><input id="installation-movie-path" type="text" autocomplete="off"><label for="installation-series-path">Serienordner auf dem Zielgerät</label><input id="installation-series-path" type="text" autocomplete="off"></div></section>
+<section data-installation-step="3" hidden><div class="installation-review"><span>Dein Wechsel</span><strong id="installation-review-route"></strong></div><div id="installation-review-body"></div><p id="installation-result" class="installation-context" role="status"></p></section><p id="installation-error" class="error" role="alert"></p>
+</div><footer><button id="installation-back" class="btn btn-ghost" type="button">Zurück</button><button id="installation-next" class="btn btn-accent" type="button">Weiter</button><button id="installation-download" class="btn btn-accent" type="button" hidden>Umzugsplan herunterladen</button><button id="installation-apply" class="btn btn-accent" type="button" hidden>Startprofil vormerken</button></footer>
+</section></div>
 </body>
 </html>

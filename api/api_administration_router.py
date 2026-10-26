@@ -24,6 +24,7 @@ from core.environment_file import (
     DEPLOYMENT_MODES,
     ENV_PATH,
     write_project_env,
+    deployment_runtime,
 )
 from integrations.jellyfin_client import JellyfinClient
 from storage.media_paths import prepare_media_directory, recover_misplaced_media
@@ -54,7 +55,7 @@ def _write_deployment_environment(
     cannot affect the running container and would turn a valid settings save
     into a failure.  Runtime settings remain durable in ``SERIENDL_DATA_DIR``.
     """
-    if os.environ.get("SERIENDL_DATA_DIR", "").strip():
+    if deployment_runtime()["startup_managed"]:
         return {
             "path": "Container-Umgebung (beim Start gesetzt)",
             "created": False,
@@ -785,6 +786,7 @@ async def api_config_get():
             "deployment_mode": appconfig.load_deployment_mode(),
             "env_path": str(ENV_PATH),
             "env_exists": ENV_PATH.is_file(),
+            "runtime": deployment_runtime(),
         }
 
     return await run_in_threadpool(_work)
@@ -799,6 +801,8 @@ async def api_config_set(body: ConfigBody):
     deployment_mode = previous_mode if body.deployment_mode is None else str(body.deployment_mode).strip().casefold()
     if deployment_mode not in DEPLOYMENT_MODES:
         raise HTTPException(400, "Betriebsmodus muss 'desktop' oder 'nas' sein.")
+    if deployment_mode != previous_mode and deployment_runtime()["startup_managed"]:
+        raise HTTPException(409, "Das Startprofil wird außerhalb von Royal festgelegt. Nutze den Installationsassistenten; ein Gerätewechsel kann nicht durch einen Modusschalter erfolgen.")
     if not movie_path:
         raise HTTPException(400, "Ein Speicherordner für Filme fehlt.")
     await run_in_threadpool(_prepare_media_directory, movie_path, "Filmordner")
@@ -828,6 +832,7 @@ async def api_config_set(body: ConfigBody):
         "env_path": env_result["path"],
         "env_created": env_result["created"],
         "restart_required": deployment_mode != previous_mode,
+        "runtime": deployment_runtime(),
         "saved": True,
     }
 

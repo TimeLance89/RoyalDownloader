@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import platform
 import re
 import tempfile
 from pathlib import Path
@@ -17,6 +18,22 @@ ENV_PATH = PROJECT_DIR / ".env"
 ENV_EXAMPLE_PATH = PROJECT_DIR / ".env.example"
 _ENV_LINE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
 _REMOVED_ENV_KEYS = {"ROYAL_DEMO_MODE"}
+
+
+def deployment_runtime() -> dict:
+    """Describe the running server, independently of a saved startup profile."""
+    from core.runtime_paths import data_dir, in_container
+    container = in_container()
+    host = os.environ.get("HOST", "127.0.0.1").strip() or "127.0.0.1"
+    try:
+        port = int(os.environ.get("PORT", "8765"))
+    except ValueError:
+        port = 8765
+    return {"container": container, "platform": platform.system(),
+            "mode": "desktop" if not container and host in ("127.0.0.1", "localhost", "::1") else "nas",
+            "startup_managed": container or bool(os.environ.get("SERIENDL_DATA_DIR", "").strip()),
+            "bind_host": host, "port": port if 1 <= port <= 65535 else 8765,
+            "data_path": str(data_dir())}
 
 
 def normalize_deployment_mode(value: str | None) -> str:

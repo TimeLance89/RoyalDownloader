@@ -19,8 +19,9 @@ export function createAutomation(root) {
   let pollScope;
   let edits = 0;
   let stopPolling;
+  let saving = false;
   const draft = new Map();
-  const settingsHaveUnsavedChanges = () => byId("settings-saved-status")?.textContent?.trim() === "Ungespeicherte Änderungen.";
+  const settingsHaveUnsavedChanges = () => byId("settings-saved-status")?.textContent?.trim() === "Ungespeicherte Änderungen." || draft.size > 0;
 
   // The settings bootstrap loads this once even before its view is first visited.
   // That one-shot request has its own owner; session/page disposal cancels it too.
@@ -36,7 +37,10 @@ export function createAutomation(root) {
         for (const [input, value] of draft) { input.value = value.value; input.checked = value.checked; }
         view.sync();
       } else if (version === edits && !settingsHaveUnsavedChanges()) view.render(policy);
+      else view.renderStatus(policy);
       section.dataset.viewState = "ready";
+      byId("automation-save").disabled = saving;
+      if (!draft.size && !saving) byId("automation-save-status").textContent = "Regeln sind gespeichert.";
       return policy;
     }).catch(error => {
       if (!current.active || isAbortError(error)) return;
@@ -52,7 +56,7 @@ export function createAutomation(root) {
     return request;
   }
   function refresh() {
-    if (!scope?.active || document.hidden || section.hidden || settingsHaveUnsavedChanges()) return Promise.resolve();
+    if (!scope?.active || document.hidden || section.hidden || settingsHaveUnsavedChanges() || saving) return Promise.resolve();
     // A background refresh reports its error in the existing status element.
     return initialize(pollScope).catch(() => {});
   }
@@ -66,12 +70,10 @@ export function createAutomation(root) {
     if (!stopPolling) stopPolling = scope.interval(() => void refresh(), REFRESH_MS);
     void refresh();
   }
-  return {
-    initialize,
-    refresh,
-    async save() {
+  async function save() {
       const current = scope;
       if (!current?.active) throw new DOMException("Abgebrochen", "AbortError");
+      if (pending) await pending;
       if (!view.ready) await initialize();
       if (!current.active) throw new DOMException("Abgebrochen", "AbortError");
       if (!view.ready) throw new Error("Automatik-Regeln müssen vor dem Speichern geladen werden.");
@@ -83,16 +85,51 @@ export function createAutomation(root) {
       const policy = await api.post(POLICY_URL, body, { signal: current.signal });
       if (!current.active) throw new DOMException("Abgebrochen", "AbortError");
       if (edits === version) { draft.clear(); view.render(policy); }
+      else view.renderStatus(policy);
+      section.dataset.viewState = "ready";
       return policy;
-    },
+    }
+  function activate(name) {
+    section.querySelectorAll("[data-automation-panel]").forEach(panel => { panel.hidden = panel.dataset.automationPanel !== name; });
+    section.querySelectorAll("[data-automation-tab]").forEach(button => {
+      if (button.dataset.automationTab === name) button.setAttribute("aria-current", "page");
+      else button.removeAttribute("aria-current");
+    });
+  }
+  async function saveLocal() {
+    if (saving || !scope?.active) return;
+    const current = scope, version = edits;
+    saving = true; byId("automation-save").disabled = true;
+    byId("automation-save-status").textContent = "Automatik wird gespeichert …";
+    try {
+      await save();
+      if (current.active) byId("automation-save-status").textContent = version === edits ? "Automatik gespeichert. Die Regeln gelten jetzt." : "Gespeichert. Deine weiteren Änderungen sind noch offen.";
+    } catch (error) {
+      if (current.active && !isAbortError(error)) byId("automation-save-status").textContent = `Nicht gespeichert: ${error.message}`;
+    } finally { if (current.active) { saving = false; byId("automation-save").disabled = !view.ready; } }
+  }
+  return {
+    initialize,
+    refresh,
+    save,
     mount() {
       if (scope?.active) return;
       scope = createScope();
       view.bind(scope);
+      saving = false;
+      byId("automation-save").disabled = !view.ready;
+      for (const button of section.querySelectorAll("[data-automation-tab]")) scope.listen(button, "click", () => activate(button.dataset.automationTab));
+      scope.listen(byId("automation-save"), "click", () => { void saveLocal(); });
+      scope.listen(byId("automation-refresh"), "click", async () => {
+        const current = scope, button = byId("automation-refresh"); button.disabled = true;
+        try { await initialize(current); } catch { /* Error is shown in the runtime summary. */ }
+        finally { if (current.active) button.disabled = false; }
+      });
       const remember = event => {
         const input = event.target;
         if (!input.matches("input, select, textarea")) return;
         edits++;
+        byId("automation-save-status").textContent = "Ungespeicherte Änderungen.";
         draft.delete(input);
         draft.set(input, { value: input.value, checked: input.checked });
       };

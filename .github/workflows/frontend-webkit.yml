@@ -56,6 +56,14 @@ jobs:
           node tests/frontend/provider-monitor-browser.cjs
           node tests/frontend/inbox-dismissal-browser.cjs
 
+      - name: Settings operation, storage, account and automation flows
+        env:
+          ROYAL_BROWSER: webkit
+        run: |
+          node tests/frontend/settings-operation-browser.cjs
+          node tests/frontend/account-settings-browser.cjs
+          node tests/frontend/automation-settings-browser.cjs
+
       - name: Personal Jellyfin wishes and profile isolation
         env:
           ROYAL_BROWSER: webkit
