@@ -28,6 +28,7 @@ export function createApi({ fetchImpl = (...args) => fetch(...args), timeoutMs =
         ...(options.cache ? { cache: options.cache } : {}),
         ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
       });
+      if (response.ok && options.responseType === "blob") return await response.blob();
       const raw = await response.text();
       let data = null;
       if (raw.trim()) {
@@ -67,7 +68,7 @@ export function createApi({ fetchImpl = (...args) => fetch(...args), timeoutMs =
     get(url, options = {}) {
       // Requests owned by a view never share cancellation with another consumer.
       if (options.signal && !signalIds.has(options.signal)) signalIds.set(options.signal, ++nextSignalId);
-      const key = JSON.stringify([url, options.timeoutMs, options.timeoutMessage, options.cache,
+      const key = JSON.stringify([url, options.timeoutMs, options.timeoutMessage, options.cache, options.responseType,
         [...new Headers(options.headers).entries()], options.signal ? signalIds.get(options.signal) : 0]);
       if (pending.has(key)) return pending.get(key);
       const result = request("GET", url, undefined, options).finally(() => {

@@ -84,7 +84,9 @@ jobs:
         run: node tests/frontend/series-inventory-retry-browser.cjs
 
       - name: Authenticator setup, recovery and second-factor login
-        run: node tests/frontend/totp-browser.cjs
+        run: |
+          node tests/frontend/totp-browser.cjs
+          node tests/frontend/remote-access-browser.cjs
 
       - name: Source Sentinel provider and hoster settings and repair confirmation
         run: node tests/frontend/provider-monitor-browser.cjs
@@ -319,6 +321,7 @@ jobs:
           tests/test_source_watchdog.py
           tests/test_totp.py
           tests/test_totp_api.py
+          tests/test_remote_access.py
 
       - name: Storage mount identity, permissions and move safeguards
         if: ${{ steps.change-scope.outputs.backend == 'true' }}

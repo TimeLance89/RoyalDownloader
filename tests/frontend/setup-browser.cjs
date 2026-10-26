@@ -125,9 +125,11 @@ const server = createServer(async (req, res) => {
     await page.locator("#setup-auth-password-repeat").fill("fixture-password-only");
     await page.locator("#setup-bootstrap-token").fill("fixture-bootstrap");
     await page.locator("#setup-next").click();
+    await page.locator("#setup-remote-access").check();
     await page.locator("#setup-finish").click();
     try { await page.locator("#setup-wizard").waitFor({ state: "hidden", timeout: 10000 }); }
     catch (error) { console.error({ status: await page.locator("#setup-status").textContent(), errors, writes: writes.map(item => item.path) }); throw error; }
+    await page.locator("#settings-remote-access.is-active").waitFor({ state: "visible" });
     assert.deepEqual(await page.evaluate(() => ["state", "sharedPresentation", "switchTab", "royalLoader"].filter(name => name in window)), []);
     const submissions = writes.filter(write => write.path === "/api/setup/complete");
     assert.equal(submissions.length, 1);

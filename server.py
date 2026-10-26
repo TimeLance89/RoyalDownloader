@@ -570,6 +570,7 @@ async def lifespan(app: FastAPI):
         # Ab hier dürfen Worker-Threads keine neuen WebSocket-Callbacks mehr auf
         # den auslaufenden Event-Loop einstellen.
         _main_loop = None
+        remote_access_verifier.close()
         await asyncio.to_thread(state.module_manager.stop_all)
         await asyncio.to_thread(provider_monitor.stop)
         from application_services.storage_autopilot_runtime import stop as stop_storage_autopilot
@@ -924,6 +925,10 @@ app.router.routes.extend(queue_router.routes)
 
 administration_router = create_administration_router(sys.modules[__name__])
 administration_router.routes.extend(create_provider_monitor_router(provider_monitor, current_user).routes)
+from api.api_remote_access_router import create_remote_access_router
+from core.remote_access import RemoteAccessVerifier
+remote_access_verifier = RemoteAccessVerifier()
+app.include_router(create_remote_access_router(current_user, remote_access_verifier))
 app.include_router(create_announcements_router(current_user))
 register_domain_router("administration", administration_router)
 app.router.routes.extend(administration_router.routes)

@@ -114,6 +114,7 @@ export function mountApplication({ state, downloadsDomain, coreDomain, discovery
       directory: settingsDomain.directory,
       updater: settingsDomain.updater,
       account: settingsDomain.account,
+      remoteAccess: settingsDomain.remoteAccess,
       intelligence: settingsDomain.intelligence,
       calendar: settingsDomain.calendar,
       modules: settingsDomain.modules,
