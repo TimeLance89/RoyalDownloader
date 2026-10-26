@@ -51,6 +51,7 @@ const { fixture } = require("./performance-fixture.cjs");
         } else await page.locator("#settings-btn").click();
         await page.locator('[data-settings-open="settings-storage"]').click();
         await page.getByText("Standardziel bestätigen", { exact: true }).waitFor();
+        await page.locator(".operation-path-health > summary").click();
         const targets = page.locator("#storage-standard-target-list .storage-standard-target");
         await targets.first().waitFor();
         assert.doesNotMatch((await targets.allInnerTexts()).join(" "), /Immer verfügbar/);

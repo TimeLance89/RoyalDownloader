@@ -5,8 +5,13 @@ import pytest
 
 
 @pytest.mark.parametrize("mode", ["nas", "desktop"])
-def test_container_does_not_rewrite_bundled_env(monkeypatch, mode):
-    monkeypatch.setenv("SERIENDL_DATA_DIR", "/app/data")
+@pytest.mark.parametrize("explicit_data_dir", [True, False])
+def test_container_does_not_rewrite_bundled_env(monkeypatch, mode, explicit_data_dir):
+    monkeypatch.setattr("core.runtime_paths.in_container", lambda: True)
+    if explicit_data_dir:
+        monkeypatch.setenv("SERIENDL_DATA_DIR", "/app/data")
+    else:
+        monkeypatch.delenv("SERIENDL_DATA_DIR", raising=False)
 
     def fail_if_called(*_args, **_kwargs):
         raise AssertionError("container must not write the bundled .env")
@@ -21,6 +26,7 @@ def test_container_does_not_rewrite_bundled_env(monkeypatch, mode):
 
 
 def test_desktop_still_writes_project_env(monkeypatch):
+    monkeypatch.setattr("core.runtime_paths.in_container", lambda: False)
     monkeypatch.delenv("SERIENDL_DATA_DIR", raising=False)
     captured = {}
 
