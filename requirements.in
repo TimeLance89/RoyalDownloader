@@ -11,3 +11,5 @@ certifi==2026.10.19
 cryptography==50.0.0
 defusedxml==0.7.1
 urllib3==2.8.0
+
+qrcode==8.2

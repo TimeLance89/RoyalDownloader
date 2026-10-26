@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Authenticator two-factor authentication
+
+- Add per-account TOTP enrollment with locally generated QR codes, encrypted
+  secrets, one-use recovery codes, replay protection and account-wide attempt limits.
+- Require the enrolled factor for browser and mobile logins, protected profile
+  switches, password changes and first login after a password reset. Disable
+  password-only Basic authentication for enrolled accounts.
+- Bind sessions to the confirmed MFA generation so enrollment invalidates old
+  sessions even if revocation persistence fails. Preserve authentication without
+  automatic enrollment for existing accounts.
+- Add account settings and login code entry, profile-bound requests, secret
+  cleanup on navigation, and additive native API capabilities/contracts. Older
+  Android/TV clients need code-entry support before enrolled accounts can log in.
+
+
 ### Autonomous source watchdog
 
 - Refresh volatile hoster references after restart and restore proven references

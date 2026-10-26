@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import copy
 import os
 import secrets
 import threading
@@ -29,6 +30,9 @@ class UserStore:
     def __init__(self, path: Path, legacy_account: dict) -> None:
         self._path, self._lock, self._users = Path(path), threading.RLock(), {}
         self._load()
+        mfa_key = self._path.with_name("mfa.key")
+        if not self._users and (mfa_key.exists() or mfa_key.is_symlink()):
+            raise RuntimeError("2FA-Schlüssel vorhanden, aber Kontodaten fehlen oder sind beschädigt. users.json und mfa.key aus derselben Sicherung wiederherstellen.")
         if not self._users and legacy_account.get("configured"):
             self._migrate_legacy(legacy_account)
 
@@ -94,7 +98,26 @@ class UserStore:
             item = self._users.get(str(user_id)); return dict(item) if item else None
 
     def public(self, user: dict) -> dict:
-        return {key: user.get(key) for key in ("id", "username", "display_name", "avatar_id", "role", "enabled", "setup_required", "taste_onboarding_required", "taste_onboarding_completed_at", "created_at", "updated_at")}
+        return {**{key: user.get(key) for key in ("id", "username", "display_name", "avatar_id", "role", "enabled", "setup_required", "taste_onboarding_required", "taste_onboarding_completed_at", "created_at", "updated_at")},
+                "mfa_enabled": bool(user.get("mfa", {}).get("enabled"))}
+
+    def mfa_state(self, user_id: str) -> dict:
+        with self._lock:
+            user = self._users.get(str(user_id))
+            if not user:
+                raise ValueError("Benutzer nicht gefunden.")
+            return copy.deepcopy(user.get("mfa", {}))
+
+    def set_mfa_state(self, user_id: str, state: dict) -> None:
+        """Atomic MFA changes, including consumed counters/recovery codes."""
+        with self._lock:
+            previous = self._users[str(user_id)]
+            self._users[str(user_id)] = {**previous, "mfa": copy.deepcopy(state)}
+            try:
+                self._save()
+            except Exception:
+                self._users[str(user_id)] = previous
+                raise
 
     def list(self) -> list[dict]:
         with self._lock: return [self.public(item) for item in self._users.values()]

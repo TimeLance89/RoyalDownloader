@@ -106,12 +106,19 @@ class _FakeSessionStore:
         self.calls.append((token, kind, touch))
         return token == "explicit-token"
 
+    def user_id(self, token, *, touch=True):
+        return "explicit-user" if token == "explicit-token" else ""
+
+
+def _fake_session_users():
+    return SimpleNamespace(get=lambda uid: {"id": uid}, find=lambda username: None, list=lambda: [])
+
 
 def test_auth_runtime_dependencies_are_explicitly_injectable():
     store = _FakeSessionStore()
     guard = _FakeGuard()
     configure_auth_dependencies(
-        AuthRuntimeDependencies(basic_auth_guard=guard, session_store=store)
+        AuthRuntimeDependencies(basic_auth_guard=guard, session_store=store, user_store=_fake_session_users())
     )
     try:
         assert auth_service.authenticated_mobile_token(
@@ -233,7 +240,7 @@ def test_auth_policy_and_credential_paths_are_fail_closed(monkeypatch):
 def test_basic_auth_guard_and_token_parsing_paths(monkeypatch):
     store = _FakeSessionStore()
     guard = _FakeGuard()
-    configure_auth_dependencies(AuthRuntimeDependencies(guard, store))
+    configure_auth_dependencies(AuthRuntimeDependencies(guard, store, _fake_session_users()))
     try:
         assert auth_service._authorized_basic_header("") is False
         assert auth_service._authorized_basic_header("Basic !!!") is False

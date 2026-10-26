@@ -203,6 +203,7 @@ class SessionStore:
                     "label": str(entry.get("label") or ""),
                     "kind": kind,
                     "user_id": str(entry.get("user_id") or ""),
+                    "auth_epoch": str(entry.get("auth_epoch") or ""),
                     "household_unlocked": bool(entry.get("household_unlocked")),
                     "profile_switch_unlocked": bool(entry.get("profile_switch_unlocked")),
                     "_persisted_last_seen": last_seen,
@@ -266,7 +267,7 @@ class SessionStore:
         return bool(stale)
 
     # -- API ----------------------------------------------------------------
-    def create(self, label: str = "", kind: str = SESSION_KIND_WEB, user_id: str = "") -> str:
+    def create(self, label: str = "", kind: str = SESSION_KIND_WEB, user_id: str = "", auth_epoch: str = "") -> str:
         """Legt eine Sitzung an und gibt das Klartext-Token für das Cookie zurück."""
         if kind not in SESSION_KINDS:
             raise ValueError("Unbekannter Sitzungstyp.")
@@ -286,6 +287,7 @@ class SessionStore:
                 "label": str(label or "")[:120],
                 "kind": kind,
                 "user_id": str(user_id or "")[:120],
+                "auth_epoch": str(auth_epoch or ""),
                 "household_unlocked": False,
                 "profile_switch_unlocked": False,
                 "_persisted_last_seen": now,
@@ -349,7 +351,7 @@ class SessionStore:
                 raise
             return True
 
-    def switch_user(self, token: str, user_id: str, kind: Optional[str] = None) -> bool:
+    def switch_user(self, token: str, user_id: str, kind: Optional[str] = None, auth_epoch: str = "") -> bool:
         """Move a valid session to another household identity."""
         target = str(user_id or "").strip()[:120]
         if not target or not self.validate(token, kind):
@@ -361,7 +363,9 @@ class SessionStore:
                 return False
             previous_user = str(entry.get("user_id") or "")
             previous_admin_unlock = bool(entry.get("household_unlocked"))
+            previous_epoch = entry.get("auth_epoch", "")
             entry["user_id"] = target
+            entry["auth_epoch"] = str(auth_epoch or "")
             # Profile switching may stay unlocked for the browser session, but
             # privileged profile administration must be confirmed again after
             # changing identities.
@@ -371,15 +375,21 @@ class SessionStore:
             except SessionPersistenceError:
                 entry["user_id"] = previous_user
                 entry["household_unlocked"] = previous_admin_unlock
+                entry["auth_epoch"] = previous_epoch
                 raise
             return True
 
-    def user_id(self, token: str, kind: Optional[str] = None) -> str:
+    def user_id(self, token: str, kind: Optional[str] = None, *, touch: bool = True) -> str:
         """Return the authenticated session owner without exposing token state."""
-        if not self.validate(token, kind): return ""
+        if not self.validate(token, kind, touch=touch): return ""
         with self._lock:
             entry = self._sessions.get(_token_fingerprint(token)) or {}
             return str(entry.get("user_id") or "")
+
+    def auth_epoch(self, token: str) -> str:
+        with self._lock:
+            entry = self._sessions.get(_token_fingerprint(token)) or {}
+            return str(entry.get("auth_epoch") or "")
 
     def validate(
         self,

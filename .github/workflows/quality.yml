@@ -83,6 +83,9 @@ jobs:
       - name: Series inventory adopts deferred results and stops polling after close
         run: node tests/frontend/series-inventory-retry-browser.cjs
 
+      - name: Authenticator setup, recovery and second-factor login
+        run: node tests/frontend/totp-browser.cjs
+
       - name: Source Sentinel provider and hoster settings and repair confirmation
         run: node tests/frontend/provider-monitor-browser.cjs
 
@@ -314,6 +317,8 @@ jobs:
           tests/test_watchlist_inbox_payload.py
           tests/test_source_monitor_runtime.py
           tests/test_source_watchdog.py
+          tests/test_totp.py
+          tests/test_totp_api.py
 
       - name: Storage mount identity, permissions and move safeguards
         if: ${{ steps.change-scope.outputs.backend == 'true' }}

@@ -305,7 +305,7 @@ function requiresIds(...ids) {
 test("login flow keeps its browser and API contract", () => {
   requiresIds("login-screen", "login-form", "login-username", "login-password", "login-submit");
   assert.match(login, /client.get\("\/api\/auth\/status"/);
-  assert.match(login, /client.post\("\/api\/auth\/login", \{ username, password \}/);
+  assert.match(login, /client.post\("\/api\/auth\/login", \{ username, password, otp_code:/);
 });
 
 test("detail, queue, and settings screens remain wired", () => {
