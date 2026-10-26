@@ -34,7 +34,7 @@ jobs:
           if-no-files-found: error
           retention-days: 1
       - name: Set up Python 3.12
-        uses: actions/setup-python@751276eafca55f10f252026015f43c488f2322ba
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: "3.12"
       - name: Install locked development requirements
