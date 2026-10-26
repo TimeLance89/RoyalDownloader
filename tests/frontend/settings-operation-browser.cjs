@@ -1,0 +1,64 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs/promises");
+const path = require("node:path");
+const {fixture} = require("./performance-fixture.cjs");
+(async()=>{
+ const output=path.resolve("artifacts/settings-review"); await fs.mkdir(output,{recursive:true});
+ for(const width of [1600,430]) {
+  const run=await fixture({engine:process.env.ROYAL_BROWSER||"chromium",mobile:width===430,viewport:{width,height:1050}});
+  const {page,errors}=run;
+  const writes=[];
+  const config={deployment_mode:"nas",save_path:"/movies",series_path:"/serien",runtime:{container:true,platform:"Linux",startup_managed:true,mode:"nas",bind_host:"0.0.0.0",port:8765,data_path:"/Deluxe/data"}};
+  const policy={mode:"automatic",auto_delete:false,delete_categories:[],window_enabled:true,window_start:"02:00",window_end:"07:00",interval_hours:6,cooldown_hours:168,max_moves:1,max_move_gib:200,unknown_download_gib:8,archive_age_days:180,allow_series_split:false};
+  const vp={role:"primary",media_types:["movies","series","anime"],target_percent:75,warning_percent:85,critical_percent:92,reserve_gib:5,allow_moves_in:true,allow_moves_out:true};
+  const roots=[{key:"movies",label:"Hauptspeicher Filme",path:"/movies",volume_id:"main",source:"media"},{key:"series",label:"Hauptspeicher Serien",path:"/serien",volume_id:"main",source:"media"},{key:"location:movies2",label:"Filme auf Volume 2",path:"/movies_vol2",volume_id:"second",source:"location"},{key:"location:series2",label:"Serien auf Volume 2",path:"/serien_vol2",volume_id:"second",source:"location"}].map(r=>({...r,available:true,writable:true,location_mode:"media",total_bytes:(r.volume_id==="main"?4:10)*1024**4,free_bytes:(r.volume_id==="main"?.5:9)*1024**4,used_bytes:3.5*1024**4,used_percent:r.volume_id==="main"?87.5:10,policy:{...vp},pressure:"normal",media_types:["movies","series","anime"]}));
+  const summary={volume_count:2,total_bytes:14*1024**4,free_bytes:9.5*1024**4,used_bytes:4.5*1024**4,used_percent:32.1};
+  try {
+   await page.route("**/api/config",async route=>{if(route.request().method()==="POST"){const data=route.request().postDataJSON();writes.push(data);Object.assign(config,data);}return route.fulfill({json:config});});
+   await page.route("**/api/storage/**",async route=>{const p=new URL(route.request().url()).pathname;
+    if(p==="/api/storage/autopilot")return route.fulfill({json:{policy,roots,summary,pressure:"normal",recommendations:[],activity:[],queue_busy:false,queue_job_count:0}});
+    if(p==="/api/storage/move/jobs")return route.fulfill({json:{jobs:[],history:[],active_count:0}});
+    return route.fulfill({json:{roots,summary,volumes:[{id:"main",label:"Hauptspeicher",mode:"media",paths:["/movies","/serien"],members:[],total_bytes:4*1024**4,free_bytes:.5*1024**4,used_bytes:3.5*1024**4,used_percent:87.5},{id:"second",label:"Medien-Volume 2",mode:"media",paths:["/movies_vol2","/serien_vol2"],members:[],total_bytes:10*1024**4,free_bytes:9*1024**4,used_bytes:1*1024**4,used_percent:10}],locations:[],observed_at:Date.now()/1000}});
+   });
+   await page.evaluate(async()=>{await fixtureApp.settings.settings.initialize();fixtureApp.core.actions.switchTab("einstellungen");document.querySelector('[data-settings-target="settings-general"]').click();});
+   await page.getByText("Royal im Container",{exact:true}).waitFor();
+   await page.getByText(/Automatische Verteilung aktiv/).waitFor();
+   await page.waitForTimeout(350);
+   await page.screenshot({path:path.join(output,`betrieb-${width}.png`)});
+   await page.locator("#operation-change").click();
+   await page.locator('[data-installation-target="desktop"]').click();
+   await page.locator("#installation-next").click();
+   assert.equal(await page.locator("#installation-movie-path").inputValue(),"C:\\Royal\\Medien\\Filme");
+   if(width===1600) await page.locator(".installation-dialog-panel").screenshot({path:path.join(output,"wechsel-zielgeraet.png")});
+   await page.locator("#installation-next").click();
+   assert.equal(writes.length,0);
+   if(width===1600) await page.locator(".installation-dialog-panel").screenshot({path:path.join(output,"wechsel-plan.png")});
+   const download=page.waitForEvent("download");await page.locator("#installation-download").click();assert.equal((await download).suggestedFilename(),"royal-umzugsplan.txt");
+   await page.locator("#installation-close").click();
+   await page.locator('[data-storage-open-manager]:visible').click();
+   await page.getByText("Royal wählt den passenden Speicher.",{exact:true}).waitFor();
+   assert.equal(await page.locator("#settings-storage-card").evaluate(n=>n.closest("[data-settings-section]").id),"settings-storage");
+   await page.waitForTimeout(350);
+   await page.screenshot({path:path.join(output,`speicher-${width}.png`)});
+   await page.locator("#storage-base-editor > summary").click();
+   await page.locator("#save-path").fill("/movies_vol2");await page.locator("#storage-base-save").click();
+   await page.getByText("Ordner gespeichert. Bestehende Dateien bleiben an ihrem Ort.",{exact:true}).waitFor();
+   assert.deepEqual(writes,[{deployment_mode:"nas",save_path:"/movies_vol2",series_path:"/serien"}]);
+   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);
+   config.runtime={...config.runtime,container:false,platform:"Windows",startup_managed:false,mode:"desktop",bind_host:"127.0.0.1"};
+   config.deployment_mode="desktop";
+   await page.evaluate(async()=>{await fixtureApp.settings.settings.initialize();document.querySelector('[data-settings-target="settings-general"]').click();});
+   await page.locator("#operation-change").click();
+   await page.locator('[data-installation-target="nas"]').click();
+   await page.locator("#installation-next").click();
+   assert.equal(await page.locator("#installation-transfer").isChecked(),false);
+   await page.locator("#installation-next").click();
+   await page.locator("#installation-apply").click();
+   await page.getByText("Startprofil gespeichert. Beim nächsten manuellen Neustart wird die neue Konfiguration verwendet.",{exact:true}).waitFor();
+   assert.equal(writes.at(-1).deployment_mode,"nas");
+   assert.equal(config.runtime.mode,"desktop");
+   assert.deepEqual(errors,[]);
+   console.log(width+": runtime, migration, dedicated path save and screenshots passed");
+  } finally {await run.close();}
+ }
+})().catch(e=>{console.error(e);process.exitCode=1});

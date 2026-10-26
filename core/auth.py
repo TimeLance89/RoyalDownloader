@@ -486,8 +486,52 @@ class SessionStore:
             removed = {key: entry for key, entry in self._sessions.items() if key != keep and entry.get("user_id") == target}
             if not removed: return 0
             for key in removed: self._sessions.pop(key, None)
-            self._save_locked()
+            try:
+                self._save_locked()
+            except SessionPersistenceError:
+                self._sessions.update(removed)
+                raise
             return len(removed)
+
+    @staticmethod
+    def _public_reference(fingerprint: str) -> str:
+        # A UI reference is neither the bearer token nor its stored fingerprint.
+        return hashlib.sha256(("royal-session-view:" + fingerprint).encode()).hexdigest()
+
+    def list_for_user(self, user_id: str, current_token: str = "") -> list[dict]:
+        target = str(user_id or "")
+        if not target:
+            return []
+        current = _token_fingerprint(current_token) if current_token else ""
+        with self._lock:
+            self._purge_locked(time.time())
+            rows = [{"id": self._public_reference(key), "label": entry.get("label", ""),
+                     "kind": entry.get("kind", SESSION_KIND_WEB), "created_at": entry["created"],
+                     "last_seen_at": entry["last_seen"], "current": key == current}
+                    for key, entry in self._sessions.items()
+                    if entry.get("user_id") == target or (key == current and not entry.get("user_id"))]
+            return sorted(rows, key=lambda row: (not row["current"], -row["last_seen_at"]))
+
+    def revoke_for_user(self, reference: str, user_id: str, current_token: str = "") -> bool:
+        if not user_id or not reference or len(reference) != 64 or any(char not in "0123456789abcdef" for char in reference):
+            return False
+        current = _token_fingerprint(current_token) if current_token else ""
+        with self._lock:
+            self._purge_locked(time.time())
+            key = next((key for key, entry in self._sessions.items()
+                        if entry.get("user_id") == str(user_id)
+                        and hmac.compare_digest(self._public_reference(key), reference)), None)
+            if key is None:
+                return False
+            if key == current:
+                raise ValueError("Für diese Sitzung die Aktion Abmelden verwenden.")
+            removed = self._sessions.pop(key)
+            try:
+                self._save_locked()
+            except SessionPersistenceError:
+                self._sessions[key] = removed
+                raise
+            return True
 
     def count(self, kind: Optional[str] = None) -> int:
         if kind is not None and kind not in SESSION_KINDS:

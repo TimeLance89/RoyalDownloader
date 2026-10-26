@@ -31,7 +31,7 @@ def test_smart_automation_frontend_exposes_all_requested_controls():
         assert f'id="{identifier}"' in js
     assert '"/api/automation/policy"' in js
     assert "Gesamtbudget" in js
-    assert "Manuelle Downloads bleiben verfügbar" in js
+    assert "Manuelle Downloads bleiben verfügbar" in (ROOT / "web/index.html").read_text(encoding="utf-8")
 
 
 def test_schedule_uses_friendly_modes_and_clock_inputs_instead_of_raw_hours():

@@ -93,6 +93,12 @@ jobs:
           node tests/frontend/provider-monitor-browser.cjs
           node tests/frontend/inbox-dismissal-browser.cjs
 
+      - name: Settings operation, storage, account and automation flows
+        run: |
+          node tests/frontend/settings-operation-browser.cjs
+          node tests/frontend/account-settings-browser.cjs
+          node tests/frontend/automation-settings-browser.cjs
+
       - name: Guided language setup, subscription choices and readiness transition
         run: node tests/frontend/language-studio-browser.cjs
 

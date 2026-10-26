@@ -112,6 +112,9 @@ const baselineRef = process.env.ROYAL_CSS_BASELINE || "7d93908";
         && !element.closest("#account-avatar-card")
         && !element.closest("#tab-einstellungen")
         && !element.closest("#language-setup-dialog")
+        // New installation/migration dialog lives outside the settings tab.
+        // settings-operation-browser checks its layout, decisions and persistence.
+        && !element.closest("#installation-dialog")
         && !element.closest("#setup-wizard")
       )
       .map(element => {

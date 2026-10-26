@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Settings: operation, storage, account and automation
+
+- Separate installation details from storage destinations. Show the actual runtime
+  and guide changes between NAS and computer with an explicit migration plan;
+  externally managed installations cannot silently rewrite their startup mode.
+- Explain fixed versus automatic download placement and give base folders their
+  own save action without changing existing media files.
+- Reorganize account settings into sign-in protection, owned device sessions and
+  administrator-only household management. Add personal profile editing, recovery
+  code downloads and controls to pause or reactivate household accounts.
+- List and revoke only the signed-in account's web and app sessions, preserving
+  the current session and restoring session state if persistence fails.
+- Split automatic operation into weekly schedules, performance/protection limits
+  and confirmed runtime status. Save automation independently and preserve drafts
+  during status refreshes and failed saves.
+- Verify the redesigned desktop and mobile flows in Chromium and WebKit.
+
 ### Inbox control and source-monitor noise
 
 - Collapse technical source incidents into one compact section after subscription
