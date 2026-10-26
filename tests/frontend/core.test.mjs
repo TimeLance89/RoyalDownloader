@@ -1382,10 +1382,12 @@ function settingsFormFixture() {
     querySelector(id) {
       if (!nodes.has(id)) nodes.set(id, Object.assign(new EventTarget(), {
         value: "", checked: false, disabled: false, textContent: "", dataset: {},
+        ownerDocument: root.ownerDocument,
       }));
       return nodes.get(id);
     },
   });
+  root.ownerDocument.getElementById = id => root.querySelector(`#${id}`);
   return { root, nodes };
 }
 
@@ -1495,7 +1497,7 @@ test("settings wait for bootstrap and report partial saves with their failing se
   const view = createSettings(root, {
     getFeatures: () => features, language: () => "de", locale: () => "de-DE",
     languageWizard: { dispose() {} }, onSaved: async () => { refreshes++; },
-    client: { get: () => new Promise(resolve => { load = resolve; }), post: async () => { writes++; return {}; } },
+    client: { get: url => url === "/api/config" ? new Promise(resolve => { load = resolve; }) : Promise.resolve({}), post: async () => { writes++; return {}; } },
   });
   try {
     const initializing = view.initialize(); view.mount();
@@ -1534,13 +1536,7 @@ test("updater save acknowledgements preserve edits made while the request is pen
 
 
 test("settings abort a save sequence on navigation and keep newer edits", async () => {
-  const nodes = new Map();
-  const root = new EventTarget();
-  root.querySelector = id => {
-    if (!nodes.has(id)) nodes.set(id, Object.assign(new EventTarget(), { value: "", textContent: "", disabled: false }));
-    return nodes.get(id);
-  };
-  root.querySelectorAll = () => [];
+  const { root, nodes } = settingsFormFixture();
   let complete;
   const calls = [];
   const feature = { initialize: async () => {}, save: async () => { calls.push("feature"); } };
