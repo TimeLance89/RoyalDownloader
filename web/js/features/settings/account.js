@@ -6,7 +6,7 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
   confirm = message => window.confirm(message),
 }) {
   const byId = id => root.querySelector(`#${id}`);
-  const totp = createTotpSettings(root.querySelector("[data-totp-settings]"), { client, getUser, onUser: user => { onSaved({ user }, user.username); applyAccountCfg({ configured: true, user }); } });
+  const totp = createTotpSettings(root.querySelector("[data-totp-settings]"), { client, getUser, onUser: user => { onSaved({ user }, user.username); applyAccountCfg({ configured: true, user, active_sessions: 1 }); } });
   let scope;
   let users = [];
   let profileAvatars = [];
