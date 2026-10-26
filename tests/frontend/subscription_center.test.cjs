@@ -470,3 +470,16 @@ test('unchecked episode languages remain in the inbox without becoming available
   assert.equal(model.counts.issue, 0);
   assert.match(fixture.document.getElementById('notif-list').textContent, /Sprachprüfung ausstehend/);
 });
+
+
+test("removed messages stay hidden through polls while genuine episode changes return", () => {
+  const { subscriptionKey } = require("../../web/js/features/notifications/dismissals.js");
+  const first = { base_slug: "series", title: "Serie", open_count: 1, inbox_episode_revision: "episode-a" };
+  const key = subscriptionKey(first);
+  assert.equal(subscriptionKey({ ...first, episode_states: { b: "upcoming", a: "missing" } }),
+    subscriptionKey({ ...first, episode_states: { a: "missing", b: "upcoming" } }));
+  assert.equal(subscriptionKey({ ...first, last_checked: 99, checking: true }), key);
+  const hidden = value => value === key;
+  assert.equal(model.buildSubscriptionInbox([first], {}, hidden).counts.all, 0);
+  assert.equal(model.buildSubscriptionInbox([{ ...first, inbox_episode_revision: "episode-b" }], {}, hidden).counts.all, 1);
+});

@@ -148,3 +148,27 @@ def test_full_failed_cycle_retries_escalates_then_clears_on_confirmed_success(tm
         assert not owner.watchdog.incidents("a")
     finally:
         owner.stop()
+
+
+def test_incomplete_hoster_probes_do_not_escalate_stale_attention(tmp_path, monkeypatch):
+    owner = monitor(tmp_path)
+    try:
+        owner.hosters.seed("voe", "https://voe.example/embed", "filmpalast")
+        monkeypatch.setattr("application_services.hoster_monitor.source_health", lambda *args: "needs_attention")
+        monkeypatch.setattr(owner.hosters.repairs, "propose", lambda *args: [])
+        monkeypatch.setattr(owner.hosters, "schedule", lambda *args: None)
+        result = {"steps": [], "details": [{"ok": False, "identity": "canary", "code": "browser_fallback_required", "probe_complete": False}]}
+        monkeypatch.setattr(owner.hosters.probe, "run", lambda *args: result)
+        for _ in range(3):
+            owner.hosters.check("voe")
+        assert owner.watchdog.incidents("owner") == []
+        result["details"][0].update(code="network_error", probe_complete=False)
+        for _ in range(3):
+            owner.hosters.check("voe")
+        assert owner.watchdog.incidents("owner") == []
+        result["details"][0]["probe_complete"] = True
+        owner.hosters.check("voe")
+        owner.hosters.check("voe")
+        assert owner.watchdog.incidents("owner")[0]["key"] == "voe"
+    finally:
+        owner.stop()

@@ -89,7 +89,9 @@ jobs:
           node tests/frontend/remote-access-browser.cjs
 
       - name: Source Sentinel provider and hoster settings and repair confirmation
-        run: node tests/frontend/provider-monitor-browser.cjs
+        run: |
+          node tests/frontend/provider-monitor-browser.cjs
+          node tests/frontend/inbox-dismissal-browser.cjs
 
       - name: Guided language setup, subscription choices and readiness transition
         run: node tests/frontend/language-studio-browser.cjs
@@ -322,6 +324,7 @@ jobs:
           tests/test_watchlist_inbox_payload.py
           tests/test_source_monitor_runtime.py
           tests/test_source_watchdog.py
+          tests/test_inbox_dismissals.py
           tests/test_totp.py
           tests/test_totp_api.py
           tests/test_remote_access.py

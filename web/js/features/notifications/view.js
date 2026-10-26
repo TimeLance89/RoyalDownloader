@@ -1,7 +1,7 @@
 import { createScope } from "../../core/lifecycle.js";
 import { buildSubscriptionInbox, inboxEntriesForFilter, inboxIssueDetail, inboxDownloadDetail } from "./model.js";
 
-export function createNotificationView(root, { getSnapshot, ui, coverUrl, subscriptionMonogram, libraryCheckedLabel, inboxCheckBusy, closeNotifDropdown, openWatchlistEntry, runNotificationCheck, markNotificationDownloadsRead }) {
+export function createNotificationView(root, { getSnapshot, ui, coverUrl, subscriptionMonogram, libraryCheckedLabel, inboxCheckBusy, closeNotifDropdown, openWatchlistEntry, runNotificationCheck, markNotificationDownloadsRead, hidden = () => false, dismiss = async () => {} }) {
   const document = root.ownerDocument;
   const find = id => root.querySelector(`#${id}`);
   let rows;
@@ -117,6 +117,11 @@ export function createNotificationView(root, { getSnapshot, ui, coverUrl, subscr
       });
       actions.appendChild(read);
     }
+    const remove = document.createElement("button");
+    remove.type = "button"; remove.className = "notif-item-dismiss"; remove.textContent = "Entfernen";
+    remove.setAttribute("aria-label", `Meldung für ${entry.title} entfernen`);
+    rows.listen(remove, "click", () => { void dismiss([item.key]); });
+    actions.append(remove);
     if (actions.children.length) row.appendChild(actions);
     return row;
   }
@@ -167,7 +172,7 @@ export function createNotificationView(root, { getSnapshot, ui, coverUrl, subscr
 
   function renderNotifBell(content = true) {
 
-    const model = buildSubscriptionInbox(getSnapshot().items, { ...getSnapshot().health, error: getSnapshot().error || getSnapshot().health?.error });
+    const model = buildSubscriptionInbox(getSnapshot().items, { ...getSnapshot().health, error: getSnapshot().error || getSnapshot().health?.error }, hidden);
     const filter = Object.hasOwn(model.counts, ui.filter) ? ui.filter : "all";
     ui.filter = filter;
     const badge = find("notif-badge");
@@ -239,12 +244,19 @@ export function createNotificationView(root, { getSnapshot, ui, coverUrl, subscr
       title.textContent = "Abonnements konnten nicht geprüft werden";
       const detail = document.createElement("small");
       detail.textContent = model.globalError;
-      problem.append(title, detail);
+      const remove = document.createElement("button"); remove.type = "button";
+      remove.textContent = "Entfernen"; remove.className = "notif-item-dismiss";
+      rows.listen(remove, "click", () => { void dismiss([model.globalKey]); });
+      problem.append(title, detail, remove);
       list.appendChild(problem);
     }
     visible.forEach((item) => list.appendChild(buildNotificationItem(item)));
     if (!visible.length && !showGlobalError) appendInboxEmpty(list, filter);
   }
 
-  return { refresh: renderNotifBell, unmount() { rows?.dispose(); rows = null; } };
+  return { keys() {
+    const model = buildSubscriptionInbox(getSnapshot().items, { ...getSnapshot().health, error: getSnapshot().error || getSnapshot().health?.error }, hidden);
+    return [...inboxEntriesForFilter(model, ui.filter).map(item => item.key),
+      ...(model.globalError && ["all", "issue"].includes(ui.filter) ? [model.globalKey] : [])];
+  }, refresh: renderNotifBell, unmount() { rows?.dispose(); rows = null; } };
 }

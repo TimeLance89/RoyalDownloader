@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Inbox control and source-monitor noise
+
+- Collapse technical source incidents into one compact section after subscription
+  activity; keep them out of the open-episodes filter and synchronize header,
+  filter and mobile badge totals.
+- Let every signed-in user remove individual messages or all messages in the
+  current filter. Persist removal per user for subscription states, source
+  incidents and Royal announcements without changing subscriptions or downloads.
+- Keep removed states hidden through polling and restart; new episode identities,
+  downloads, source incident IDs and announcement revisions can appear again.
+- Do not escalate incomplete/unsupported hoster probes solely from a stale health
+  diagnosis; require completed failed evidence. Background monitoring continues.
+
+
 ### Own-domain NAS access
 
 - Add an administrator wizard for each operator's own domain and Cloudflare account,

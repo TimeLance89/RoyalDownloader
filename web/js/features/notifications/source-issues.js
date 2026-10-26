@@ -1,8 +1,12 @@
+import { inboxKey } from "./dismissals.js";
 import { api } from "../../core/api.js";
 
 /** Durable administrator incidents, independent of optional status push notices. */
-export function createSourceIssueInbox(root, { onChange, getFilter, isOpen, getUser, client = api }) {
+export function createSourceIssueInbox(root, { onChange, getFilter, isOpen, getUser, hidden = () => false, dismiss = async () => {}, client = api }) {
   const document = root.ownerDocument;
+  let expanded = false;
+  const key = item => inboxKey("source", item.id);
+  const visibleItems = () => items.filter(item => !hidden(key(item)));
   let items = [], owner = "", mounted = false, controller = null, timer = null, reading = "";
   const userId = () => getUser()?.role === "admin" ? String(getUser()?.id || "") : "";
   async function reload() {
@@ -40,57 +44,53 @@ export function createSourceIssueInbox(root, { onChange, getFilter, isOpen, getU
   function render() {
     root.querySelector(".source-issue-group")?.remove();
     if (!mounted || !owner || owner !== userId()) return;
-    const unread = items.filter(item => !item.read).length;
+    const visible = visibleItems();
+    if (!visible.length) return;
+    const unread = visible.some(item => !item.read) ? 1 : 0;
     const badge = root.querySelector("#notif-badge");
-    if (!badge) return;
-    const total = (Number(badge.textContent) || 0) + unread;
-    badge.textContent = String(total);
-    badge.classList.toggle("hidden", total === 0);
-    root.querySelector("#notif-bell")?.classList.toggle("is-active", total > 0);
-    for (const [filter, count] of [["all", items.length], ["new", unread], ["issue", items.length]]) {
-      const node = root.querySelector('[data-notif-filter="' + filter + '"] .notif-filter-count');
-      if (node) node.textContent = String((Number(node.textContent) || 0) + count);
+    if (badge) {
+      const total = (Number(badge.textContent) || 0) + unread;
+      badge.textContent = String(total); badge.classList.toggle("hidden", total === 0);
+      root.querySelector("#notif-bell")?.classList.toggle("is-active", total > 0);
     }
-    document.querySelectorAll("[data-notif-mobile-badge]").forEach(node => {
-      node.textContent = String(total); node.classList.toggle("hidden", total === 0);
-    });
-    if (unread) {
-      const label = total + " Hinweise";
-      const trigger = root.querySelector("#notif-trigger-label");
-      if (trigger) trigger.textContent = label;
-      root.querySelector("#notif-bell")?.setAttribute("aria-label", "Abo-Inbox öffnen: " + label);
-      document.querySelectorAll("[data-notif-mobile-summary]").forEach(node => { node.textContent = label; });
+    for (const filter of ["all", "issue"]) {
+      const count = root.querySelector('[data-notif-filter="' + filter + '"] .notif-filter-count');
+      if (count) count.textContent = String((Number(count.textContent) || 0) + 1);
     }
-    if (!isOpen() || !["all", "new", "issue"].includes(getFilter())) return;
-    const visible = items.filter(item => getFilter() !== "new" || !item.read);
+    if (!isOpen() || !["all", "issue"].includes(getFilter())) return;
     const list = root.querySelector("#notif-list");
-    if (!list || !visible.length) return;
+    if (!list) return;
     list.querySelector(".notif-empty")?.remove();
-    const group = document.createElement("section");
-    group.className = "source-issue-group royal-announcement-group";
-    const heading = document.createElement("h3");
-    heading.className = "royal-announcement-heading";
-    heading.textContent = "Quellen benötigen Aufmerksamkeit";
-    group.append(heading);
+    const group = document.createElement("details");
+    group.className = "source-issue-group"; group.open = expanded;
+    group.addEventListener("toggle", () => { if (group.isConnected) expanded = group.open; });
+    const summary = document.createElement("summary");
+    summary.textContent = `Quellenprüfung · ${visible.length} ${visible.length === 1 ? "Hinweis" : "Hinweise"}`;
+    const hint = document.createElement("p");
+    hint.textContent = "Technische Prüfhinweise. Sie bedeuten nicht automatisch, dass deine Downloads ausfallen. Details unter Quellen & Verfügbarkeit.";
+    hint.className = "notif-context";
+    group.append(summary, hint);
     for (const item of visible) {
-      const card = document.createElement("article");
-      card.className = "royal-announcement" + (item.read ? "" : " is-unread");
-      const title = document.createElement("strong"), body = document.createElement("p");
-      title.textContent = item.label; body.textContent = item.message;
-      card.append(title, body);
+      const row = document.createElement("article"); row.className = "source-issue-row";
+      const title = document.createElement("strong"); title.textContent = item.label;
+      const actions = document.createElement("div"); actions.className = "notif-item-actions";
       if (!item.read) {
-        const actions = document.createElement("div"), button = document.createElement("button");
-        actions.className = "royal-announcement-actions";
-        button.type = "button"; button.textContent = "Als gelesen";
-        button.addEventListener("click", async () => { button.disabled = true; await read(item); if (button.isConnected) button.disabled = false; });
-        actions.append(button); card.append(actions);
+        const readButton = document.createElement("button");
+        readButton.type = "button"; readButton.textContent = "Als gelesen"; readButton.dataset.sourceRead = item.id;
+        readButton.addEventListener("click", async () => { readButton.disabled = true; await read(item); if (readButton.isConnected) readButton.disabled = false; });
+        actions.append(readButton);
       }
-      group.append(card);
+      const remove = document.createElement("button");
+      remove.type = "button"; remove.className = "notif-item-dismiss"; remove.textContent = "Entfernen";
+      remove.setAttribute("aria-label", `Quellenhinweis ${item.label} entfernen`);
+      remove.addEventListener("click", () => { void dismiss([key(item)]); });
+      actions.append(remove); row.append(title, actions); group.append(row);
     }
-    list.prepend(group);
+    list.append(group);
   }
   return {
     render, reload,
+    keys: () => owner && owner === userId() && ["all", "issue"].includes(getFilter()) ? visibleItems().map(key) : [],
     mount() {
       if (mounted) return;
       mounted = true;
