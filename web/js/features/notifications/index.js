@@ -3,6 +3,7 @@ import { isAbortError } from "../../core/errors.js";
 import { notificationCount } from "./model.js";
 import { createNotificationView } from "./view.js";
 import { notificationApi } from "./api.js";
+import { createAnnouncementInbox } from "../announcements/inbox.js";
 
 export function createNotifications(root, { getSnapshot, check, onSnapshot, openEntry, openLibrary, coverUrl, subscriptionMonogram, libraryCheckedLabel, requests = notificationApi, getSnapshotVersion = () => 0, beforeOpen = () => {} }) {
   const document = root.ownerDocument;
@@ -26,7 +27,14 @@ export function createNotifications(root, { getSnapshot, check, onSnapshot, open
     inboxCheckBusy: busy, closeNotifDropdown: close, openWatchlistEntry: openEntry,
     runNotificationCheck: runCheck, markNotificationDownloadsRead: markRead,
   });
-  function refresh() { if (shell?.active) view.refresh(Boolean(actions?.active)); }
+  const announcements = createAnnouncementInbox(root, {
+    onChange: () => refresh(), getFilter: () => ui.filter, isOpen: () => Boolean(actions?.active),
+  });
+  function refresh() {
+    if (!shell?.active) return;
+    view.refresh(Boolean(actions?.active));
+    announcements.render();
+  }
   function close(restoreFocus = false) {
     actions?.dispose(); actions = null; checking = false; ui.reading = "";
     view.unmount();
@@ -48,6 +56,7 @@ export function createNotifications(root, { getSnapshot, check, onSnapshot, open
     find("notif-bell").setAttribute("aria-expanded", "true");
     document.querySelectorAll("[data-notifications-open]").forEach(button => button.setAttribute("aria-expanded", "true"));
     refresh();
+    void announcements.reload();
     if (document.defaultView?.matchMedia?.("(max-width: 820px)").matches) find("notif-close").focus({ preventScroll: true });
   }
   async function runCheck(slugs) {
@@ -104,8 +113,9 @@ export function createNotifications(root, { getSnapshot, check, onSnapshot, open
       root.querySelectorAll("[data-notif-filter]").forEach(button => shell.listen(button, "click", event => {
         event.stopPropagation(); ui.filter = button.dataset.notifFilter || "all"; refresh();
       }));
+      announcements.mount();
       refresh();
     },
-    unmount() { close(); shell?.dispose(); shell = null; },
+    unmount() { announcements.unmount(); close(); shell?.dispose(); shell = null; },
   };
 }

@@ -79,7 +79,7 @@ export function createMovieDetailsLoader({
           updateFpResultCard(slug);
           render();
         } else if (!provider?.hosters?.length && resolved.availability?.state === "retrying") {
-          setFpDetailAvailability("Quellen vorübergehend nicht erreichbar · Prüfe erneut …", "loading");
+          setFpDetailAvailability("Suche läuft weiter · Weitere Anbieter werden geprüft …", "loading");
         }
       };
       const requestProvider = tmdbId => resolveAvailability({ client, slug,

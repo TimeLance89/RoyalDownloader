@@ -19,6 +19,11 @@ concurrency:
 jobs:
   frontend-browser:
     runs-on: ubuntu-latest
+    # Pin the same Playwright release as the npm package below.
+    # The official image already contains Chromium, WebKit and system libraries;
+    # downloading ~100MB of apt packages in each short-lived job timed out.
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.1-noble
     timeout-minutes: 15
     steps:
       - name: Check out repository and frozen CSS baseline
@@ -35,8 +40,17 @@ jobs:
       - name: Install isolated browser test tooling
         shell: bash
         run: |
-          npm install --prefix "${RUNNER_TEMP}/royal-frontend-tests" --no-save --ignore-scripts playwright@1.62.1
-          "${RUNNER_TEMP}/royal-frontend-tests/node_modules/.bin/playwright" install --with-deps chromium
+          # The container's UID differs from actions/checkout; CSS equivalence
+          # invokes git show directly, so all git commands need the safe path.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          # Retry transient npm registry resets; keep actual browser assertions mandatory.
+          for attempt in 1 2 3; do
+            if npm install --prefix "${RUNNER_TEMP}/royal-frontend-tests" --no-save --ignore-scripts --fetch-retries=3 --fetch-retry-mintimeout=1000 --fetch-retry-maxtimeout=5000 playwright@1.62.1; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            sleep "$attempt"
+          done
           echo "ROYAL_PLAYWRIGHT=${RUNNER_TEMP}/royal-frontend-tests/node_modules/playwright" >> "$GITHUB_ENV"
           echo "ROYAL_BROWSER=chromium" >> "$GITHUB_ENV"
 
@@ -45,6 +59,9 @@ jobs:
 
       - name: Failed boot recovery and visually identical bundled styles
         run: node tests/frontend/startup-recovery-browser.cjs
+
+      - name: Series subscription artwork, fallback and detail navigation
+        run: node tests/frontend/subscription-summary-browser.cjs
 
       - name: Populated movie and series catalogs on desktop and touch mobile
         run: node tests/frontend/catalog-browser.cjs
@@ -111,7 +128,7 @@ jobs:
         env:
           ROYAL_DOWNLOAD_BASELINE: ${{ runner.temp }}/royal-download-baseline/web
         run: |
-          git worktree add --detach "${RUNNER_TEMP}/royal-download-baseline" da5e5e72690facdb175d1540d2cb0a7618edbdf8
+          git -c safe.directory="$GITHUB_WORKSPACE" worktree add --detach "${RUNNER_TEMP}/royal-download-baseline" da5e5e72690facdb175d1540d2cb0a7618edbdf8
           node --test tests/frontend/download-presentation.test.mjs tests/frontend/home-navigation.test.mjs
           node tests/frontend/download-center-browser.cjs
 
@@ -128,7 +145,9 @@ jobs:
 
   frontend-performance:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.1-noble
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
         with:
@@ -139,10 +158,18 @@ jobs:
           node-version: "24"
       - name: Install isolated measurement tooling
         run: |
-          npm install --prefix "${RUNNER_TEMP}/royal-perf" --no-save --ignore-scripts playwright@1.62.1 pngjs@7.0.0 pixelmatch@7.2.0
-          "${RUNNER_TEMP}/royal-perf/node_modules/.bin/playwright" install --with-deps chromium
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          # Registry/network failures are retryable, but test failures are not.
+          for attempt in 1 2 3; do
+            if npm install --prefix "${RUNNER_TEMP}/royal-perf" --no-save --ignore-scripts --fetch-retries=3 --fetch-retry-mintimeout=1000 --fetch-retry-maxtimeout=5000 playwright@1.62.1 pngjs@7.0.0 pixelmatch@7.2.0; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            sleep "$attempt"
+          done
           echo "ROYAL_PLAYWRIGHT=${RUNNER_TEMP}/royal-perf/node_modules/playwright" >> "$GITHUB_ENV"
-          git worktree add --detach "${RUNNER_TEMP}/royal-perf-baseline" d3aada9099703c0b9d9b6201f49082c52ddff0d7
+          # Container UID differs from actions/checkout's checkout owner.
+          git -c safe.directory="$GITHUB_WORKSPACE" worktree add --detach "${RUNNER_TEMP}/royal-perf-baseline" d3aada9099703c0b9d9b6201f49082c52ddff0d7
       - name: Paired frozen baseline (same worker and browser)
         run: |
           ROYAL_WEB_ROOT="${RUNNER_TEMP}/royal-perf-baseline/web" ROYAL_PERF_OUTPUT=artifacts/frontend-performance/baseline node tests/frontend/performance-benchmark.cjs
@@ -172,6 +199,7 @@ jobs:
 
     steps:
       - name: Require successful frontend browser gate
+        # All three browser suites are mandatory for every PR and branch push.
         if: ${{ needs.frontend-browser.result != 'success' || needs.frontend-performance.result != 'success' || needs.frontend-webkit.result != 'success' }}
         run: exit 1
 
@@ -202,7 +230,7 @@ jobs:
           backend=false
           while IFS= read -r path; do
             case "$path" in
-              web/*|tests/frontend/*|tests/frontend_smoke.test.mjs|tests/movie_catalog_refresh.test.mjs|.github/workflows/quality.yml)
+              web/*|tests/frontend/*|tests/frontend_smoke.test.mjs|tests/movie_catalog_refresh.test.mjs|.github/workflows/quality.yml|.github/workflows/frontend-webkit.yml)
                 ;;
               *) backend=true; break ;;
             esac
