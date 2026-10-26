@@ -50,16 +50,17 @@ def settings():
 
 
 def normalized_users_for_upgrade(items):
-    """Normalize only additive, empty profile defaults across old releases.
+    """Normalize only additive opt-out/empty defaults across old releases.
 
     The gate must still fail when any pre-existing account, role, onboarding,
-    timestamp or security value changes. New optional presentation fields are
-    allowed only at their migration default.
+    timestamp or security value changes. A missing MFA capability flag in an
+    old release means not enrolled; a true flag must never be normalized away.
     """
     normalized = []
     for item in items:
         value = dict(item)
         value.setdefault("avatar_id", "")
+        value.setdefault("mfa_enabled", False)
         normalized.append(value)
     return normalized
 
