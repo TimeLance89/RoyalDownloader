@@ -81,10 +81,44 @@ class HosterMonitor:
         self.lock = threading.RLock()
         self.canaries = {}
         self.inventory = dict(CONTRACTS)
+        self.rejected_admissions = 0
         with owner.store.lock:
-            for key in owner.store.data["hosters"]:
+            entries = owner.store.data["hosters"]
+            for key in sorted(entries, key=lambda k: (bool(entries[k].get("active_repair")), self._last_activity(entries[k])), reverse=True):
                 if key != "unknown" and hoster_key(key) == key and len(self.inventory) < MAX_HOSTERS:
                     self.inventory[key] = runtime_contract(key)
+
+    @staticmethod
+    def _last_activity(entry):
+        times = [entry.get(key, 0) for key in ("last_seen_at", "last_check_at", "last_success_at", "last_failure_at")]
+        times.extend(row.get("timestamp", 0) for field in ("samples", "history", "probe_evidence") for row in entry.get(field, []))
+        return max((value for value in times if isinstance(value, (int, float))), default=0)
+
+    def _admit(self, key, contract):
+        """Called under owner then hoster lock; never evict live work/repairs."""
+        new = key not in self.inventory
+        if key not in self.inventory and len(self.inventory) >= MAX_HOSTERS:
+            stale = []
+            for candidate in self.inventory:
+                if candidate in CONTRACTS or f"hoster:{candidate}" in self.owner.active:
+                    continue
+                entry = self.store.entry(candidate)
+                last = self._last_activity(entry)
+                if not entry.get("active_repair") and not entry.get("watchdog", {}).get("incident") and self.clock() - last > CANARY_TTL:
+                    stale.append((last, candidate))
+            if not stale:
+                self.rejected_admissions += 1
+                return False
+            _, victim = min(stale)
+            if not self.owner.store.remove_hoster(victim):
+                return False
+            self.inventory.pop(victim)
+            self.canaries.pop(victim, None)
+            self.owner.last_manual.pop(f"hoster:{victim}", None)
+        self.inventory[key] = contract
+        if new:
+            self.rejected_admissions = 0
+        return True
 
     def begin(self, name, url, provider=""):
         if self.owner.stopped or not valid_source_link(url) or len(url) > 8192:
@@ -92,7 +126,7 @@ class HosterMonitor:
         self.seed(name, url, provider)
         key = hoster_key(name, url)
         if key in self.inventory:
-            self.store.record(key, {"event": "resolve_attempt"})
+            self.store.record(key, {"event": "resolve_attempt"}, deferred=True)
 
     def observe(self, name, url, ok, duration_ms=0, provider="", message="", media_url=""):
         if self.owner.stopped or not valid_source_link(url) or len(url) > 8192:
@@ -104,13 +138,14 @@ class HosterMonitor:
         identity = canary_identity(url)
         domain = urlsplit(url).hostname.lower()
         code = "resolve_success" if ok else classify_failure(message)
-        with self.lock:
-            if key not in self.inventory and len(self.inventory) >= MAX_HOSTERS:
+        with self.owner.lock, self.lock:
+            if not self._admit(key, contract):
                 return
-            self.inventory[key] = contract
             entry = self.store.entry(key)
             samples = [row for row in entry.get("samples", []) if now - row["timestamp"] <= 7 * 86400]
             row = {"timestamp": now, "code": code, "identity": identity, "duration_ms": min(300000, max(0, round(duration_ms, 1)))}
+            if ok and media_url:
+                row["media_signature"] = media_identity(media_url)
             samples.append(row)
             samples = samples[-MAX_SAMPLES:]
             buckets = [bucket for bucket in entry.get("runtime_buckets", []) if now - bucket["timestamp"] < 7 * 86400]
@@ -125,10 +160,10 @@ class HosterMonitor:
             providers = sorted(set(entry.get("providers", [])) | ({provider} if provider in self.owner.enabled() else set()))[:15]
             state = source_health(key, {**entry, "samples": samples, "providers": providers}, now)
             domains = sorted(set(entry.get("domains", [])) | {domain})[:16]
-            self.store.update(key, samples=samples, runtime_buckets=buckets[-10081:], diagnosis=state, health_evidence_version=2, providers=providers, domains=domains,
+            self.store.update(key, deferred=True, samples=samples, runtime_buckets=buckets[-10081:], diagnosis=state, health_evidence_version=2, providers=providers, domains=domains,
                               last_success_at=now if ok else entry.get("last_success_at", 0),
                               last_failure_at=now if not ok else entry.get("last_failure_at", 0), last_error="" if ok else code)
-            self.store.record(key, {"event": code, "duration_ms": row["duration_ms"]})
+            self.store.record(key, {"event": code, "duration_ms": row["duration_ms"]}, deferred=True)
             if ok:
                 self.seed(name, url, provider, proven=True, media_signature=media_identity(media_url))
             if entry.get("active_repair"):
@@ -138,6 +173,7 @@ class HosterMonitor:
                 if len(after) >= 5 and len(failures) >= 3 and sum(row["code"] == "resolve_success" for row in after) / len(after) < .5:
                     self.repairs.rollback(key, repair["id"], "runtime_success_rate_regressed")
                     self.store.update(key, diagnosis="needs_attention")
+                    self.owner.watchdog.result(key, kind="hoster", rollback=True)
                     self.owner._notify(key, "repair_rolled_back", "hoster")
             if state != entry.get("diagnosis") and state in {"broken", "offline", "blocked", "healthy"}:
                 self.owner._notify(key, state, "hoster")
@@ -151,22 +187,28 @@ class HosterMonitor:
         hostname = urlsplit(url).hostname.lower()
         if any(hostname == domain or hostname.endswith("." + domain) for definition in PROVIDER_CATALOG.values() for domain in definition.domains):
             return
-        with self.lock:
-            if key not in self.inventory and len(self.inventory) >= MAX_HOSTERS:
+        with self.owner.lock, self.lock:
+            if not self._admit(key, runtime_contract(name, url)):
                 return
-            self.inventory[key] = runtime_contract(name, url)
-            entry = self.store.entry(key, ("providers", "domains"))
+            entry = self.store.entry(key, ("providers", "domains", "last_seen_at"))
             domains = sorted(set(entry.get("domains", [])) | {hostname})[:16]
             providers = sorted(set(entry.get("providers", [])) | ({provider} if provider in self.owner.enabled() else set()))[:15]
-            if domains != entry.get("domains") or providers != entry.get("providers"):
-                fields = {"domains": domains, "providers": providers}
+            if domains != entry.get("domains") or providers != entry.get("providers") or now - entry.get("last_seen_at", 0) >= 60:
+                fields = {"domains": domains, "providers": providers, "last_seen_at": now}
                 if providers != entry.get("providers"):
                     evidence = self.store.entry(key, ("samples", "probe_evidence"))
                     fields.update(diagnosis=source_health(key, {**evidence, "providers": providers}, now), health_evidence_version=2)
-                self.store.update(key, **fields)
+                self.store.update(key, deferred=True, **fields)
             identity = canary_identity(url)
             rows = [row for row in self.canaries.get(key, []) if now - row["seen_at"] <= CANARY_TTL]
             prior = next((row for row in rows if row["identity"] == identity), {})
+            # Restore proof only for the same freshly rediscovered embed. URLs
+            # stay in memory; persisted success evidence contains hashes only.
+            if not prior:
+                evidence = self.store.entry(key, ("samples",)).get("samples", [])
+                prior = next(({"proven": True, "media_signature": row["media_signature"]} for row in reversed(evidence)
+                              if row.get("identity") == identity and row.get("code") == "resolve_success"
+                              and row.get("media_signature") and 0 <= now - row["timestamp"] <= CANARY_TTL), {})
             rows = [row for row in rows if row["identity"] != identity]
             rows.append({"url": url, "identity": identity, "seen_at": now, "proven": proven or prior.get("proven", False), "provider": provider, "media_signature": media_signature or prior.get("media_signature", "")})
             rows.sort(key=lambda row: (row["proven"], row["seen_at"]))
@@ -218,14 +260,22 @@ class HosterMonitor:
                     self.store.update(key, diagnosis="repairing")
                 else:
                     self.store.update(key, diagnosis="repair_available" if proposal["confidence"] == "high" else "needs_attention")
-        self.schedule(key)
+        meaningful = [row for row in evidence if row["code"] not in {
+            "removed", "recognition_only", "browser_fallback_required", "runtime_validation_required", "budget_exhausted"
+        } and (row.get("ok") or row.get("probe_complete", False))]
+        self.owner.watchdog.result(key, kind="hoster",
+                                   failed=state in {"broken", "offline", "blocked", "needs_attention"} or bool(meaningful) and not any(row.get("ok") for row in meaningful),
+                                   recovered=state == "healthy" and sum(bool(row.get("ok")) for row in meaningful) >= 3)
+        diagnosis = self.store.entry(key, ("diagnosis",)).get("diagnosis", "unknown")
+        delay = 300 if diagnosis == "repairing" else self.owner.watchdog.retry_delay(key, "hoster")
+        self.schedule(key, delay)
         diagnosis = self.store.entry(key, ("diagnosis",)).get("diagnosis", "unknown")
         if diagnosis != previous.get("diagnosis") and diagnosis in {"broken", "offline", "blocked", "repairing", "repair_available", "needs_attention"}:
             self.owner._notify(key, diagnosis, "hoster")
 
     def schedule(self, key, delay=None):
         jitter = int(hashlib.sha256(key.encode()).hexdigest()[:6], 16) % 900
-        self.store.update(key, next_check_at=self.clock() + (delay if delay is not None else self.store.config()["interval_hours"] * 3600) + jitter)
+        self.store.update(key, next_check_at=self.clock() + (delay if delay is not None else self.store.config()["interval_hours"] * 3600) + (jitter if delay is None else jitter % 30))
 
     def penalty(self, name, url=""):
         key = hoster_key(name, url)
@@ -238,12 +288,12 @@ class HosterMonitor:
             state = source_health(key, self.store.entry(key, ("samples", "probe_evidence", "providers")), self.clock())
         return {"broken": -100, "offline": -100, "blocked": -80, "degraded": -20, "needs_attention": -40}.get(state, 0)
 
-    def diagnostics(self):
+    def diagnostics(self, *, details=True):
         rows = []
         with self.lock:
             contracts = sorted(self.inventory.items())
         for key, contract in contracts:
-            entry = self.store.entry(key)
+            entry = self.store.entry(key) if details else self.store.summary_entry(key)
             contract = source_contract(key, entry.get("providers", []))
             diagnosis = entry.get("diagnosis", "unknown")
             if entry.get("health_evidence_version") != 2 and diagnosis in {"broken", "offline", "blocked"}:
@@ -258,4 +308,7 @@ class HosterMonitor:
                          "metrics_24h": metrics(samples, self.clock(), buckets=entry.get("runtime_buckets")), "metrics_7d": metrics(samples, self.clock(), 7, entry.get("runtime_buckets")),
                          **{field: entry.get(field, [] if field in {"steps", "history", "repairs"} else None) for field in ("last_check_at", "next_check_at", "last_success_at", "last_failure_at", "last_error", "steps", "history", "repairs", "active_repair")}})
             rows[-1]["steps"] = steps
+            rows[-1].update(revision=entry.get("revision", 0),
+                            history_count=len(entry.get("history", [])) if details else entry["history_count"],
+                            repairs_count=len(entry.get("repairs", [])) if details else entry["repairs_count"])
         return rows

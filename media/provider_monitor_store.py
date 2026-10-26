@@ -6,6 +6,7 @@ import json
 import os
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from pathlib import Path
 
 
@@ -19,6 +20,13 @@ class ProviderMonitorStore:
     def __init__(self, path: Path, clock=time.time):
         self.path, self.clock = Path(path), clock
         self.lock = threading.RLock()
+        self._disk_lock = threading.Lock()
+        self._revision = 0
+        self._dirty = False
+        self._writer = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sentinel-state")
+        self._flush_task = None
+        self._last_flush_started = float("-inf")
+        self.last_write_error = False
         self.data = {"version": 1, "config": dict(DEFAULT_CONFIG), "providers": {}, "hosters": {}}
         try:
             if self.path.stat().st_size > 64_000_000:
@@ -44,11 +52,15 @@ class ProviderMonitorStore:
             pass
 
     def _write(self):
+        with self._disk_lock:
+            self._write_data(self.data)
+
+    def _write_data(self, data):
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_name(f".{self.path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
         try:
             with temporary.open("w", encoding="utf-8") as handle:
-                json.dump(self.data, handle, ensure_ascii=False, separators=(",", ":"))
+                json.dump(data, handle, ensure_ascii=False, separators=(",", ":"))
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temporary, self.path)
@@ -58,17 +70,116 @@ class ProviderMonitorStore:
             except OSError:
                 pass
 
-    def _commit(self, data):
+    def _commit(self, data, *, deferred=False):
         previous = self.data
+        was_dirty = self._dirty
         self.data = data
+        self._revision += 1
+        if deferred:
+            self._dirty = True
+            return
         try:
             self._write()
         except Exception:
             self.data = previous
+            self._revision += 1
+            self._dirty = was_dirty
+            self.last_write_error = True
             raise
+        self._dirty = False
+        self.last_write_error = False
 
-    def _commit_entry(self, provider, entry, namespace="providers"):
-        self._commit({**self.data, namespace: {**self.data[namespace], provider: entry}})
+    def _commit_entry(self, provider, entry, namespace="providers", *, deferred=False):
+        entry["revision"] = self.data[namespace].get(provider, {}).get("revision", 0) + 1
+        self._commit({**self.data, namespace: {**self.data[namespace], provider: entry}}, deferred=deferred)
+
+    def flush(self):
+        """One immutable snapshot; never hold the state lock during disk I/O."""
+        with self.lock:
+            if not self._dirty:
+                return True
+            snapshot, revision = self.data, self._revision
+        try:
+            with self._disk_lock:
+                # A durable commit may have overtaken this queued snapshot.
+                if revision != self._revision:
+                    return False
+                self._write_data(snapshot)
+        except Exception:
+            with self.lock:
+                if revision == self._revision:
+                    self.last_write_error = True
+            return False
+        with self.lock:
+            if revision == self._revision:
+                self._dirty = False
+                self.last_write_error = False
+        return True
+
+    def flush_background(self, *, force=False):
+        with self.lock:
+            due = force or time.monotonic() - self._last_flush_started >= 30
+            if due and self._dirty and (self._flush_task is None or self._flush_task.done()):
+                if self._writer is None:
+                    self._writer = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sentinel-state")
+                self._last_flush_started = time.monotonic()
+                self._flush_task = self._writer.submit(self.flush)
+            return self._flush_task
+
+    def close(self):
+        # A blocked durable write must not hang application shutdown.
+        if not self.lock.acquire(timeout=.05):
+            return
+        try:
+            task = self.flush_background(force=True)
+        finally:
+            self.lock.release()
+        if task is not None:
+            try:
+                task.result(timeout=.2)
+            except (TimeoutError, OSError):
+                pass
+        if not self.lock.acquire(timeout=.05):
+            return
+        try:
+            writer, self._writer = self._writer, None
+        finally:
+            self.lock.release()
+        if writer is not None:
+            writer.shutdown(wait=False)
+
+    def persistence_status(self):
+        with self.lock:
+            return {"pending": self._dirty, "write_failed": self.last_write_error}
+
+    def summary_entry(self, provider, *, namespace="providers"):
+        with self.lock:
+            entry = self.data[namespace].get(provider, {})
+            result = copy.deepcopy({k: v for k, v in entry.items() if k not in {"history", "repairs", "canaries", "fingerprints"}})
+            history = entry.get("history", [])
+            probes = [h for h in history if h.get("event") == "probe" and self.clock() - h["timestamp"] < 86400]
+            result.update(history=[], repairs=[], history_count=len(history), repairs_count=len(entry.get("repairs", [])),
+                          observed_hosters=sorted({str(name) for h in history for name in h.get("hoster_names", [])}),
+                          probe_count=len(probes), probe_failures=sum(h.get("diagnosis") != "healthy" for h in probes),
+                          probe_duration=sum(h.get("duration_ms", 0) for h in probes))
+            return result
+
+    def remove_hoster(self, key):
+        with self.lock:
+            row = self.data["hosters"].get(key, {})
+            if row.get("active_repair"):
+                return False
+            self._commit({**self.data, "hosters": {k: v for k, v in self.data["hosters"].items() if k != key}}, deferred=True)
+            return True
+
+    def update_many(self, changes):
+        """Durably accept a whole manual schedule with one atomic write."""
+        with self.lock:
+            data = {**self.data, "providers": dict(self.data["providers"]), "hosters": dict(self.data["hosters"])}
+            for namespace, key, fields in changes:
+                previous = data[namespace].get(key, {})
+                data[namespace][key] = {**previous, **copy.deepcopy(fields), "revision": previous.get("revision", 0) + 1}
+            self._commit(data)
 
     def entry(self, provider, fields=None, *, namespace="providers"):
         with self.lock:
@@ -93,19 +204,21 @@ class ProviderMonitorStore:
             self._commit({**self.data, "config": config})
         return dict(config)
 
-    def update(self, provider, *, namespace="providers", **fields):
+    def update(self, provider, *, namespace="providers", deferred=False, **fields):
         with self.lock:
             entry = self.entry(provider, namespace=namespace)
+            if all(entry.get(key) == value for key, value in fields.items()):
+                return
             entry.update(copy.deepcopy(fields))
-            self._commit_entry(provider, entry, namespace)
+            self._commit_entry(provider, entry, namespace, deferred=deferred)
 
-    def record(self, provider, event, *, namespace="providers"):
+    def record(self, provider, event, *, namespace="providers", deferred=False):
         with self.lock:
             entry = self.entry(provider, namespace=namespace)
             history = entry.setdefault("history", [])
             history.append({**copy.deepcopy(event), "timestamp": self.clock()})
             entry["history"] = [item for item in history if item["timestamp"] >= self.clock() - RETENTION_SECONDS][-MAX_HISTORY:]
-            self._commit_entry(provider, entry, namespace)
+            self._commit_entry(provider, entry, namespace, deferred=deferred)
 
     def add_repair(self, provider, repair, *, namespace="providers"):
         with self.lock:
@@ -125,11 +238,14 @@ class HosterStore:
     def entry(self, key, fields=None):
         return self.store.entry(key, fields, namespace="hosters")
 
+    def summary_entry(self, key):
+        return self.store.summary_entry(key, namespace="hosters")
+
     def update(self, key, **fields):
         return self.store.update(key, namespace="hosters", **fields)
 
-    def record(self, key, event):
-        return self.store.record(key, event, namespace="hosters")
+    def record(self, key, event, *, deferred=False):
+        return self.store.record(key, event, namespace="hosters", deferred=deferred)
 
     def add_repair(self, key, repair):
         return self.store.add_repair(key, repair, namespace="hosters")

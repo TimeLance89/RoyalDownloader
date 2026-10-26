@@ -200,6 +200,7 @@ def test_language_evidence_reuses_store_and_survives_restart_without_identifiers
     episode = FilmpalastMovie("Private title", "aniworld:private|dub-s01e001", provider="aniworld", content_language="de",
                               hosters=[HosterInfo("VOE", "https://voe.example/private?token=secret")])
     owner.observe("aniworld", True, .1, episode.url, episode, "get_episode")
+    assert owner.store.flush()  # Runtime telemetry is intentionally coalesced.
     reloaded = ProviderMonitor(path, ProviderHealth(tmp_path / "health2.json"), lambda: ["aniworld"], clock=lambda: NOW)
     assert reloaded.store.entry("aniworld")["language_evidence"] == {"anime": {"en": NOW, "de": NOW}}
     assert [p["language"] for p in owner.diagnostics()["service"]["paths"]] == ["en"]
