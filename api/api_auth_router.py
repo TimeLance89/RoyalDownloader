@@ -363,7 +363,7 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
                     key: item.get(key)
                     for key in (
                         "id", "username", "display_name", "avatar_id", "role",
-                        "enabled", "setup_required",
+                        "enabled", "setup_required", "mfa_enabled",
                     )
                 }
                 for item in users if item.get("enabled")

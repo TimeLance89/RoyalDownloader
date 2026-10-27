@@ -69,6 +69,39 @@ const { fixture } = require("./performance-fixture.cjs");
       assert.equal(await panel.locator('[data-totp="recovery-list"]').textContent(), "");
       assert.equal(await panel.locator('[data-totp="password"]').inputValue(), "");
 
+      // An unlocked member session must still offer the admin's second factor.
+      const admin = { ...user, id: "admin-fixture", mfa_enabled: true };
+      const member = { ...user, role: "member", mfa_enabled: false };
+      let householdHasMfa = true;
+      await page.route("**/api/me/household", route => route.fulfill({ json: {
+        current_user_id: member.id, switching_unlocked: true, unlocked: false,
+        users: [{ ...admin, mfa_enabled: householdHasMfa }, member],
+      } }));
+      const switchBodies = [];
+      await page.route("**/api/me/household/switch", route => {
+        const body = route.request().postDataJSON(); switchBodies.push(body);
+        return route.fulfill({ status: 403, json: { detail: {
+          code: body.otp_code ? "mfa_invalid" : "mfa_required", message: "Nächsten Authenticator-Code eingeben.",
+        } } });
+      });
+      await page.evaluate(async member => { fixtureApp.profile.auth.acceptUser(member); await fixtureApp.profile.household.open(); }, member);
+      await page.locator('.household-user[data-user-id="admin-fixture"]').click();
+      await page.locator("#household-otp-field:not([hidden])").waitFor();
+      assert.equal(switchBodies.length, 0);
+      await page.locator("#household-password").fill("correct-password");
+      await page.locator("#household-otp").fill("654321");
+      await page.locator('#household-unlock button[type="submit"]').click();
+      await page.locator("#household-status").filter({ hasText: "Nächsten Authenticator-Code" }).waitFor();
+      assert.equal(switchBodies.at(-1).user_id, admin.id);
+      assert.equal(switchBodies.at(-1).otp_code, "654321");
+      await page.locator("#household-close").click();
+      // Stale metadata must reveal the credential form instead of hiding errors.
+      householdHasMfa = false;
+      await page.evaluate(() => fixtureApp.profile.household.open());
+      await page.locator('.household-user[data-user-id="admin-fixture"]').click();
+      await page.locator("#household-otp-field:not([hidden])").waitFor();
+      await page.locator("#household-close").click();
+
       await page.route("**/api/auth/status", route => route.fulfill({ json: { configured: true, required: true, authenticated: false } }));
       await page.route("**/api/auth/login", async route => {
         const body = route.request().postDataJSON(); writes.push({ path: "/api/auth/login", body });

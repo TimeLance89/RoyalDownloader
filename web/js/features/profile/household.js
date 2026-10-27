@@ -180,6 +180,8 @@ export function createHousehold(root, { userRoleLabel }) {
       location.reload();
     } catch (error) {
       if (!current.active || isAbortError(error)) return;
+      if (["mfa_required", "mfa_invalid"].includes(error.code)) showUnlock({ ...user, mfa_enabled: true }, "switch");
+      else if (error.status === 403 && find("household-unlock").hidden) showUnlock(user, "switch");
       status.textContent = error.message;
       status.classList.add("error");
       find("household-password").select();
