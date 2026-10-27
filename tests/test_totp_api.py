@@ -132,10 +132,33 @@ def test_password_only_basic_and_unlocked_profile_switch_cannot_bypass_mfa(conte
     ctx.sessions.unlock_profile_switching(token)
     ctx.client.cookies.clear()
     ctx.client.cookies.set(appauth.SESSION_COOKIE_NAME, token)
+    profiles = ctx.client.get("/api/me/household").json()["users"]
+    assert next(user for user in profiles if user["id"] == ctx.uid)["mfa_enabled"] is True
+    assert next(user for user in profiles if user["id"] == member["id"])["mfa_enabled"] is False
+    assert all("mfa" not in user and "password_hash" not in user for user in profiles)
     switch = {"user_id": ctx.uid, "password": "correct-password"}
     assert ctx.client.post("/api/me/household/switch", json=switch).status_code == 403
     assert ctx.client.post("/api/me/household/switch", json={**switch, "otp_code": codes[0]}).status_code == 200
     assert ctx.client.get("/api/me").json()["id"] == ctx.uid
+
+
+def test_member_round_trip_back_to_admin_requires_and_accepts_fresh_totp(context):
+    ctx = context
+    secret, _ = enroll(ctx)
+    for username in ("member_one", "member_two"):
+        member = ctx.users.create(username, username, "member")
+        ctx.users.set_password(member["id"], "unused")
+        response = ctx.client.post("/api/me/household/switch", json={"user_id": member["id"], "password": "correct-password"})
+        assert response.status_code == 200
+        assert ctx.client.get("/api/me").json()["id"] == member["id"]
+    switch = {"user_id": ctx.uid, "password": "correct-password"}
+    denied = ctx.client.post("/api/me/household/switch", json=switch)
+    assert denied.status_code == 403 and denied.json()["detail"]["code"] == "mfa_required"
+    assert ctx.client.get("/api/me").json()["role"] == "member"
+    ctx.clock[0] += 30
+    response = ctx.client.post("/api/me/household/switch", json={**switch, "otp_code": totp(secret, ctx.clock[0] // 30)})
+    assert response.status_code == 200
+    assert ctx.client.get("/api/me").json()["role"] == "admin"
 
 
 def test_password_reset_first_login_still_requires_existing_factor(context):

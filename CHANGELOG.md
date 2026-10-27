@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Household return to protected profiles
+
+- Include each profile's public 2FA flag in the household picker, so switching
+  from a member back to a protected administrator opens password and code entry.
+- Show a visible credential challenge when cached profile information is stale.
+  Keep server-side password and second-factor verification mandatory.
+
 ### Container OpenSSL security update
 
 - Explicitly upgrade both inherited OpenSSL packages during the image build and
