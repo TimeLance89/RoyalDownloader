@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Container OpenSSL security update
+
+- Explicitly upgrade both inherited OpenSSL packages during the image build and
+  enforce Debian bookworm's fixed minimum version `3.0.22-1~deb12u2` for
+  CVE-2026-84782. Keep the high/critical vulnerability gate enabled.
+
 ### Installation target consistency
 
 - Separate target operating system, native/Compose installation and local/network

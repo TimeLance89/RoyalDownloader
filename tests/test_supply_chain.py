@@ -82,6 +82,17 @@ def test_legacy_updater_dependency_sentinel_stays_compatible():
     )
 
 
+def test_container_upgrades_both_inherited_openssl_packages_and_enforces_fixed_version():
+    dockerfile = _content("Dockerfile")
+    assert 'ARG DEBIAN_OPENSSL_SECURITY_FLOOR="3.0.22-1~deb12u2"' in dockerfile
+    install = dockerfile.split("apt-get install -y --no-install-recommends", 1)[1].split(";", 1)[0]
+    assert "\n        openssl \\" in install
+    assert "\n        libssl3 \\" in install
+    assert "for package in openssl libssl3; do" in dockerfile
+    assert 'dpkg-query -W -f=\'${Version}\' "${package}"' in dockerfile
+    assert 'dpkg --compare-versions "${installed_version}" ge "${DEBIAN_OPENSSL_SECURITY_FLOOR}"' in dockerfile
+
+
 def test_update_and_native_start_install_from_lock():
     assert "requirements.lock" in _content("updates/self_updater.py")
     assert '"core/app_version.py"' in _content("updates/self_updater.py")
