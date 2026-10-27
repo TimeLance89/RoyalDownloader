@@ -1,6 +1,7 @@
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
 import { createDialog } from "../../shared/components/dialog.js";
+import { installationPaths, validInstallationPath } from "./installation-target.js";
 
 export function createOperationSettings(root, { getConfig, applyMode, client = api }) {
   const document = root.ownerDocument;
@@ -8,7 +9,10 @@ export function createOperationSettings(root, { getConfig, applyMode, client = a
   const modal = find("installation-dialog");
   let scope, wizard, step = 1, target = "desktop", storage;
   const dialog = createDialog(modal, { initialFocus: () => find("installation-close"), onClose() { wizard = null; } });
-  const name = mode => mode === "nas" ? "NAS / Server" : "Computer";
+  const name = mode => mode === "nas" ? "Lokales Netzwerk" : "Nur lokal";
+  const pathDrafts = new Map();
+  let previousOs = "";
+  const docker = () => find("installation-method").value === "docker";
   const transfer = () => getConfig()?.runtime?.startup_managed !== false || find("installation-transfer").checked;
   function text(id, value) { const node = find(id); if (node) node.textContent = value; }
   function renderStorage(value) {
@@ -37,15 +41,15 @@ export function createOperationSettings(root, { getConfig, applyMode, client = a
     const current = runtime?.mode || config.deployment_mode;
     text("operation-title", runtime ? runtime.container ? "Royal im Container" : current === "nas" ? "Royal als Netzwerkdienst" : "Royal als lokaler Dienst" : "Deine Royal-Installation");
     text("operation-description", !runtime ? "Das gespeicherte Startprofil allein bestätigt keine laufende Geräteumstellung." : runtime.startup_managed
-      ? "Die Startumgebung wird außerhalb von Royal verwaltet. Für einen Gerätewechsel führt dich ein Assistent durch die Vorbereitung."
+      ? "Installationsart und Netzwerkzugriff werden in deiner Startkonfiguration verwaltet. Für einen Gerätewechsel kannst du hier einen Umzugsplan erstellen."
       : "Das Startprofil bestimmt Netzwerkzugriff und Browserstart. Änderungen werden erst beim nächsten Start wirksam.");
     text("operation-runtime-label", runtime ? `${runtime.container ? "Docker" : "Native Installation"} · ${runtime.platform}` : "Laufzeit nicht gemeldet");
-    text("operation-network-label", runtime ? ["127.0.0.1", "localhost", "::1"].includes(runtime.bind_host) ? "Dienst an Loopback gebunden" : "Dienst im Netzwerk gebunden" : name(config.deployment_mode));
+    text("operation-network-label", runtime?.container ? `Interner Listener: ${runtime.bind_host}:${runtime.port || 8765}` : runtime ? ["127.0.0.1", "localhost", "::1"].includes(runtime.bind_host) ? "Dienst an Loopback gebunden" : "Dienst im Netzwerk gebunden" : name(config.deployment_mode));
     text("deployment-mode-status", runtime && runtime.mode !== config.deployment_mode
       ? `Gespeichertes Startprofil: ${name(config.deployment_mode)}. Laufende Umgebung: ${name(runtime.mode)}.`
-      : "Geführte Einrichtung für Startprofil und Gerätewechsel.");
+      : "Installationsart, Betriebssystem und Netzwerkzugriff sind getrennte Einstellungen.");
     text("operation-profile", name(config.deployment_mode));
-    text("operation-change", runtime?.startup_managed ? "Umzug vorbereiten" : "Installation ändern");
+    text("operation-change", runtime?.startup_managed ? "Umzugsplan erstellen" : "Startverhalten ändern");
     text("operation-data-path", runtime?.data_path || "Nicht gemeldet");
     text("operation-address", document.defaultView?.location.host || "—");
     text("operation-movie-path", config.save_path || "Nicht konfiguriert");
@@ -54,16 +58,24 @@ export function createOperationSettings(root, { getConfig, applyMode, client = a
   }
   function paths() {
     const os = find("installation-os").value;
-    const base = target === "nas" ? "/volume1/media/" : os === "windows" ? "C:\\Royal\\Medien\\" : os === "macos" ? "/Users/DEIN_NAME/Movies/Royal/" : "/home/DEIN_NAME/Medien/";
-    find("installation-movie-path").value = base + "Filme";
-    find("installation-series-path").value = base + "Serien";
+    if (previousOs) pathDrafts.set(previousOs, [find("installation-movie-path").value, find("installation-series-path").value]);
+    const values = pathDrafts.get(os) || installationPaths(os);
+    ["installation-movie-path", "installation-series-path"].forEach((id, i) => { find(id).value = values[i]; find(id).disabled = !os; });
+    previousOs = os;
+    pathNote();
+  }
+  function pathNote() {
+    text("installation-error", "");
+    text("installation-path-note", !find("installation-os").value ? "Zuerst das Betriebssystem des Zielgeräts wählen."
+      : docker() ? "Host-Pfade auf dem Zielgerät. In Royal werden sie über Compose als /movies und /serien eingebunden. Beispielpfade an deine Freigaben anpassen."
+        : "Absolute Ordner auf dem Zielgerät. Die vorgeschlagenen Pfade sind Beispiele; bei macOS auch DEIN_NAME ersetzen.");
   }
   function destinationStep() {
     const managed = getConfig()?.runtime?.startup_managed !== false;
     find("installation-transfer-choice").hidden = managed;
     if (managed) find("installation-transfer").checked = true;
     find("installation-target-paths").hidden = !transfer();
-    find("installation-os").disabled = target === "nas";
+    find("installation-os").disabled = false;
     text("installation-host-note", transfer()
       ? "Diese Pfade gehören zum Zielgerät. Auf der laufenden Installation wird dabei nichts geändert."
       : "Nur das Startverhalten dieses Geräts wird angepasst. Speicherorte, Konten und Abos bleiben erhalten. Ein Neustart ist anschließend erforderlich.");
@@ -74,7 +86,8 @@ export function createOperationSettings(root, { getConfig, applyMode, client = a
     const body = find("installation-review-body"); body.replaceChildren();
     const items = transfer() ? [
       ["Bestehende Installation sichern", `Downloads vorher anhalten. Den vollständigen Royal-Datenordner sichern: ${runtime?.data_path || "Datenordner der Installation"}. Konten, Abos und der 2FA-Schlüssel gehören zusammen.`],
-      ["Zielgerät einrichten", target === "nas" ? "Royal als Container einrichten und die Medienordner als Volumes einbinden. Der Plan enthält die gewählten Host-Pfade." : "Royal auf dem gewählten Computer installieren. Dort die neuen Film- und Serienordner anlegen."],
+      ["Zielgerät einrichten", `${find("installation-os").selectedOptions[0].textContent} · ${find("installation-method").selectedOptions[0].textContent}. ${docker() ? "Das Royal-Compose-Projekt auf dem Zielgerät einrichten und die gewählten Host-Ordner als /movies und /serien einbinden." : "Royal nativ auf dem Zielgerät installieren und die gewählten Medienordner anlegen."}`],
+      ["Gewählte Zielordner", `Filme: ${find("installation-movie-path").value.trim()} · Serien: ${find("installation-series-path").value.trim()}`],
       ["Daten übernehmen & starten", "Den gesicherten Datenordner vollständig übernehmen und Dateirechte prüfen. Medien getrennt kopieren oder einbinden. Zielpfade anpassen, Royal starten und Anmeldung sowie Speicher prüfen. Erst danach die alte Instanz ablösen."],
     ] : [["Beim nächsten Start", target === "desktop" ? "Royal bindet an 127.0.0.1 und öffnet den lokalen Browser. Der bisherige Netzwerkzugriff endet nach dem Neustart." : "Royal bindet an 0.0.0.0 und startet ohne Browserfenster. Der Dienst kann im lokalen Netzwerk erreicht werden."], ["Bleibt erhalten", "Medienpfade, Konten, Abonnements und laufende Prozesse werden durch das Vormerken nicht verändert."]];
     const list = document.createElement("ol");
@@ -83,13 +96,13 @@ export function createOperationSettings(root, { getConfig, applyMode, client = a
       strong.textContent = heading; paragraph.textContent = copy; item.append(strong, paragraph); list.append(item);
     }
     body.append(list);
-    text("installation-result", transfer() ? "Der Assistent erstellt einen Umzugsplan. Er kopiert keine Dateien und stellt das NAS nicht automatisch auf einen Computer um." : "Royal wird hierdurch noch nicht neu gestartet.");
+    text("installation-result", transfer() ? "Du erhältst eine Anleitung mit deinen Zielpfaden und Startwerten. Installation und Datenübernahme führst du auf dem Zielgerät aus." : "Royal wird hierdurch noch nicht neu gestartet.");
   }
   function show(next) {
     step = next; text("installation-error", "");
     modal.querySelectorAll("[data-installation-step]").forEach(node => { node.hidden = Number(node.dataset.installationStep) !== step; });
     text("installation-progress", `Schritt ${step} von 3`);
-    text("installation-title", ["", "Wie soll Royal weiterlaufen?", "Den Wechsel vorbereiten", "So gelingt dein Wechsel"][step]);
+    text("installation-title", ["", "Netzwerkzugriff wählen", transfer() ? "Zielgerät festlegen" : "Startverhalten prüfen", transfer() ? "Dein Umzugsplan" : "Startprofil vormerken"][step]);
     find("installation-back").hidden = step === 1;
     find("installation-next").hidden = step === 3;
     find("installation-download").hidden = step !== 3 || !transfer();
@@ -104,10 +117,10 @@ export function createOperationSettings(root, { getConfig, applyMode, client = a
   }
   function downloadPlan() {
     const runtime = getConfig()?.runtime;
-    const plan = ["Royal – Umzugsplan", "", `Ziel: ${name(target)}`, `Zielsystem: ${target === "nas" ? "Docker / NAS" : find("installation-os").selectedOptions[0].textContent}`,
+    const plan = ["Royal – Umzugsplan", "", `Netzwerkzugriff: ${name(target)}`, `Zielsystem: ${find("installation-os").selectedOptions[0].textContent}`, `Installation: ${find("installation-method").selectedOptions[0].textContent}`,
       `Bisheriger Datenordner: ${runtime?.data_path || "siehe Installation"}`, "", find("installation-review-body").textContent, "",
-      "Startwerte auf dem Zielgerät (bestehende Konfiguration ergänzen, nicht blind ersetzen):", `ROYAL_DEPLOYMENT_MODE=${target}`, `HOST=${target === "nas" ? "0.0.0.0" : "127.0.0.1"}`, `OPEN_BROWSER=${target === "nas" ? "0" : "1"}`, `ROYAL_BIND_ADDRESS=${target === "nas" ? "0.0.0.0" : "127.0.0.1"}`,
-      `${target === "nas" ? "MOVIES_HOST_DIR" : "DOWNLOAD_DIR"}=${find("installation-movie-path").value.trim()}`, `${target === "nas" ? "SERIES_HOST_DIR" : "SERIES_DIR"}=${find("installation-series-path").value.trim()}`,
+      "Startwerte auf dem Zielgerät (bestehende Konfiguration ergänzen, nicht blind ersetzen):", `ROYAL_DEPLOYMENT_MODE=${target}`, `HOST=${docker() || target === "nas" ? "0.0.0.0" : "127.0.0.1"}`, `OPEN_BROWSER=${docker() || target === "nas" ? "0" : "1"}`, `ROYAL_BIND_ADDRESS=${target === "nas" ? "0.0.0.0" : "127.0.0.1"}`,
+      `${docker() ? "MOVIES_HOST_DIR" : "DOWNLOAD_DIR"}=${find("installation-movie-path").value.trim()}`, `${docker() ? "SERIES_HOST_DIR" : "SERIES_DIR"}=${find("installation-series-path").value.trim()}`,
       "", "Die Startwerte ersetzen kein Backup und keine Installation. Bei Docker müssen Portbindung und Volumes im Compose-Projekt passend gesetzt sein.", "Einstellungen auf dem Ziel übernehmen/anpassen und im Speicherbereich bestätigen. Zugangsdaten/2FA-Schlüssel werden in diesem Plan nicht exportiert."];
     const url = URL.createObjectURL(new Blob([plan.join("\n")], { type: "text/plain;charset=utf-8" }));
     const link = document.createElement("a"); link.href = url; link.download = "royal-umzugsplan.txt"; document.body.append(link); link.click(); link.remove();
@@ -116,24 +129,31 @@ export function createOperationSettings(root, { getConfig, applyMode, client = a
   }
   function open() {
     if (!getConfig()) return;
-    wizard = dialog.open(); target = getConfig().deployment_mode === "nas" ? "desktop" : "nas";
+    wizard = dialog.open(); target = getConfig().deployment_mode === "nas" ? "nas" : "desktop";
+    pathDrafts.clear(); previousOs = ""; find("installation-os").value = ""; find("installation-method").value = "";
     find("installation-transfer").checked = getConfig().runtime?.startup_managed !== false;
     modal.querySelectorAll("[data-installation-target]").forEach(button => { button.setAttribute("aria-pressed", String(button.dataset.installationTarget === target)); });
     paths(); show(1);
     wizard.listen(find("installation-close"), "click", () => dialog.close());
     wizard.listen(find("installation-back"), "click", () => show(step - 1));
     wizard.listen(find("installation-next"), "click", () => {
-      if (step === 2 && transfer() && ["installation-movie-path", "installation-series-path"].some(id => !find(id).value.trim() || /[\r\n\0]/.test(find(id).value))) {
-        text("installation-error", "Gültige Zielordner auf dem neuen Gerät angeben."); return;
+      if (step === 2 && transfer()) {
+        const os = find("installation-os").value;
+        if (!os || !find("installation-method").value) { text("installation-error", "Betriebssystem und Installationsart des Zielgeräts auswählen."); return; }
+        if (["installation-movie-path", "installation-series-path"].some(id => !validInstallationPath(os, find(id).value))) {
+          text("installation-error", "Absolute Zielordner passend zum gewählten Betriebssystem angeben."); return;
+        }
       }
       show(step + 1);
     });
     for (const button of modal.querySelectorAll("[data-installation-target]")) wizard.listen(button, "click", () => {
-      target = button.dataset.installationTarget; paths();
+      target = button.dataset.installationTarget;
       modal.querySelectorAll("[data-installation-target]").forEach(node => { node.setAttribute("aria-pressed", String(node === button)); });
     });
     wizard.listen(find("installation-transfer"), "change", destinationStep);
     wizard.listen(find("installation-os"), "change", paths);
+    wizard.listen(find("installation-method"), "change", pathNote);
+    for (const id of ["installation-movie-path", "installation-series-path"]) wizard.listen(find(id), "input", () => text("installation-error", ""));
     wizard.listen(find("installation-download"), "click", downloadPlan);
     wizard.listen(find("installation-apply"), "click", async () => {
       const current = wizard; const button = find("installation-apply"); button.disabled = true;
@@ -144,7 +164,7 @@ export function createOperationSettings(root, { getConfig, applyMode, client = a
       } catch (error) { if (current.active) text("installation-error", error.message); }
       finally { if (current.active) button.disabled = false; }
     });
-    text("installation-change-note", getConfig().runtime?.startup_managed ? "Ein Container wird durch einen Modusschalter nicht zu einer lokalen Installation. Für den Wechsel bereitest du das Zielgerät vor." : "Du kannst das Startprofil dieses Geräts anpassen oder Royal auf ein anderes Gerät umziehen.");
+    text("installation-change-note", getConfig().runtime?.startup_managed ? "Umzugsplanung: Hier bereitest du ein anderes Zielgerät vor. Deine aktuelle Container- oder Dienstkonfiguration änderst du in der Umgebung, die Royal startet." : "Das Startprofil dieses Geräts lässt sich vormerken. Für eine neue Installation wählst du im nächsten Schritt den Umzug auf ein anderes Gerät.");
   }
   return {
     render,
