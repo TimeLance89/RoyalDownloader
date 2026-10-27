@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Installation target consistency
+
+- Separate target operating system, native/Compose installation and local/network
+  access in the migration wizard. Require an explicit target instead of showing
+  a disabled Windows selection beside assumed NAS paths.
+- Validate absolute paths for the selected OS and preserve each OS's edited
+  destinations when navigating between steps or changing network access.
+- Export native download paths or Compose host mounts according to installation
+  type. Explain migration planning up front and retain the separate native
+  startup-profile change, which takes effect on manual restart.
+
 ### Settings: operation, storage, account and automation
 
 - Separate installation details from storage destinations. Show the actual runtime

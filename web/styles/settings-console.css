@@ -694,7 +694,7 @@ body.settings-active .bg-decor { opacity: .12; }
 .installation-targets strong { font-size: 16px; }.installation-targets small { font-size: 12px; color: #acb7b8; line-height: 1.5; }
 .installation-context { padding: 14px 16px; border-radius: 9px; background: #1b272b; color: #b5c9c9; font-size: 12px; line-height: 1.65; }
 .installation-dialog-content label { display: block; font-size: 12px; margin: 15px 0 7px; }
-.installation-dialog-content input[type="text"], .installation-dialog-content select { width: 100%; border: 1px solid #3a4749; background: #0d1417; color: #e9efea; padding: 12px; border-radius: 8px; box-sizing: border-box; }
+.installation-dialog-content input[type="text"], .installation-dialog-content select { width: 100%; border: 1px solid #3a4749; background: #0d1417; color: #e9efea; padding: 12px; border-radius: 8px; box-sizing: border-box; font: inherit; }
 .installation-dialog-panel > footer { display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 20px 30px; border-top: 1px solid #303a3b; }
 .installation-dialog-panel > footer button:first-child { margin-right: auto; }
 .installation-review { display: grid; gap: 7px; color: #a6b5b8; margin-bottom: 22px; font-size: 12px; }

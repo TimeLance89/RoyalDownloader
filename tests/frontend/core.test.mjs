@@ -2044,3 +2044,17 @@ test("update links are initially hidden and their layout stays in the update sta
   assert.match(updater, /id="updater-changes" class="hidden"/);
   assert.match(updater, /id="updater-changelog" class="hidden"/);
 });
+
+import { installationPaths, validInstallationPath } from "../../web/js/features/settings/installation-target.js";
+test("installation paths follow the chosen target OS independently of network mode", () => {
+  assert.deepEqual(installationPaths(""), ["", ""]);
+  for (const os of ["windows", "linux", "macos"]) {
+    for (const path of installationPaths(os)) assert.equal(validInstallationPath(os, path), true);
+  }
+  assert.equal(validInstallationPath("windows", "/volume1/media/Filme"), false);
+  assert.equal(validInstallationPath("linux", installationPaths("windows")[0]), false);
+  assert.equal(validInstallationPath("macos", "relative/media"), false);
+  assert.equal(validInstallationPath("linux", "/media\nHOST=0.0.0.0"), false);
+  assert.equal(validInstallationPath("windows", "//nas/media/Filme"), true);
+  assert.equal(validInstallationPath("linux", "/volume2/Filme"), true);
+});
