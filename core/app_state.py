@@ -126,7 +126,7 @@ class AppState:
         self.home_layout = HomeLayoutStore(appconfig.home_layout_file())
         self.ai_discovery = AiDiscoveryService(appconfig.load_ai())
 
-        self.jellyfin_cfg: dict = appconfig.load_jellyfin()
+        self.jellyfin_cfg: dict = appconfig.load_media_center()
         self.tmdb_cfg: dict = appconfig.load_tmdb()
         self.tmdb_client = TMDBClient(**self.tmdb_cfg)
         self.telegram_cfg: dict = appconfig.load_telegram()

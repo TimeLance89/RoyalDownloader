@@ -64,10 +64,11 @@ def _configuration(
 
 def _jellyfin_configuration() -> tuple[bool, str]:
     config = backend_value("state").jellyfin_cfg
+    name = "Plex" if config.get("provider") == "plex" else "Jellyfin"
     return _configuration(
-        "Jellyfin",
+        name,
         bool(config.get("url") and config.get("api_key")),
-        "Jellyfin-Zugangsdaten fehlen",
+        f"{name}-Zugangsdaten fehlen",
     )
 
 

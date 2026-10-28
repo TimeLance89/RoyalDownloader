@@ -124,6 +124,11 @@ jobs:
           node tests/frontend/setup-browser.cjs
           node tests/frontend/onboarding-studio-browser.cjs
 
+      - name: Jellyfin and Plex onboarding, connection failures and atomic selection
+        run: |
+          node --test tests/frontend/media-center.test.mjs
+          node tests/frontend/media-center-browser.cjs
+
       - name: Native mobile gestures, seams, orientation and navigation
         run: |
           node tests/frontend/series-selection-browser.cjs
@@ -303,6 +308,20 @@ jobs:
         if: ${{ steps.change-scope.outputs.backend == 'true' }}
         timeout-minutes: 4
         run: timeout 180s python -m pytest -q tests/test_http_resume.py
+
+      - name: Plex and Jellyfin configuration, switching and compatibility
+        if: ${{ steps.change-scope.outputs.backend == 'true' }}
+        timeout-minutes: 4
+        run: >-
+          timeout 180s python -m pytest -q
+          tests/test_plex_media_center.py
+          tests/test_jellyfin_optional_settings.py
+          tests/test_jellyfin_live_state.py
+          tests/test_per_user_jellyfin_profile.py
+          tests/test_domain_routers.py
+          tests/test_frontend_layers.py
+          tests/test_module_boundaries.py
+          tests/test_web_static.py
 
       - name: Delete-before-download movie replacement and queue safeguards
         if: ${{ steps.change-scope.outputs.backend == 'true' }}

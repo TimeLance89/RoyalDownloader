@@ -135,6 +135,11 @@ class UserStore:
                 for item in self._users.values()
             ]
 
+    def list_media_profiles(self) -> list[dict]:
+        with self._lock:
+            return [{**profile, "media_profiles": self._users[profile["id"]].get("media_profiles", {})}
+                    for profile in self.list_jellyfin_profiles()]
+
     def create(self, display_name: str, username: str, role: str) -> dict:
         username = validate_username(username)
         if role not in {ADMIN, MEMBER}: raise ValueError("Ungültige Rolle.")
@@ -201,6 +206,25 @@ class UserStore:
                 updated_at=time.time(),
             )
             self._save()
+            return dict(user)
+
+    def set_media_user(self, user_id: str, provider: str, server_id: str, identity: str, name: str = "") -> dict:
+        if provider != "plex":
+            raise ValueError("Unbekanntes Mediencenter-Profil.")
+        with self._lock:
+            user = self._users.get(str(user_id))
+            if not user:
+                raise ValueError("Benutzer nicht gefunden.")
+            previous = dict(user)
+            user["media_profiles"] = {**user.get("media_profiles", {}), provider: {
+                "server_id": server_id, "user_id": identity, "user_name": name,
+            }}
+            user["updated_at"] = time.time()
+            try:
+                self._save()
+            except Exception:
+                self._users[str(user_id)] = previous
+                raise
             return dict(user)
 
     def clear_avatar_id(self, avatar_id: str) -> int:

@@ -1,3 +1,4 @@
+import { mediaCenterText } from "../../shared/media-center.js";
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
 
@@ -30,13 +31,13 @@ export function createSavedMediaAction(button, note, { client = api } = {}) {
       loaded = true; button.disabled = busy;
       button.textContent = saved ? "Gemerkt ✓" : "+ Merken";
       button.setAttribute("aria-pressed", String(saved));
-      button.title = saved ? "Aus deiner RD-Merkliste entfernen" : "Für dein verknüpftes Jellyfin-Profil merken";
+      button.title = saved ? "Aus deiner RD-Merkliste entfernen" : mediaCenterText("Für dein verknüpftes Jellyfin-Profil merken");
       if (!saved) note.textContent = "";
-      else if (payload.sync.state === "unlinked") note.textContent = "In RD gemerkt · Jellyfin-Profil im Profilbereich verknüpfen.";
-      else if (payload.sync.state === "unconfigured") note.textContent = "In RD gemerkt · Jellyfin ist noch nicht eingerichtet.";
-      else if (payload.sync.state === "error") note.textContent = "In RD gemerkt · Jellyfin-Abgleich wird erneut versucht.";
-      else if (payload.sync.ready.includes(`${mediaType}:${identity}`)) note.textContent = "In deiner Jellyfin-Merkliste verfügbar.";
-      else note.textContent = "Gemerkt · erscheint in Jellyfin, sobald verfügbar.";
+      else if (payload.sync.state === "unlinked") note.textContent = mediaCenterText("In RD gemerkt · Jellyfin-Profil im Profilbereich verknüpfen.");
+      else if (payload.sync.state === "unconfigured") note.textContent = mediaCenterText("In RD gemerkt · Jellyfin ist noch nicht eingerichtet.");
+      else if (payload.sync.state === "error") note.textContent = mediaCenterText("In RD gemerkt · Jellyfin-Abgleich wird erneut versucht.");
+      else if (payload.sync.ready.includes(`${mediaType}:${identity}`)) note.textContent = mediaCenterText("In deiner Jellyfin-Merkliste verfügbar.");
+      else note.textContent = mediaCenterText("Gemerkt · erscheint in Jellyfin, sobald verfügbar.");
     }
     async function refresh() {
       if (busy || reading || !current.active) return;

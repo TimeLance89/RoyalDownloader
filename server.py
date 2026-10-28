@@ -287,6 +287,7 @@ from providers.hdfilme_family import HDFilmeFamilyScraper, SOURCE_PREFIX as HDFI
 from providers.kellerkino import KellerKinoScraper, SOURCE_PREFIX as KELLERKINO_PREFIX
 from providers.serienstream import SerienstreamScraper, SOURCE_PREFIX as SERIENSTREAM_PREFIX
 from integrations.jellyfin_client import JellyfinClient
+from integrations.media_center import media_client, profile_identity
 from integrations.jellyfin_recommender import (
     Config as JellyfinRecommenderConfig,
     ConfigurationError as JellyfinRecommenderConfigurationError,
@@ -739,19 +740,17 @@ def _jellyfin_profile_payload(user: dict) -> dict:
     with state.jellyfin_cache_lock:
         cfg = dict(state.jellyfin_cfg)
     configured = bool(cfg.get("url") and cfg.get("api_key"))
-    royal_user_id = str(user.get("id") or "")
-    jellyfin_user_id = str(user.get("jellyfin_user_id") or "").strip()
-    jellyfin_user_name = str(user.get("jellyfin_user_name") or "").strip()
+    jellyfin_user_id, jellyfin_user_name = profile_identity(user, cfg)
     inherited_legacy = False
 
-    if not jellyfin_user_id and royal_user_id == "admin-legacy":
+    if not jellyfin_user_id and str(user.get("id") or "") == "admin-legacy":
         jellyfin_user_id = str(cfg.get("user_id") or "").strip()
         jellyfin_user_name = str(cfg.get("user_name") or "").strip()
         inherited_legacy = bool(jellyfin_user_id)
     users = []
     available = configured
     if configured:
-        listed = JellyfinClient(cfg["url"], cfg["api_key"]).list_users()
+        listed = media_client(cfg).list_users()
         if listed is None:
             available = False
         else:
@@ -766,6 +765,7 @@ def _jellyfin_profile_payload(user: dict) -> dict:
             if selected:
                 jellyfin_user_name = selected["name"]
     return {
+        "provider": cfg.get("provider", "jellyfin"),
         "configured": configured,
         "available": available,
         "user_id": jellyfin_user_id,
@@ -780,14 +780,13 @@ def _set_jellyfin_profile(user: dict, jellyfin_user_id: str) -> dict:
     royal_user_id = str(user.get("id") or "").strip()
     if not royal_user_id:
         raise ValueError("Royal-Profil nicht gefunden.")
-    selected_id = str(jellyfin_user_id or "").strip()
-    selected_name = ""
+    selected_id, selected_name = str(jellyfin_user_id or "").strip(), ""
+    with state.jellyfin_cache_lock:
+        cfg = dict(state.jellyfin_cfg)
     if selected_id:
-        with state.jellyfin_cache_lock:
-            cfg = dict(state.jellyfin_cfg)
         if not cfg.get("url") or not cfg.get("api_key"):
             raise ValueError("Jellyfin ist unter Externe Dienste noch nicht eingerichtet.")
-        listed = JellyfinClient(cfg["url"], cfg["api_key"]).list_users()
+        listed = media_client(cfg).list_users()
         if listed is None:
             raise ConnectionError("Jellyfin-Benutzer konnten nicht geladen werden.")
         selected = next(
@@ -797,9 +796,10 @@ def _set_jellyfin_profile(user: dict, jellyfin_user_id: str) -> dict:
         if selected is None:
             raise ValueError("Der gewählte Jellyfin-Benutzer ist nicht verfügbar.")
         selected_name = str(selected.get("name") or "")
-    updated = USER_STORE.set_jellyfin_user(
-        royal_user_id, selected_id, selected_name,
-    )
+    if cfg.get("provider") == "plex":
+        updated = USER_STORE.set_media_user(royal_user_id, "plex", cfg.get("server_id", ""), selected_id, selected_name)
+    else:
+        updated = USER_STORE.set_jellyfin_user(royal_user_id, selected_id, selected_name)
     state.taste_profiles.for_user(royal_user_id).replace_jellyfin_items([])
     try:
         _recommender_wake_event.set()

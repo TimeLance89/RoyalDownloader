@@ -72,3 +72,16 @@ def test_configured_jellyfin_still_rejects_invalid_user(jellyfin):
     assert error.value.status_code == 400
     assert writes == []
     assert len(probes) == 1
+
+
+def test_jellyfin_save_cannot_overwrite_a_plex_activation_during_probe(jellyfin, monkeypatch):
+    state, writes, runtime, _ = jellyfin
+    def users(_client):
+        state.jellyfin_cfg = {"provider": "plex", "url": "http://plex:32400", "api_key": "plex-secret"}
+        return [{"id": "user", "name": "User"}]
+    monkeypatch.setattr(router.JellyfinClient, "list_users", users)
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(router.api_jellyfin_config_set(router.JellyfinConfigBody(url="http://jellyfin:8096", api_key="key")))
+    assert error.value.status_code == 409
+    assert writes == runtime == []
+    assert state.jellyfin_cfg["provider"] == "plex"

@@ -1,3 +1,4 @@
+import { mediaCenterText, mediaCleanupSupported } from "../../shared/media-center.js";
 import { api } from "../../core/api.js";
 import { isAbortError } from "../../core/errors.js";
 import { createDialog } from "../../shared/components/dialog.js";
@@ -45,10 +46,11 @@ export function createSubscriptionRules(root, { subscriptions, getSeries, findEn
       radio.checked = radio.value === mode;
     });
     root.querySelectorAll('input[name="watch-cleanup"]').forEach((radio) => {
-      radio.checked = radio.value === cleanupMode;
+      radio.checked = radio.value === (mediaCleanupSupported() ? cleanupMode : "keep");
+      radio.disabled = !mediaCleanupSupported() && radio.value !== "keep";
     });
-    byId("watch-cleanup-description").textContent = tracked
-      ? "Diese Löschregel gilt nur für diese Serie und nutzt den Gesehen-Status des gewählten Jellyfin-Profils."
+    byId("watch-cleanup-description").textContent = !mediaCleanupSupported() ? "Automatische Löschregeln sind für Plex gesperrt. Deine Mediendateien werden behalten." : tracked
+      ? mediaCenterText("Diese Löschregel gilt nur für diese Serie und nutzt den Gesehen-Status des gewählten Jellyfin-Profils.")
       : `Vorausgewählt aus den Einstellungen: ${WATCH_CLEANUP_LABELS[cleanupMode] || WATCH_CLEANUP_LABELS[WATCH_CLEANUP_DEFAULT]}. Du kannst für diese Serie abweichen.`;
     byId("watch-mode-remove").classList.toggle("hidden", !tracked);
     byId("watch-mode-save").textContent = tracked ? "Regel übernehmen" : "Abo speichern";
@@ -69,12 +71,12 @@ export function createSubscriptionRules(root, { subscriptions, getSeries, findEn
     const status = byId("watch-mode-status");
     const explanation = WATCH_MODE_EXPLANATIONS[selected] || WATCH_MODE_EXPLANATIONS[WATCH_MODE_DEFAULT];
     byId("watch-mode-outcome-title").textContent = explanation.title;
-    byId("watch-mode-outcome-copy").textContent = explanation.copy;
+    byId("watch-mode-outcome-copy").textContent = mediaCenterText(explanation.copy);
     if (!isJellyfinConfigured() && (selected === "next_season" || cleanupSelected !== WATCH_CLEANUP_DEFAULT)) {
       const affected = selected === "next_season" && cleanupSelected !== WATCH_CLEANUP_DEFAULT
         ? "Download- und Löschregel warten"
         : (selected === "next_season" ? "Die Downloadregel wartet" : "Die Löschregel wartet");
-      status.textContent = `Voraussetzung fehlt: Wähle unter Einstellungen → Jellyfin ein Wiedergabeprofil. ${affected}.`;
+      status.textContent = mediaCenterText(`Voraussetzung fehlt: Wähle unter Einstellungen → Jellyfin ein Wiedergabeprofil. ${affected}.`);
     } else if (status.textContent.startsWith("Diese Regel wartet")) {
       status.textContent = "";
     } else if (status.textContent.startsWith("Voraussetzung fehlt")) {

@@ -1,3 +1,4 @@
+import { mediaCenterText } from "../../shared/media-center.js";
 import { createScope } from "../../core/lifecycle.js";
 import { createSavedMediaAction } from "../media-details/saved-media.js";
 
@@ -130,7 +131,7 @@ export function createMoviePresentation(catalogRoot, detailRoot, {
     const normalized = typeof status === "boolean" ? (status ? "owned" : "missing") : status;
     setCatalogJellyfinBadge(badge, normalized);
     badge.classList.add("result-card-library-badge");
-    badge.textContent = normalized === "owned" ? "In Jellyfin" : "";
+    badge.textContent = normalized === "owned" ? mediaCenterText("In Jellyfin") : "";
     badge.hidden = normalized !== "owned";
   }
 
@@ -447,28 +448,28 @@ export function createMoviePresentation(catalogRoot, detailRoot, {
     badge.className = "detail-jellyfin";
     if (owned === true) {
       badge.classList.add("is-owned");
-      label.textContent = "In Jellyfin vorhanden";
+      label.textContent = mediaCenterText("In Jellyfin vorhanden");
       return;
     }
     if (owned === false) {
       badge.classList.add("is-missing");
-      label.textContent = "Nicht in Jellyfin";
+      label.textContent = mediaCenterText("Nicht in Jellyfin");
       return;
     }
     if (owned === "unavailable") {
-      label.textContent = "Jellyfin nicht erreichbar";
+      label.textContent = mediaCenterText("Jellyfin nicht erreichbar");
       return;
     }
     if (owned === "blocked") {
-      label.textContent = "Jellyfin-Statusanfrage blockiert";
+      label.textContent = mediaCenterText("Jellyfin-Statusanfrage blockiert");
       return;
     }
     if (owned === "unconfigured") {
-      label.textContent = "Jellyfin nicht eingerichtet";
+      label.textContent = mediaCenterText("Jellyfin nicht eingerichtet");
       return;
     }
     badge.classList.add("is-checking");
-    label.textContent = "Jellyfin wird geprüft";
+    label.textContent = mediaCenterText("Jellyfin wird geprüft");
   }
 
   function fpDetailJellyfinValue(slug, movie) {

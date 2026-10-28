@@ -156,6 +156,8 @@ def _probe_library_revision(client) -> str | None:
     """Fetch one tiny page whose count/recent IDs fingerprint library membership."""
     if not client.configured:
         return "unconfigured"
+    if getattr(client, "provider", "jellyfin") == "plex":
+        return client.library_revision()
     params = {
         "IncludeItemTypes": "Movie,Series,Episode",
         "Recursive": "true",

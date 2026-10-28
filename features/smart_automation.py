@@ -412,6 +412,27 @@ def jellyfin_playback_status(
     if state is None:
         return {"configured": False, "reachable": False, "active_streams": 0, "error": ""}
     base_url, api_key = _jellyfin_signature(state)
+    cfg = dict(getattr(state, "jellyfin_cfg", {}) or {})
+    if cfg.get("provider") == "plex":
+        from integrations.media_center import media_client
+        from integrations.plex_client import PlexError
+        client = media_client(cfg, timeout=4)
+        if not client.configured:
+            return {"configured": False, "reachable": False, "active_streams": 0, "error": ""}
+        signature = ("plex", base_url, api_key, cfg.get("server_id", ""))
+        now = time.monotonic()
+        with _JELLYFIN_LOCK:
+            if not force and _JELLYFIN_CACHE["signature"] == signature and now - float(_JELLYFIN_CACHE["checked_at"]) < JELLYFIN_SESSION_CACHE_SECONDS:
+                return {key: _JELLYFIN_CACHE[key] for key in ("reachable", "active_streams", "error")} | {"configured": True}
+        try:
+            sessions = client.active_sessions()
+            active = sum((row.get("Player") or {}).get("state") != "paused" for row in sessions)
+            result = {"configured": True, "reachable": True, "active_streams": active, "error": ""}
+        except PlexError as exc:
+            result = {"configured": True, "reachable": False, "active_streams": 0, "error": str(exc)}
+        with _JELLYFIN_LOCK:
+            _JELLYFIN_CACHE.update(result, checked_at=now, signature=signature)
+        return result
     if not base_url or not api_key:
         return {"configured": False, "reachable": False, "active_streams": 0, "error": ""}
     parsed_url = urlparse(base_url)

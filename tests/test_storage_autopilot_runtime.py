@@ -176,14 +176,15 @@ def test_queue_context_ignores_internal_preparation_jobs_without_job_identity(mo
 
 @pytest.mark.parametrize("url", ["file:///secret", "ftp://host", "http://[invalid"])
 def test_playback_check_rejects_unsafe_or_invalid_config_without_network(monkeypatch, url):
-    monkeypatch.setattr(runtime.appconfig, "load_jellyfin", lambda: {"url": url, "api_key": "secret"})
+    monkeypatch.setattr(runtime.appconfig, "load_media_center", lambda: {"url": url, "api_key": "secret"})
     assert runtime.playback_idle() is False
 
 
 @pytest.mark.parametrize("evidence,expected", [(True, False), (False, True), (None, False)])
-def test_playback_check_is_fail_safe(monkeypatch, evidence, expected):
-    monkeypatch.setattr(runtime.appconfig, "load_jellyfin", lambda: {"url": "http://jellyfin:8096", "api_key": "secret"})
-    monkeypatch.setattr(runtime.JellyfinClient, "has_active_playback", lambda _self: evidence)
+@pytest.mark.parametrize("provider", ["jellyfin", "plex"])
+def test_playback_check_is_fail_safe(monkeypatch, evidence, expected, provider):
+    monkeypatch.setattr(runtime.appconfig, "load_media_center", lambda: {"provider": provider, "url": "http://media:8096", "api_key": "secret"})
+    monkeypatch.setattr(runtime, "media_client", lambda *_args, **_kwargs: SimpleNamespace(configured=True, has_active_playback=lambda: evidence))
     assert runtime.playback_idle() is expected
 
 
