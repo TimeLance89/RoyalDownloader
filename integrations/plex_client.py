@@ -8,6 +8,7 @@ import hashlib
 import json
 import time
 from datetime import datetime, timezone
+from functools import lru_cache
 from urllib.parse import quote
 from uuid import NAMESPACE_URL, uuid5
 
@@ -29,6 +30,18 @@ def rating_key(value):
     return str(int(str(value).replace("-", ""), 16))
 
 
+@lru_cache(maxsize=32)
+def token_profile_id(token):
+    """Stable token-scoped identifier, never an authentication verifier.
+
+    The fixed namespace keeps IDs deterministic across restarts. Cache the
+    expensive derivation so inventory polling does not repeat it on a NAS.
+    """
+    return hashlib.pbkdf2_hmac(
+        "sha256", token.encode("utf-8"), b"RoyalDownloader/Plex/profile/v1", 600_000, dklen=16,
+    ).hex()
+
+
 class PlexClient(JellyfinClient):
     provider = "plex"
 
@@ -36,7 +49,7 @@ class PlexClient(JellyfinClient):
         super().__init__(base_url, api_key, timeout)
         self.libraries = [str(value) for value in libraries]
         self.server_id = server_id
-        self.profile_id = hashlib.sha256(self.api_key.encode()).hexdigest()[:32]
+        self.profile_id = token_profile_id(self.api_key)
 
     def _request(self, method, path, params=None):
         if not self.configured:

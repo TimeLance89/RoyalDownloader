@@ -398,3 +398,15 @@ def test_watched_counts_are_numeric_evidence(views, played):
 def test_series_seen_evidence_requires_all_episodes(total, viewed, played):
     item = PlexClient._normalize({"type": "show", "ratingKey": "1", "leafCount": total, "viewedLeafCount": viewed})
     assert item["UserData"]["Played"] is played
+
+
+def test_profile_identifier_is_stable_scoped_and_derivation_is_cached():
+    from integrations.plex_client import token_profile_id
+    token_profile_id.cache_clear()
+    first = PlexClient("http://plex:32400", "first-profile-token").profile_id
+    repeated = PlexClient("http://plex:32400", "first-profile-token").profile_id
+    other = PlexClient("http://plex:32400", "second-profile-token").profile_id
+    assert first == repeated and first != other
+    assert len(first) == 32 and "first-profile-token" not in first
+    assert token_profile_id.cache_info().hits == 1
+    assert token_profile_id.cache_info().maxsize == 32
