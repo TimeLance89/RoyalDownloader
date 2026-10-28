@@ -123,7 +123,7 @@ def test_notifications_only_emit_real_impact_transitions(tmp_path, monkeypatch):
     owner = ProviderMonitor(tmp_path / "sentinel.json", ProviderHealth(tmp_path / "health.json"), lambda: ["one"], notify=events.append)
     owner.store.configure({"notify_changes": True})
     providers, videos = [provider("one")], [hoster("working", ["one"]), hoster("blocked", ["one"], "blocked")]
-    monkeypatch.setattr(owner, "diagnostics", lambda: {"service": result(providers, videos)})
+    monkeypatch.setattr(owner, "diagnostics", lambda **_: {"service": result(providers, videos)})
     owner._notify("blocked", "blocked", "hoster")
     assert events == []
     videos[0]["diagnosis"] = "broken"
@@ -140,7 +140,7 @@ def test_initial_inconclusive_to_healthy_is_not_an_alarm_or_recovery(tmp_path, m
     owner = ProviderMonitor(tmp_path / "sentinel.json", ProviderHealth(tmp_path / "health.json"), lambda: ["one"], notify=events.append)
     owner.store.configure({"notify_changes": True})
     source = provider("one", state="unknown")
-    monkeypatch.setattr(owner, "diagnostics", lambda: {"service": result([source], [hoster("working", ["one"])])})
+    monkeypatch.setattr(owner, "diagnostics", lambda **_: {"service": result([source], [hoster("working", ["one"])])})
     owner._notify("one", "needs_attention")
     source["diagnosis"] = "healthy"
     owner._notify("one", "healthy")

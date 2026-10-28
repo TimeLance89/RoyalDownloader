@@ -224,6 +224,7 @@ from api.api_administration_router import (
 from api.api_security import SecurityDependencies, install_authentication_middleware
 from api.api_announcements_router import create_announcements_router
 from core.app_state import AppState, _PreparationSlots
+from core.totp import TotpService
 from core.users import UserStore
 from core.profile_avatars import ProfileAvatarStore, auth_dependency_callbacks
 from core.websocket_manager import WSManager, _WSClient
@@ -286,6 +287,7 @@ from providers.hdfilme_family import HDFilmeFamilyScraper, SOURCE_PREFIX as HDFI
 from providers.kellerkino import KellerKinoScraper, SOURCE_PREFIX as KELLERKINO_PREFIX
 from providers.serienstream import SerienstreamScraper, SOURCE_PREFIX as SERIENSTREAM_PREFIX
 from integrations.jellyfin_client import JellyfinClient
+from integrations.media_center import media_client, profile_identity
 from integrations.jellyfin_recommender import (
     Config as JellyfinRecommenderConfig,
     ConfigurationError as JellyfinRecommenderConfigurationError,
@@ -569,6 +571,7 @@ async def lifespan(app: FastAPI):
         # Ab hier dürfen Worker-Threads keine neuen WebSocket-Callbacks mehr auf
         # den auslaufenden Event-Loop einstellen.
         _main_loop = None
+        remote_access_verifier.close()
         await asyncio.to_thread(state.module_manager.stop_all)
         await asyncio.to_thread(provider_monitor.stop)
         from application_services.storage_autopilot_runtime import stop as stop_storage_autopilot
@@ -611,6 +614,7 @@ def _capabilities_payload():
             "required": auth_required(),
             "methods": ["bearer"],
             "legacy_methods": ["cookie", "basic"],
+            "second_factor": {"type": "totp", "login_field": "otp_code", "recovery_codes": True},
             "token_ttl_seconds": appauth.DEFAULT_SESSION_TTL_SECONDS,
             "token_idle_timeout_seconds": appauth.DEFAULT_SESSION_IDLE_SECONDS,
         },
@@ -736,19 +740,17 @@ def _jellyfin_profile_payload(user: dict) -> dict:
     with state.jellyfin_cache_lock:
         cfg = dict(state.jellyfin_cfg)
     configured = bool(cfg.get("url") and cfg.get("api_key"))
-    royal_user_id = str(user.get("id") or "")
-    jellyfin_user_id = str(user.get("jellyfin_user_id") or "").strip()
-    jellyfin_user_name = str(user.get("jellyfin_user_name") or "").strip()
+    jellyfin_user_id, jellyfin_user_name = profile_identity(user, cfg)
     inherited_legacy = False
 
-    if not jellyfin_user_id and royal_user_id == "admin-legacy":
+    if not jellyfin_user_id and str(user.get("id") or "") == "admin-legacy":
         jellyfin_user_id = str(cfg.get("user_id") or "").strip()
         jellyfin_user_name = str(cfg.get("user_name") or "").strip()
         inherited_legacy = bool(jellyfin_user_id)
     users = []
     available = configured
     if configured:
-        listed = JellyfinClient(cfg["url"], cfg["api_key"]).list_users()
+        listed = media_client(cfg).list_users()
         if listed is None:
             available = False
         else:
@@ -763,6 +765,7 @@ def _jellyfin_profile_payload(user: dict) -> dict:
             if selected:
                 jellyfin_user_name = selected["name"]
     return {
+        "provider": cfg.get("provider", "jellyfin"),
         "configured": configured,
         "available": available,
         "user_id": jellyfin_user_id,
@@ -777,14 +780,13 @@ def _set_jellyfin_profile(user: dict, jellyfin_user_id: str) -> dict:
     royal_user_id = str(user.get("id") or "").strip()
     if not royal_user_id:
         raise ValueError("Royal-Profil nicht gefunden.")
-    selected_id = str(jellyfin_user_id or "").strip()
-    selected_name = ""
+    selected_id, selected_name = str(jellyfin_user_id or "").strip(), ""
+    with state.jellyfin_cache_lock:
+        cfg = dict(state.jellyfin_cfg)
     if selected_id:
-        with state.jellyfin_cache_lock:
-            cfg = dict(state.jellyfin_cfg)
         if not cfg.get("url") or not cfg.get("api_key"):
             raise ValueError("Jellyfin ist unter Externe Dienste noch nicht eingerichtet.")
-        listed = JellyfinClient(cfg["url"], cfg["api_key"]).list_users()
+        listed = media_client(cfg).list_users()
         if listed is None:
             raise ConnectionError("Jellyfin-Benutzer konnten nicht geladen werden.")
         selected = next(
@@ -794,9 +796,10 @@ def _set_jellyfin_profile(user: dict, jellyfin_user_id: str) -> dict:
         if selected is None:
             raise ValueError("Der gewählte Jellyfin-Benutzer ist nicht verfügbar.")
         selected_name = str(selected.get("name") or "")
-    updated = USER_STORE.set_jellyfin_user(
-        royal_user_id, selected_id, selected_name,
-    )
+    if cfg.get("provider") == "plex":
+        updated = USER_STORE.set_media_user(royal_user_id, "plex", cfg.get("server_id", ""), selected_id, selected_name)
+    else:
+        updated = USER_STORE.set_jellyfin_user(royal_user_id, selected_id, selected_name)
     state.taste_profiles.for_user(royal_user_id).replace_jellyfin_items([])
     try:
         _recommender_wake_event.set()
@@ -862,6 +865,7 @@ def _delete_user_owned_data(user_id: str) -> dict:
                 state.watchlist_new_slugs.pop(str(entry.get("base_slug") or ""), None)
             erased["watchlist_entries"] = len(removed_watchlist)
     erased["personal_requests"] = state.personal_requests.delete_for_user(owner)
+    erased["inbox_dismissals"] = inbox_dismissals.delete_for_user(owner)
     erased["saved_media"] = state.saved_media.delete_for_user(owner)
     erased["taste_profile"] = state.taste_profiles.delete_for_user(owner)
     return erased
@@ -896,6 +900,7 @@ app.include_router(create_auth_router(AuthDependencies(
     request_is_secure=lambda request: _request_is_secure(request),
     log=lambda *args, **kwargs: log(*args, **kwargs),
     user_store=lambda: USER_STORE,
+    mfa=TotpService(USER_STORE),
     current_user=lambda headers, cookies: current_user(headers, cookies),
     delete_user_data=_delete_user_owned_data,
     profile_summary=_profile_summary,
@@ -921,6 +926,14 @@ app.router.routes.extend(queue_router.routes)
 
 administration_router = create_administration_router(sys.modules[__name__])
 administration_router.routes.extend(create_provider_monitor_router(provider_monitor, current_user).routes)
+from api.api_remote_access_router import create_remote_access_router
+from core.remote_access import RemoteAccessVerifier
+remote_access_verifier = RemoteAccessVerifier()
+app.include_router(create_remote_access_router(current_user, remote_access_verifier))
+from api.api_inbox_router import create_inbox_router
+from core.inbox_dismissals import InboxDismissals
+inbox_dismissals = InboxDismissals(appconfig.users_file().with_name("inbox.sqlite3"))
+app.include_router(create_inbox_router(inbox_dismissals, current_user))
 app.include_router(create_announcements_router(current_user))
 register_domain_router("administration", administration_router)
 app.router.routes.extend(administration_router.routes)

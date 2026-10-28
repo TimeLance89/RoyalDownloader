@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from integrations.jellyfin_client import JellyfinClient
+from integrations.media_center import media_client
 from features.movie_subscription_policy import (
     MOVIE_CLEANUP_DEFAULT,
     MOVIE_CLEANUP_LABELS,
@@ -519,6 +520,7 @@ def check_movie_subscriptions(entries: list[dict] | None = None) -> int:
 
             if (
                 normalize_movie_cleanup(entry.get("cleanup_mode")) == MOVIE_CLEANUP_WATCHED
+                and getattr(jf_client, "provider", "jellyfin") != "plex"
                 and jf_item and jf_item.get("played") and not entry.get("watched_deleted")
             ):
                 if jf_client.delete_item(jf_item.get("id", "")):
@@ -616,6 +618,8 @@ class MovieSubscriptionBody(BaseModel):
 @router.post("/api/v1/movie-subscriptions")
 @router.post("/api/movie-subscriptions")
 async def api_movie_subscription_save(body: MovieSubscriptionBody, request: Request = None):
+    if state.jellyfin_cfg.get("provider") == "plex" and body.cleanup_mode != "keep":
+        raise HTTPException(400, "Automatische Löschregeln sind für Plex gesperrt.")
     taste_profile, requested_by_user_id = await run_in_threadpool(_personal_taste_store, request)
     if body.target_quality not in MOVIE_QUALITY_LABELS:
         raise HTTPException(400, "Unbekannte Zielqualität.")
@@ -743,6 +747,8 @@ class WatchlistAddBody(BaseModel):
 @router.post("/api/v1/watchlist/add")
 @router.post("/api/watchlist/add")
 async def api_watchlist_add(body: WatchlistAddBody, request: Request = None):
+    if state.jellyfin_cfg.get("provider") == "plex" and body.cleanup_mode not in {None, "keep"}:
+        raise HTTPException(400, "Automatische Löschregeln sind für Plex gesperrt.")
     taste_profile, requested_by_user_id = await run_in_threadpool(_personal_taste_store, request)
     if body.download_mode not in WATCH_MODE_LABELS:
         raise HTTPException(400, "Unbekannte Abo-Regel.")
@@ -920,6 +926,8 @@ class WatchlistModeBody(BaseModel):
 @router.post("/api/v1/watchlist/mode")
 @router.post("/api/watchlist/mode")
 async def api_watchlist_mode(body: WatchlistModeBody):
+    if state.jellyfin_cfg.get("provider") == "plex" and body.cleanup_mode not in {None, "keep"}:
+        raise HTTPException(400, "Automatische Löschregeln sind für Plex gesperrt.")
     def _execute():
         if body.download_mode not in WATCH_MODE_LABELS:
             raise HTTPException(400, "Unbekannte Abo-Regel.")
@@ -1231,11 +1239,11 @@ def _calculate_watchlist_entry_state(
         )
         if jf_user_episodes is not None else None
     )
-    if jf_watched is not None:
+    if jf_watched is not None and getattr(jf_client, "provider", "jellyfin") != "plex":
         jf_watched.update(cleanup_history)
     cleanup_mode = normalize_cleanup_mode(entry.get("cleanup_mode"))
     cleanup_items = []
-    if cleanup_mode != CLEANUP_MODE_KEEP and jf_user_episodes is not None:
+    if cleanup_mode != CLEANUP_MODE_KEEP and jf_user_episodes is not None and getattr(jf_client, "provider", "jellyfin") != "plex":
         cleanup_items = select_cleanup_items(
             jf_client.episode_items_for_series(
                 series.title,
@@ -1375,6 +1383,8 @@ def _execute_watchlist_cleanup(
     Abo-Lauf wieder als fehlend erkannt werden. Vor jedem externen DELETE wird
     geprüft, ob die Löschregel noch unverändert aktiv ist.
     """
+    if getattr(jf_client, "provider", "jellyfin") == "plex":
+        return 0
     deleted_total = 0
     deleted_ids: set[str] = set()
     changed = False
@@ -1488,7 +1498,7 @@ def _check_watchlist_entries_impl(
     with state.jellyfin_cache_lock:
         jellyfin_generation = state.jellyfin_config_generation
         cfg = dict(state.jellyfin_cfg)
-    jf_client = JellyfinClient(cfg.get("url", ""), cfg.get("api_key", ""))
+    jf_client = media_client(cfg)
     jf_episodes = get_jellyfin_episodes(force=refresh_jellyfin) if jf_client.configured else None
     jf_series = get_jellyfin_series(force=refresh_jellyfin) if jf_client.configured else None
     with state.jellyfin_cache_lock:

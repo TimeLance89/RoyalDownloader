@@ -41,7 +41,8 @@ export function createStorage(root) {
       section.hidden = !active;
       section.setAttribute("aria-hidden", active ? "false" : "true");
     });
-    panel.classList.remove("is-overview");
+    panel.classList.remove("is-overview", "is-remote-access");
+    panel.classList.add("has-local-actions");
     root.querySelectorAll(".settings-directory-nav [data-settings-target]").forEach((link) => {
       const active = link.dataset.settingsTarget === "settings-storage";
       link.classList.toggle("is-active", active);
@@ -73,6 +74,7 @@ export function createStorage(root) {
       await autopilot.refresh();
       if (!current.active) return;
       view.status({ ...payload, autopilot: autopilot.snapshot() });
+      root.dispatchEvent(new CustomEvent("royal:storage-overview", { detail: autopilot.snapshot() }));
     }
     catch (error) {
       if (!current.active || isAbortError(error)) return;
@@ -398,6 +400,7 @@ export function createStorage(root) {
     mount() {
       if (shell?.active) return;
       shell = createScope();
+      shell.listen(root, "royal:storage-paths-changed", () => { if (storageActive()) void refreshStatus(false); });
       shell.listen(root.querySelector('[data-settings-target="settings-storage"]'), "click", (event) => {
         event.preventDefault(); activateStorage();
       });

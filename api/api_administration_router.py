@@ -24,6 +24,7 @@ from core.environment_file import (
     DEPLOYMENT_MODES,
     ENV_PATH,
     write_project_env,
+    deployment_runtime,
 )
 from integrations.jellyfin_client import JellyfinClient
 from storage.media_paths import prepare_media_directory, recover_misplaced_media
@@ -54,7 +55,7 @@ def _write_deployment_environment(
     cannot affect the running container and would turn a valid settings save
     into a failure.  Runtime settings remain durable in ``SERIENDL_DATA_DIR``.
     """
-    if os.environ.get("SERIENDL_DATA_DIR", "").strip():
+    if deployment_runtime()["startup_managed"]:
         return {
             "path": "Container-Umgebung (beim Start gesetzt)",
             "created": False,
@@ -165,6 +166,9 @@ def create_administration_router(backend) -> APIRouter:
         "_seerr_wake_event": _DynamicObject(backend, "_seerr_wake_event"),
         "_updater_wake_event": _DynamicObject(backend, "_updater_wake_event"),
     })
+    from api.api_media_center_router import create_media_center_router
+    router.routes[:] = [route for route in router.routes if not getattr(route, "path", "").startswith("/api/media-center/")]
+    router.routes.extend(create_media_center_router(backend).routes)
     return router
 
 
@@ -785,6 +789,7 @@ async def api_config_get():
             "deployment_mode": appconfig.load_deployment_mode(),
             "env_path": str(ENV_PATH),
             "env_exists": ENV_PATH.is_file(),
+            "runtime": deployment_runtime(),
         }
 
     return await run_in_threadpool(_work)
@@ -799,6 +804,8 @@ async def api_config_set(body: ConfigBody):
     deployment_mode = previous_mode if body.deployment_mode is None else str(body.deployment_mode).strip().casefold()
     if deployment_mode not in DEPLOYMENT_MODES:
         raise HTTPException(400, "Betriebsmodus muss 'desktop' oder 'nas' sein.")
+    if deployment_mode != previous_mode and deployment_runtime()["startup_managed"]:
+        raise HTTPException(409, "Das Startprofil wird außerhalb von Royal festgelegt. Nutze den Installationsassistenten; ein Gerätewechsel kann nicht durch einen Modusschalter erfolgen.")
     if not movie_path:
         raise HTTPException(400, "Ein Speicherordner für Filme fehlt.")
     await run_in_threadpool(_prepare_media_directory, movie_path, "Filmordner")
@@ -828,6 +835,7 @@ async def api_config_set(body: ConfigBody):
         "env_path": env_result["path"],
         "env_created": env_result["created"],
         "restart_required": deployment_mode != previous_mode,
+        "runtime": deployment_runtime(),
         "saved": True,
     }
 
@@ -1154,14 +1162,15 @@ class JellyfinConfigBody(BaseModel):
 @router.get("/api/v1/jellyfin/config")
 @router.get("/api/jellyfin/config")
 async def api_jellyfin_config_get():
+    cfg = state.jellyfin_cfg if state.jellyfin_cfg.get("provider") != "plex" else appconfig.load_jellyfin()
     return {
-        "url": state.jellyfin_cfg.get("url", ""),
+        "url": cfg.get("url", ""),
         "api_key": "",
-        "has_api_key": bool(state.jellyfin_cfg.get("api_key")),
-        "user_id": state.jellyfin_cfg.get("user_id", ""),
-        "user_name": state.jellyfin_cfg.get("user_name", ""),
+        "has_api_key": bool(cfg.get("api_key")),
+        "user_id": cfg.get("user_id", ""),
+        "user_name": cfg.get("user_name", ""),
         "cleanup_default": normalize_cleanup_mode(
-            state.jellyfin_cfg.get("cleanup_default")
+            cfg.get("cleanup_default")
         ),
     }
 
@@ -1176,6 +1185,8 @@ async def api_jellyfin_config_set(body: JellyfinConfigBody):
         return previous
 
     previous = await run_in_threadpool(_previous)
+    if previous.get("provider") == "plex":
+        raise HTTPException(409, "Plex ist aktiv. Für den Wechsel zu Jellyfin die Mediencenter-Einrichtung verwenden.")
     same_server = bool(url) and url.rstrip("/") == previous.get("url", "").rstrip("/")
     api_key = body.api_key.strip() or (previous.get("api_key", "") if same_server else "")
     user_id = body.user_id.strip()
@@ -1202,6 +1213,8 @@ async def api_jellyfin_config_set(body: JellyfinConfigBody):
             user_name = selected["name"]
     def _save_jellyfin_config():
         with state.jellyfin_config_update_lock:
+            if state.jellyfin_cfg.get("provider") == "plex":
+                raise HTTPException(409, "Die aktive Verbindung wurde geändert. Mediencenter-Einstellungen neu laden.")
             ok = appconfig.save_jellyfin(
                 url, api_key, user_id, user_name, cleanup_default,
             )
@@ -1243,10 +1256,11 @@ class JellyfinUsersBody(BaseModel):
 @router.post("/api/v1/jellyfin/users")
 @router.post("/api/jellyfin/users")
 async def api_jellyfin_users(body: JellyfinUsersBody):
-    url = body.url.strip() or state.jellyfin_cfg.get("url", "")
+    cfg = state.jellyfin_cfg if state.jellyfin_cfg.get("provider") != "plex" else appconfig.load_jellyfin()
+    url = body.url.strip() or cfg.get("url", "")
     key = body.api_key.strip()
-    if not key and url.rstrip("/") == state.jellyfin_cfg.get("url", "").rstrip("/"):
-        key = state.jellyfin_cfg.get("api_key", "")
+    if not key and url.rstrip("/") == cfg.get("url", "").rstrip("/"):
+        key = cfg.get("api_key", "")
     client = JellyfinClient(url, key)
     if not client.configured:
         raise HTTPException(400, "Jellyfin-Adresse oder API-Schlüssel fehlt.")

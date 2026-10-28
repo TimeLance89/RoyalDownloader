@@ -18,7 +18,7 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.event_name == 'schedule' && 'overnight' || github.sha }}
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: "24"
       - name: Install matching Playwright JavaScript package
@@ -42,10 +42,27 @@ jobs:
         env:
           ROYAL_BROWSER: webkit
         run: node tests/frontend/subscription-summary-browser.cjs
+      - name: Authenticator setup, recovery and second-factor login
+        env:
+          ROYAL_BROWSER: webkit
+        run: |
+          node tests/frontend/totp-browser.cjs
+          node tests/frontend/remote-access-browser.cjs
+
       - name: Source Sentinel settings and hoster repair confirmation
         env:
           ROYAL_BROWSER: webkit
-        run: node tests/frontend/provider-monitor-browser.cjs
+        run: |
+          node tests/frontend/provider-monitor-browser.cjs
+          node tests/frontend/inbox-dismissal-browser.cjs
+
+      - name: Settings operation, storage, account and automation flows
+        env:
+          ROYAL_BROWSER: webkit
+        run: |
+          node tests/frontend/settings-operation-browser.cjs
+          node tests/frontend/account-settings-browser.cjs
+          node tests/frontend/automation-settings-browser.cjs
 
       - name: Personal Jellyfin wishes and profile isolation
         env:
@@ -74,7 +91,7 @@ jobs:
 
       - name: Upload WebKit Download Center renderings
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: mobile-download-center-webkit
           path: artifacts/mobile-download-center/

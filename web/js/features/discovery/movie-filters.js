@@ -1,3 +1,4 @@
+import { mediaCenterText } from "../../shared/media-center.js";
 /** Local filter draft; catalog results remain untouched. */
 export function createMovieFilters(root, {
   movieState, getQueuedSlugs, fpResultMedia, fpResultYear, mediaJellyfinStatus, mediaContentLanguages,
@@ -40,7 +41,7 @@ export function createMovieFilters(root, {
     if (movieState.activeGenre !== "Alle Genres") labels.push(movieState.activeGenre);
     labels.push({ "2020s": "Seit 2020", "2010s": "2010–2019", "2000s": "2000–2009", classic: "Vor 2000" }[filters.period]);
     if (filters.rating !== "all") labels.push(`★ ${filters.rating}+`);
-    labels.push({ owned: "In Jellyfin", missing: "Nicht in Jellyfin", queued: "In Queue" }[filters.availability]);
+    labels.push({ owned: mediaCenterText("In Jellyfin"), missing: mediaCenterText("Nicht in Jellyfin"), queued: "In Queue" }[filters.availability]);
     labels.push({ de: "Deutsch", en: "Englisch" }[filters.language]);
     labels.push({ newest: "Neueste zuerst", rating: "Beste Bewertung", title: "Titel A–Z" }[filters.sort]);
     return labels.filter(Boolean);

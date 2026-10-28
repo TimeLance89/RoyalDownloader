@@ -1,11 +1,32 @@
+import { createAccountOverview } from "./account-overview.js";
+import { applyUserAvatar } from "../profile/identity.js";
 import { api } from "../../core/api.js";
+import { createTotpSettings } from "./totp.js";
 import { createScope } from "../../core/lifecycle.js";
 
 export function createAccountSettings(root, { client = api, getUser, onSaved, logout,
   confirm = message => window.confirm(message),
 }) {
   const byId = id => root.querySelector(`#${id}`);
+  const totp = createTotpSettings(root.querySelector("[data-totp-settings]"), { client, getUser, onUser: user => { onSaved({ user }, user.username); applyAccountCfg({ configured: true, user, active_sessions: 1 }); void overview.refreshSessions(); } });
   let scope;
+  let credentialMode = null;
+  const overview = createAccountOverview(root, { client, getUser, confirm,
+    onUser(user) { onSaved({ user }, user.username); applyAccountCfg({ configured: true }); },
+    onPanelChange() { closeCredentials(); totp.close?.(); },
+  });
+  function closeCredentials() {
+    credentialMode = null; byId("account-credential-editor").hidden = true;
+    for (const id of ["account-password", "account-password-repeat", "account-current-password", "account-otp"]) byId(id).value = "";
+  }
+  function paintCredentials() {
+    byId("account-credential-editor").hidden = !credentialMode;
+    byId("account-login-fields").hidden = credentialMode !== "username" && Boolean(getUser());
+    byId("account-new-password-fields").hidden = credentialMode === "username";
+    byId("account-save").hidden = credentialMode === "username";
+    byId("account-username-save").hidden = credentialMode !== "username" || !getUser();
+    byId("account-credential-title").textContent = credentialMode === "username" ? "Loginname ändern" : "Passwort ändern";
+  }
   let users = [];
   let profileAvatars = [];
   let pending = null;
@@ -19,12 +40,13 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
   function applyAccountCfg(cfg) {
     const activeUser = getUser();
     const configured = !!cfg.configured;
+    if (byId("account-otp-field")) byId("account-otp-field").hidden = !activeUser?.mfa_enabled;
     const card = byId("account-card");
     card.dataset.state = configured ? "configured" : "open";
     byId("account-warning").classList.toggle("hidden", configured);
     byId("account-username").value = activeUser?.username || cfg.username || "";
     byId("account-username").disabled = false;
-    byId("account-username-save").hidden = !activeUser;
+    byId("account-password-value").textContent = configured ? "Eingerichtet" : "Noch nicht eingerichtet";
     // Ohne bestehendes Konto gibt es kein aktuelles Passwort zu bestätigen.
     byId("account-current-label").classList.toggle("hidden", !configured);
     byId("account-current-password").classList.toggle("hidden", !configured);
@@ -36,30 +58,29 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
         ? `Angemeldet als „${cfg.username}“ · Zugangsdaten stammen aus APP_USERNAME/APP_PASSWORD. Beim Speichern werden sie in die Einstellungen übernommen.`
         : `Angemeldet als „${cfg.username}“.`)
       : "Es ist kein Konto eingerichtet – die Oberfläche ist ungeschützt erreichbar.";
-    byId("account-sessions-count").textContent =
-      `${cfg.active_sessions ?? 0} aktive Sitzung(en)`;
+    overview.render();
+    if (!configured && !activeUser) credentialMode = "password";
+    paintCredentials();
     byId("account-save").textContent = activeUser || configured
       ? "Mein Passwort ändern"
       : "Konto anlegen";
   }
 
   function accountUserRow(user) {
-    const row = root.ownerDocument.createElement("div");
-    row.className = "account-actions";
-    const state = !user.enabled ? "Deaktiviert" : user.setup_required ? "Einrichtung ausstehend" : "Aktiv";
-    const identity = root.ownerDocument.createElement("span");
-    identity.className = "account-user-identity";
-    identity.textContent = `${user.display_name} · Login: ${user.username} · ${user.role === "admin" ? "Administrator" : "Mitglied"} · ${state}`;
-    row.appendChild(identity);
-    const action = (name, label, className = "") => {
-      const button = root.ownerDocument.createElement("button");
-      button.type = "button"; button.className = `btn btn-ghost btn-sm ${className}`.trim();
-      button.textContent = label; button.dataset.userAction = name; button.dataset.userId = user.id;
-      row.appendChild(button);
-    };
+    const document = root.ownerDocument, row = document.createElement("article"); row.className = "account-household-row";
+    const avatar = document.createElement("span"); avatar.className = "account-household-avatar"; applyUserAvatar(avatar, user);
+    const copy = document.createElement("div"); copy.className = "account-household-copy";
+    const title = document.createElement("strong"); title.textContent = user.display_name || user.username;
+    const login = document.createElement("span"); login.textContent = `Login: ${user.username}`;
+    const state = document.createElement("small"); state.textContent = `${user.role === "admin" ? "Administrator" : "Mitglied"} · ${!user.enabled ? "Zugang pausiert" : user.setup_required ? "Einrichtung offen" : "Aktiv"}${user.mfa_enabled ? " · 2FA aktiv" : ""}`;
+    copy.append(title, login, state); row.append(avatar, copy);
+    if (String(user.id) === String(getUser()?.id)) { const badge = document.createElement("span"); badge.className = "account-current-session"; badge.textContent = "Du"; row.append(badge); }
+    const menu = document.createElement("details"); menu.className = "account-user-menu";
+    const summary = document.createElement("summary"); summary.textContent = "Verwalten"; menu.append(summary);
+    function action(name, text) { const button = document.createElement("button"); button.type = "button"; button.textContent = text; button.dataset.userAction = name; button.dataset.userId = user.id; menu.append(button); }
     if (user.enabled) action("reset", "Passwort zurücksetzen");
-    if (user.id !== getUser()?.id) action("delete", "Vollständig löschen", "account-user-delete");
-    return row;
+    if (String(user.id) !== String(getUser()?.id)) { action("toggle", user.enabled ? "Zugang pausieren" : "Zugang aktivieren"); action("delete", "Konto löschen"); }
+    row.append(menu); return row;
   }
 
   function profileAvatarRow(avatar) {
@@ -209,19 +230,23 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
     if (!scope?.active || !button || !root.contains(button) || !user || button.disabled) return;
     const current = scope;
     const deleting = button.dataset.userAction === "delete";
+    const toggling = button.dataset.userAction === "toggle";
     const name = user.display_name || user.username;
     if (deleting && !confirm(`Konto „${name}“ vollständig löschen? Sitzungen, Geschmack, Anfragen und persönliche Abos werden dauerhaft entfernt.`)) return;
+    if (button.dataset.userAction === "reset" && !confirm(`Passwort von „${name}“ zurücksetzen? Das Konto legt bei der nächsten Anmeldung ein neues Passwort fest.`)) return;
+    if (toggling && user.enabled && !confirm(`Zugang für „${name}“ pausieren und seine Sitzungen beenden?`)) return;
     cancelUsers();
     const status = byId("account-users-status");
     button.disabled = true;
     status.classList.remove("error");
-    status.textContent = deleting ? `„${name}“ wird vollständig gelöscht …` : "Passwort wird zurückgesetzt …";
+    status.textContent = deleting ? `„${name}“ wird vollständig gelöscht …` : toggling ? "Zugang wird geändert …" : "Passwort wird zurückgesetzt …";
     try {
       const path = `/api/auth/users/${encodeURIComponent(user.id)}`;
       if (deleting) await client.delete(path, { signal: current.signal });
+      else if (toggling) await client.post(`${path}/enabled?enabled=${!user.enabled}`, {}, { signal: current.signal, headers: { "X-Royal-Profile": String(getUser()?.id || "") } });
       else await client.post(`${path}/reset-password`, {}, { signal: current.signal });
       if (!current.active) return;
-      status.textContent = deleting ? `„${name}“ wurde vollständig gelöscht.` : "Passwort wurde zurückgesetzt.";
+      status.textContent = deleting ? `„${name}“ wurde vollständig gelöscht.` : toggling ? (user.enabled ? "Zugang pausiert." : "Zugang wieder aktiviert.") : "Passwort wurde zurückgesetzt.";
       await refreshAccountUsers();
     } catch (error) {
       if (!current.active) return;
@@ -231,6 +256,7 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
 
   async function refreshAccountUsers() {
     if (!scope?.active) return;
+    if (getUser()?.role !== "admin") { byId("account-users-card").hidden = true; byId("account-avatar-card").hidden = true; users = []; return; }
     cancelUsers();
     const currentScope = createScope();
     const release = scope.add(() => currentScope.dispose());
@@ -241,6 +267,7 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
       const result = await client.get("/api/auth/users", { signal: currentScope.signal });
       if (!currentScope.active) return;
       users = result.users || [];
+      byId("account-household-count").textContent = String(users.length);
       card.hidden = false;
       list.replaceChildren(...users.map(accountUserRow));
       void refreshProfileAvatars();
@@ -312,14 +339,16 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
     try {
       const result = await client.post(
         "/api/me/username",
-        { username, current_password: currentPassword },
-        { signal: currentScope.signal },
+        { username, current_password: currentPassword, otp_code: byId("account-otp")?.value.trim() || "" },
+        { signal: currentScope.signal, headers: { "X-Royal-Profile": String(getUser()?.id || "") } },
       );
       if (!currentScope.active) return;
       byId("account-current-password").value = "";
+      if (byId("account-otp")) byId("account-otp").value = "";
       onSaved(result, username);
       applyAccountCfg(result);
       setAccountStatus(`✓ Neuer Loginname: „${result.user?.username || username}“. Dein Profilname bleibt unverändert.`);
+      closeCredentials(); void overview.refreshSessions();
       void refreshAccountUsers();
     } catch (error) {
       if (!currentScope.active) return;
@@ -354,14 +383,16 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
     setAccountStatus("Wird gespeichert …");
     try {
       const result = getUser()
-        ? await client.post("/api/me/password", { current_password: current, password, password_repeat: repeat }, { signal: currentScope.signal })
+        ? await client.post("/api/me/password", { current_password: current, password, password_repeat: repeat, otp_code: byId("account-otp")?.value.trim() || "" }, { signal: currentScope.signal, headers: { "X-Royal-Profile": String(getUser()?.id || "") } })
         : await client.post("/api/auth/config", { username, password, current_password: current }, { signal: currentScope.signal });
       if (!currentScope.active) return;
       byId("account-password").value = "";
       byId("account-password-repeat").value = "";
       byId("account-current-password").value = "";
+      if (byId("account-otp")) byId("account-otp").value = "";
       onSaved(result, username);
       applyAccountCfg(result);
+      closeCredentials(); void overview.refreshSessions();
       setAccountStatus("✓ Passwort geändert. Andere Sitzungen wurden beendet.");
     } catch (error) {
       if (!currentScope.active) return;
@@ -370,29 +401,6 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
       if (currentScope.active) button.disabled = false;
     }
   }
-
-  async function revokeOtherSessions() {
-    if (!scope?.active) return;
-    const currentScope = scope;
-    const button = byId("account-revoke");
-    if (button.disabled) return;
-    button.disabled = true;
-    const status = byId("account-revoke-status");
-    status.classList.remove("error");
-    status.textContent = "Sitzungen werden beendet …";
-    try {
-      const result = await client.post("/api/auth/sessions/revoke", {}, { signal: currentScope.signal });
-      if (!currentScope.active) return;
-      status.textContent = `✓ ${result.revoked} Sitzung(en) beendet.`;
-      byId("account-sessions-count").textContent =
-        `${result.active_sessions ?? 0} aktive Sitzung(en)`;
-    } catch (error) {
-      if (!currentScope.active) return;
-      status.textContent = error.message;
-      status.classList.add("error");
-    } finally { if (currentScope.active) button.disabled = false; }
-  }
-
 
   function refresh() {
     if (!scope) return Promise.resolve();
@@ -406,11 +414,17 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
     mount() {
       if (scope) return;
       scope = createScope();
-      for (const id of ["account-save", "account-username-save", "new-user-create", "account-revoke", "account-avatar-upload"]) byId(id).disabled = false;
+      totp.mount(); overview.mount();
+      scope.listen(byId("account-credential-cancel"), "click", closeCredentials);
+      for (const button of root.querySelectorAll("[data-account-credential]")) scope.listen(button, "click", () => { closeCredentials(); credentialMode = button.dataset.accountCredential; paintCredentials(); byId(credentialMode === "username" ? "account-username" : "account-password").focus(); });
+      scope.listen(byId("account-user-add"), "click", () => { byId("account-user-create-editor").hidden = !byId("account-user-create-editor").hidden; });
+      const observer = new MutationObserver(() => { if (root.hidden) { closeCredentials(); totp.close?.(); } });
+      observer.observe(root, { attributes: true, attributeFilter: ["hidden"] }); scope.observe(observer);
+      for (const id of ["account-save", "account-username-save", "new-user-create", "account-avatar-upload"]) byId(id).disabled = false;
       scope.listen(byId("account-save"), "click", saveAccount);
       scope.listen(byId("account-username-save"), "click", saveUsername);
       scope.listen(byId("account-logout"), "click", logout);
-      scope.listen(byId("account-revoke"), "click", revokeOtherSessions);
+
       scope.listen(byId("new-user-create"), "click", createAccountUser);
       scope.listen(byId("account-users-list"), "click", changeUser);
       scope.listen(byId("account-avatar-upload"), "click", uploadProfileAvatar);
@@ -418,6 +432,8 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
       void refresh();
     },
     unmount() {
+      overview.unmount(); closeCredentials(); totp.unmount();
+      if (byId("account-otp")) byId("account-otp").value = "";
       scope?.dispose(); scope = null; pending = null; users = []; profileAvatars = [];
       for (const id of ["account-password", "account-password-repeat", "account-current-password"]) byId(id).value = "";
     },

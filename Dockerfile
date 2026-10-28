@@ -1,11 +1,12 @@
 # Royal Downloader container image for 24/7 NAS and Docker operation.
 ARG APP_COMMIT_SHA=""
-FROM python:3.12.13-slim-bookworm AS runtime-base
+FROM python:3.12.15-slim-bookworm AS runtime-base
 ARG APP_UID=1000
 ARG APP_GID=1000
 ARG CHROME_SECURITY_FLOOR="151.0.7922.169-1"
 ARG DEBIAN_CHROMIUM_SECURITY_FLOOR="151.0.7922.169-1~deb12u1"
 ARG DEBIAN_PERL_SECURITY_FLOOR="5.36.0-7+deb12u4"
+ARG DEBIAN_OPENSSL_SECURITY_FLOOR="3.0.22-1~deb12u2"
 
 # System dependencies:
 #  - Chrome/Chromium:  real browser for CDP-assisted extraction and verification.
@@ -26,8 +27,16 @@ RUN set -eux; \
         ffmpeg \
         ca-certificates \
         perl-base \
+        openssl \
+        libssl3 \
         libpcre2-8-0 \
         fonts-liberation; \
+    # Explicitly upgrade inherited OpenSSL packages and reject unfixed mirrors.
+    # Debian bookworm's CVE-2026-84782 fix ships in deb12u2.
+    for package in openssl libssl3; do \
+        installed_version="$(dpkg-query -W -f='${Version}' "${package}")"; \
+        dpkg --compare-versions "${installed_version}" ge "${DEBIAN_OPENSSL_SECURITY_FLOOR}"; \
+    done; \
     # Upgrade the inherited Perl runtime to Debian's CVE-2026 security fixes.
     perl_version="$(dpkg-query -W -f='${Version}' perl-base)"; \
     dpkg --compare-versions "${perl_version}" ge "${DEBIAN_PERL_SECURITY_FLOOR}"; \

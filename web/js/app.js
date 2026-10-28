@@ -21,7 +21,7 @@ export function createApplication({
     movieSubscriptions, movieSubscriptionView, movieSubscriptionRules, onMovieSubscriptions, onSubscriptions,
   },
   settings: {
-    settingsNavigation, setup, settings, providers, directory, updater, account,
+    settingsNavigation, setup, settings, providers, directory, updater, account, remoteAccess,
     intelligence, calendar, modules, storage, automation, releases: releaseActions,
   },
   integrations: { movieStatus, jellyfinResume, catalogJellyfin, jellyfin, setupJellyfin, integrations },
@@ -43,7 +43,7 @@ export function createApplication({
   function stopViews() {
     people?.unmount();
     localization.unmount(); shell.unmount(); movieDiscovery.unmount(); seriesDiscovery.unmount(); moviePresentation.unmountDetail(); movieStatus.unmount(); seriesEpisodes.unmount(); movieDownloads.unmount(); movieCollections.unmount(); tasteProfile.unmount(); aniworld.dispose(); anime.dispose(); seriesChecks.unmount(); seriesDetailsLoader.unmount(); movieDetailsLoader.unmount(); catalogMetadata.unmount(); posterPreloader.unmount(); mediaLanguage.unmount(); mood.unmount(); cardArtwork.unmount(); trailers.unmount(); jellyfinResume.unmount(); catalogJellyfin.unmount(); tasteOnboarding.unmount(); startup.unmount(); genres.unmount(); setup.unmount(); settings.dispose(); jellyfin.dispose(); setupJellyfin.unmount(); providers.unmount(); directory.unmount(); search.unmount();
-    homeData.unmount(); artwork.unmount(); intelligence.unmount(); account.unmount();
+    homeData.unmount(); artwork.unmount(); intelligence.unmount(); account.unmount(); remoteAccess.unmount();
     subscriptionRules.unmount(); movieSubscriptionRules.unmount();
     navigation.dispose(); calendar.unmount(); automation.unmount(); notifications.unmount();
     subscriptions.unmount(); movieSubscriptions.unmount();
@@ -71,9 +71,9 @@ export function createApplication({
   navigation.register("profil", profile, document.getElementById("tab-profil"));
   navigation.register("releases", releases, document.getElementById("tab-releases"));
   navigation.register("einstellungen", {
-    mount(root) { settings.mount(); jellyfin.mount(); settingsNavigation.mount(); providers.settings.mount(); integrations.mount(); releases.settings.mount(root); modules.mount(); storage.mount(); automation.mount(); intelligence.mount(); account.mount(); updater.mount(); },
-    refresh() { providers.settings.refresh(); void integrations.refresh(); releases.settings.refresh(); modules.refresh(); storage.refresh(); automation.refresh(); intelligence.refresh(); void account.refresh(); void updater.refresh(); },
-    unmount() { settings.unmount(); jellyfin.unmount(); directory.unmount(); settingsNavigation.unmount(); providers.settings.unmount(); integrations.unmount(); releases.settings.unmount(); modules.unmount(); storage.unmount(); automation.unmount(); intelligence.unmount(); account.unmount(); updater.unmount(); },
+    mount(root) { settings.mount(); jellyfin.mount(); settingsNavigation.mount(); providers.settings.mount(); integrations.mount(); releases.settings.mount(root); modules.mount(); storage.mount(); automation.mount(); intelligence.mount(); account.mount(); remoteAccess.mount(); updater.mount(); },
+    refresh() { providers.settings.refresh(); void integrations.refresh(); releases.settings.refresh(); modules.refresh(); storage.refresh(); automation.refresh(); intelligence.refresh(); void account.refresh(); remoteAccess.refresh(); void updater.refresh(); },
+    unmount() { settings.unmount(); jellyfin.unmount(); directory.unmount(); settingsNavigation.unmount(); providers.settings.unmount(); integrations.unmount(); releases.settings.unmount(); modules.unmount(); storage.unmount(); automation.unmount(); intelligence.unmount(); account.unmount(); remoteAccess.unmount(); updater.unmount(); },
   }, document.getElementById("tab-einstellungen"));
   navigation.register("home", home, document.getElementById("tab-home"));
   scope.listen(document, "royal:navigate", ({ detail }) => {

@@ -2,6 +2,114 @@
 
 ## Unreleased
 
+### Household return to protected profiles
+
+- Include each profile's public 2FA flag in the household picker, so switching
+  from a member back to a protected administrator opens password and code entry.
+- Show a visible credential challenge when cached profile information is stale.
+  Keep server-side password and second-factor verification mandatory.
+
+### Container OpenSSL security update
+
+- Explicitly upgrade both inherited OpenSSL packages during the image build and
+  enforce Debian bookworm's fixed minimum version `3.0.22-1~deb12u2` for
+  CVE-2026-84782. Keep the high/critical vulnerability gate enabled.
+
+### Installation target consistency
+
+- Separate target operating system, native/Compose installation and local/network
+  access in the migration wizard. Require an explicit target instead of showing
+  a disabled Windows selection beside assumed NAS paths.
+- Validate absolute paths for the selected OS and preserve each OS's edited
+  destinations when navigating between steps or changing network access.
+- Export native download paths or Compose host mounts according to installation
+  type. Explain migration planning up front and retain the separate native
+  startup-profile change, which takes effect on manual restart.
+
+### Settings: operation, storage, account and automation
+
+- Separate installation details from storage destinations. Show the actual runtime
+  and guide changes between NAS and computer with an explicit migration plan;
+  externally managed installations cannot silently rewrite their startup mode.
+- Explain fixed versus automatic download placement and give base folders their
+  own save action without changing existing media files.
+- Reorganize account settings into sign-in protection, owned device sessions and
+  administrator-only household management. Add personal profile editing, recovery
+  code downloads and controls to pause or reactivate household accounts.
+- List and revoke only the signed-in account's web and app sessions, preserving
+  the current session and restoring session state if persistence fails.
+- Split automatic operation into weekly schedules, performance/protection limits
+  and confirmed runtime status. Save automation independently and preserve drafts
+  during status refreshes and failed saves.
+- Verify the redesigned desktop and mobile flows in Chromium and WebKit.
+
+### Inbox control and source-monitor noise
+
+- Collapse technical source incidents into one compact section after subscription
+  activity; keep them out of the open-episodes filter and synchronize header,
+  filter and mobile badge totals.
+- Let every signed-in user remove individual messages or all messages in the
+  current filter. Persist removal per user for subscription states, source
+  incidents and Royal announcements without changing subscriptions or downloads.
+- Keep removed states hidden through polling and restart; new episode identities,
+  downloads, source incident IDs and announcement revisions can appear again.
+- Do not escalate incomplete/unsupported hoster probes solely from a stale health
+  diagnosis; require completed failed evidence. Background monitoring continues.
+
+
+### Own-domain NAS access
+
+- Add an administrator wizard for each operator's own domain and Cloudflare account,
+  with a Compose overlay, private tunnel-token file and NAS instructions.
+- Keep existing media mounts and LAN access; run cloudflared without elevated
+  privileges or a Docker socket, trusting only its shared loopback origin.
+- Verify public HTTPS with DNS-pinned requests, a short-lived own-instance proof,
+  required login and anonymous API rejection. Bound concurrent checks and clear
+  token fields on download, navigation and session expiry.
+- Offer the wizard after initial setup. Cloudflare account/domain activation and
+  applying the NAS files remain explicit operator steps; no automatic publication.
+
+
+### Authenticator two-factor authentication
+
+- Add per-account TOTP enrollment with locally generated QR codes, encrypted
+  secrets, one-use recovery codes, replay protection and account-wide attempt limits.
+- Require the enrolled factor for browser and mobile logins, protected profile
+  switches, password changes and first login after a password reset. Disable
+  password-only Basic authentication for enrolled accounts.
+- Bind sessions to the confirmed MFA generation so enrollment invalidates old
+  sessions even if revocation persistence fails. Preserve authentication without
+  automatic enrollment for existing accounts.
+- Add account settings and login code entry, profile-bound requests, secret
+  cleanup on navigation, and additive native API capabilities/contracts. Older
+  Android/TV clients need code-entry support before enrolled accounts can log in.
+
+
+### Autonomous source watchdog
+
+- Refresh volatile hoster references after restart and restore proven references
+  only from matching recent hashes, without persisting token-bearing URLs.
+- Retry failed checks after 5/15/60 minutes and confirm activated repairs promptly.
+  Keep the existing bounded, validated repair and rollback safeguards.
+- Persist unresolved individual source incidents independently of overall service
+  availability. Show them to administrators in the Abo-Inbox, with per-account
+  read state, deduplication and automatic clearance after confirmed recovery.
+  Optional push notifications retain the configured preference.
+
+### Source monitoring runtime and diagnostics
+
+- Coalesce non-critical provider/hoster observations into one bounded background
+  writer; keep configuration, manual schedules and repair changes atomic and
+  durable. Accept a manual all-source schedule in one commit instead of rewriting
+  the full monitor state for every source.
+- Keep the scheduler alive after individual source/storage failures and expose
+  retry/persistence health in Settings.
+- Reclaim inactive dynamic hosters after seven days when the bounded inventory
+  is full, protecting built-in contracts, running checks and active repairs.
+  Report rejected admissions when no safe slot can be reclaimed.
+- Poll compact diagnostics and load history/repair profiles on demand, with
+  bounded caching, revision invalidation and cancellation on navigation.
+
 ## v2.0.2 – 2026-10-26
 
 Promote the Overnight changes since v2.0.1, preserving existing Stable release

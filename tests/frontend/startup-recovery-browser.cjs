@@ -88,8 +88,8 @@ const server = createServer(async (req, res) => {
       counts.push(seen.filter(path => path.startsWith("/styles/")).length);
     }
     assert.equal(Buffer.compare(screenshots[0], screenshots[1]), 0, "bundling cannot alter visible UI pixels");
-    assert.equal(counts[0] - counts[1], 44);
-    console.log(JSON.stringify({ engine: process.env.ROYAL_BROWSER || "chromium", recovery: "import + entry", identicalPixels: true, eliminatedStylesheetRequests: 44 }));
+    assert.equal(counts[0] - counts[1], 45);
+    console.log(JSON.stringify({ engine: process.env.ROYAL_BROWSER || "chromium", recovery: "import + entry", identicalPixels: true, eliminatedStylesheetRequests: 45 }));
     await context.close();
   } finally { await browser.close(); await new Promise(done => server.close(done)); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

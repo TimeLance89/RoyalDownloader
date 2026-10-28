@@ -1,11 +1,13 @@
+import { createInboxDismissals } from "./dismissals.js";
 import { createScope } from "../../core/lifecycle.js";
 import { isAbortError } from "../../core/errors.js";
 import { notificationCount } from "./model.js";
 import { createNotificationView } from "./view.js";
 import { notificationApi } from "./api.js";
+import { createSourceIssueInbox } from "./source-issues.js";
 import { createAnnouncementInbox } from "../announcements/inbox.js";
 
-export function createNotifications(root, { getSnapshot, check, onSnapshot, openEntry, openLibrary, coverUrl, subscriptionMonogram, libraryCheckedLabel, requests = notificationApi, getSnapshotVersion = () => 0, beforeOpen = () => {} }) {
+export function createNotifications(root, { getSnapshot, check, onSnapshot, openEntry, openLibrary, coverUrl, subscriptionMonogram, libraryCheckedLabel, requests = notificationApi, getSnapshotVersion = () => 0, beforeOpen = () => {}, getUser = () => null }) {
   const document = root.ownerDocument;
   const find = id => root.querySelector(`#${id}`);
   const ui = { filter: "all", reading: "", feedback: "", feedbackError: false };
@@ -22,18 +24,49 @@ export function createNotifications(root, { getSnapshot, check, onSnapshot, open
     const snapshot = getSnapshot();
     return checking || Boolean(snapshot.checkRunning || notificationCount(snapshot.health?.checking_count) || snapshot.items.some(entry => entry.checking));
   }
-  const view = createNotificationView(root, {
+  const dismissals = createInboxDismissals({ getUser, onChange: () => refresh() });
+  const dismissalOptions = { hidden: key => dismissals.has(key), dismiss: removeMessages };
+  const view = createNotificationView(root, { ...dismissalOptions,
     getSnapshot, ui, coverUrl, subscriptionMonogram, libraryCheckedLabel,
     inboxCheckBusy: busy, closeNotifDropdown: close, openWatchlistEntry: openEntry,
     runNotificationCheck: runCheck, markNotificationDownloadsRead: markRead,
   });
-  const announcements = createAnnouncementInbox(root, {
+  const announcements = createAnnouncementInbox(root, { ...dismissalOptions,
     onChange: () => refresh(), getFilter: () => ui.filter, isOpen: () => Boolean(actions?.active),
+  });
+  const sourceIssues = createSourceIssueInbox(root, { ...dismissalOptions,
+    onChange: () => refresh(), getFilter: () => ui.filter, isOpen: () => Boolean(actions?.active), getUser,
   });
   function refresh() {
     if (!shell?.active) return;
     view.refresh(Boolean(actions?.active));
     announcements.render();
+    sourceIssues.render();
+    const count = Number([...root.querySelectorAll("[data-notif-filter]")].find(node => node.dataset.notifFilter === "all")?.querySelector(".notif-filter-count")?.textContent) || 0;
+    if (!busy()) find("notif-summary").textContent = count ? `${count} ${count === 1 ? "Eintrag" : "Einträge"}` : "Keine Meldungen";
+    const total = Number(find("notif-badge").textContent) || 0;
+    const label = total ? `${total} ${total === 1 ? "Hinweis" : "Hinweise"}` : "Alles aktuell";
+    find("notif-trigger-label").textContent = label;
+    find("notif-bell").setAttribute("aria-label", `Abo-Inbox öffnen: ${label}`);
+    document.querySelectorAll("[data-notif-mobile-summary]").forEach(node => { node.textContent = label; });
+    document.querySelectorAll("[data-notif-mobile-badge]").forEach(node => { node.textContent = String(total); node.classList.toggle("hidden", !total); });
+    document.getElementById("mobile-more-toggle")?.setAttribute("aria-label", total ? `Mehr, Abo-Inbox: ${label}` : "Mehr");
+    root.querySelectorAll(".notif-item-dismiss").forEach(button => { button.disabled = Boolean(ui.removing); });
+    if (find("notif-dismiss-all")) find("notif-dismiss-all").disabled = !visibleKeys().length || Boolean(ui.removing);
+  }
+  function visibleKeys() { return [...view.keys(), ...announcements.keys(), ...sourceIssues.keys()]; }
+  async function removeMessages(keys) {
+    if (ui.removing || !shell?.active) return;
+    const current = shell;
+    ui.removing = true; ui.feedback = ""; refresh();
+    try {
+      await dismissals.remove(keys);
+      if (!current.active) return;
+      ui.feedback = "Meldungen entfernt. Abos und Downloads laufen weiter."; ui.feedbackError = false;
+    } catch (error) {
+      if (!current.active || isAbortError(error)) return;
+      ui.feedback = `Entfernen fehlgeschlagen: ${error.message || error}`; ui.feedbackError = true;
+    } finally { if (current.active) { ui.removing = false; refresh(); } }
   }
   function close(restoreFocus = false) {
     actions?.dispose(); actions = null; checking = false; ui.reading = "";
@@ -57,6 +90,8 @@ export function createNotifications(root, { getSnapshot, check, onSnapshot, open
     document.querySelectorAll("[data-notifications-open]").forEach(button => button.setAttribute("aria-expanded", "true"));
     refresh();
     void announcements.reload();
+    void sourceIssues.reload();
+    void dismissals.reload().catch(() => {});
     if (document.defaultView?.matchMedia?.("(max-width: 820px)").matches) find("notif-close").focus({ preventScroll: true });
   }
   async function runCheck(slugs) {
@@ -95,6 +130,8 @@ export function createNotifications(root, { getSnapshot, check, onSnapshot, open
     mount() {
       if (shell?.active) return;
       shell = createScope();
+      dismissals.mount();
+      if (document.defaultView) void dismissals.reload().catch(() => {});
       shell.listen(find("notif-bell"), "click", event => { event.stopPropagation(); if (actions?.active) close(); else open(); });
       document.querySelectorAll("[data-notifications-open]").forEach(trigger => shell.listen(trigger, "click", event => {
         event.stopPropagation(); open(trigger);
@@ -108,14 +145,16 @@ export function createNotifications(root, { getSnapshot, check, onSnapshot, open
         if (!inside) close();
       });
       shell.listen(find("notif-close"), "click", () => close(true));
+      if (find("notif-dismiss-all")) shell.listen(find("notif-dismiss-all"), "click", () => { void removeMessages(visibleKeys()); });
       shell.listen(find("notif-refresh"), "click", () => runCheck(null));
       shell.listen(find("notif-library"), "click", () => { close(); openLibrary(); });
       root.querySelectorAll("[data-notif-filter]").forEach(button => shell.listen(button, "click", event => {
         event.stopPropagation(); ui.filter = button.dataset.notifFilter || "all"; refresh();
       }));
       announcements.mount();
+      sourceIssues.mount();
       refresh();
     },
-    unmount() { announcements.unmount(); close(); shell?.dispose(); shell = null; },
+    unmount() { ui.removing = false; dismissals.unmount(); sourceIssues.unmount(); announcements.unmount(); close(); shell?.dispose(); shell = null; },
   };
 }

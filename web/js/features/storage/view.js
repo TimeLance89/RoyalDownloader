@@ -18,7 +18,7 @@ export function createStorageView(root) {
     if (!list) return;
     const standard = (Array.isArray(roots) ? roots : []).filter((root) => root.source === "media" && (root.key === "movies" || root.key === "series"));
     if (!standard.length) {
-      list.innerHTML = '<div class="storage-empty-state"><strong>Keine Standard-Zielordner gefunden</strong><span>Prüfe die Film- und Serienpfade unter „Betrieb und Speicher“.</span></div>';
+      list.innerHTML = '<div class="storage-empty-state"><strong>Keine Standard-Zielordner gefunden</strong><span>Prüfe die Film- und Serienpfade unter „Basisordner ändern“.</span></div>';
       return;
     }
     const ordered = ["movies", "series"].map((key) => standard.find((item) => item.key === key)).filter(Boolean);

@@ -5,7 +5,7 @@ export function installStorageUi(root) {
     const generalLink = nav?.querySelector('[data-settings-target="settings-general"]');
     generalLink?.insertAdjacentHTML("afterend", `
       <a href="#settings-storage" data-settings-target="settings-storage">
-        <span aria-hidden="true">▰</span><strong>Speicher</strong><small>Live-Belegung &amp; Bereinigung</small>
+        <span aria-hidden="true">▰</span><strong>Speicher</strong><small>Ziele &amp; Verteilung</small>
       </a>`);
 
     const launchGrid = root.querySelector(".settings-launch-grid");
@@ -22,9 +22,10 @@ export function installStorageUi(root) {
       <section id="settings-storage" class="settings-section royal-storage-section" data-settings-section aria-labelledby="settings-storage-title" aria-hidden="true" hidden>
         <header class="settings-section-heading">
           <span class="settings-section-mark is-storage" aria-hidden="true">▰</span>
-          <div><span>SPEICHER</span><h2 id="settings-storage-title">Speicher verwalten &amp; Downloads verteilen</h2>
-          <p>Sieh alle Datenträger, gib zusätzliche Download-Ziele frei und entscheide, wie selbstständig Royal freien Platz nutzen darf.</p></div>
+          <div><span>SPEICHER</span><h2 id="settings-storage-title">Speicher &amp; Downloadziele</h2>
+          <p>Downloadziele, freie Kapazität und automatische Verteilung an einem Ort.</p></div>
         </header>
+        <div id="storage-destination-slot"></div>
         <div class="storage-live-toolbar">
           <div class="storage-live-indicator"><i></i><span>LIVE</span><strong id="storage-live-state">wird geladen …</strong></div>
           <div class="storage-toolbar-actions">
@@ -38,15 +39,7 @@ export function installStorageUi(root) {
           <div class="storage-summary-numbers"><span><small>Belegt</small><strong>—</strong></span><span><small>Frei</small><strong>—</strong></span><span><small>Kapazität</small><strong>—</strong></span></div>
         </div>
 
-        <section class="storage-standard-targets-card" aria-labelledby="storage-standard-targets-title">
-          <header class="storage-locations-head">
-            <div><span>STANDARD-ZIELE</span><h3 id="storage-standard-targets-title">Aktuelle Standard-Zielordner</h3><p>Diese beiden Ordner sind immer der sichere Ausgangspunkt für neue Downloads. Mit „Automatisch verteilen“ darf Royal stattdessen ein anderes passendes Download-Ziel wählen.</p></div>
-          </header>
-          <div id="storage-standard-target-list" class="storage-standard-target-list">
-            <div class="storage-empty-state"><strong>Standard-Zielordner werden geladen …</strong><span>Royal liest die aktuellen Film- und Serienpfade ein.</span></div>
-          </div>
-          <p class="storage-mount-hint"><span>i</span><span>Ändern kannst du diese beiden Pfade unter <strong>Betrieb und Speicher → Standard-Zielordner</strong>. Sie müssen hier nicht noch einmal als zusätzlicher Speicherort angelegt werden.</span></p>
-        </section>
+        <div id="storage-standard-target-list" class="storage-standard-target-list"><div class="storage-empty-state">Verfügbarkeit wird geprüft …</div></div>
 
         <section class="storage-locations-card" aria-labelledby="storage-locations-title">
           <header class="storage-locations-head">
@@ -92,5 +85,11 @@ export function installStorageUi(root) {
           </section>
         </div>
       </section>`);
+    const destinations = find("settings-storage-card");
+    if (destinations) {
+      find("storage-destination-slot").append(destinations); destinations.hidden = false;
+      destinations.querySelector("#operation-base-health-slot")?.append(find("storage-standard-target-list"));
+    }
+
 
   }

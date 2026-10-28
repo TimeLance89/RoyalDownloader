@@ -1,4 +1,5 @@
 import { createStartup } from "../core/startup.js";
+import { setMediaCenter } from "../shared/media-center.js";
 import { createModalController } from "../shared/components/modal.js";
 import { createServerBuildMonitor } from "../features/system/server-build.js";
 import { createLocalization } from "../core/localization.js";
@@ -104,6 +105,7 @@ export function prepareCore({ getDiscovery, getDownloads, getIntegrations, getHo
 export function initializeCore({ getCore, startupCurtain, getHome, getDiscovery, getSubscriptions, state }) {
   getCore().startupCurtain = startupCurtain;
   getCore().startup = createStartup({
+    onMediaCenter: setMediaCenter,
       homeData: getHome().homeData, genres: getDiscovery().genres,
       onInitial() {
         getDiscovery().movieActions.syncFpCatalogFromHome(); getDiscovery().movieActions.syncSeriesCatalogFromHome(); getHome().actions.syncTasteProfile();

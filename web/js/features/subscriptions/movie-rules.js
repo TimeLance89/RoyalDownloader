@@ -1,3 +1,4 @@
+import { mediaCenterText, mediaCleanupSupported } from "../../shared/media-center.js";
 import { api } from "../../core/api.js";
 import { isAbortError } from "../../core/errors.js";
 import { createDialog } from "../../shared/components/dialog.js";
@@ -32,7 +33,8 @@ export function createMovieSubscriptionRules(root, { model, isJellyfinConfigured
       radio.checked = radio.value === (entry?.target_quality || "best");
     });
     root.querySelectorAll('input[name="movie-cleanup"]').forEach((radio) => {
-      radio.checked = radio.value === (entry?.cleanup_mode || "keep");
+      radio.checked = radio.value === (mediaCleanupSupported() ? entry?.cleanup_mode || "keep" : "keep");
+      radio.disabled = !mediaCleanupSupported() && radio.value !== "keep";
     });
     byId("movie-upgrade-enabled").checked = entry?.upgrade_enabled !== false;
     byId("movie-subscription-remove").classList.toggle("hidden", !entry);
@@ -41,7 +43,7 @@ export function createMovieSubscriptionRules(root, { model, isJellyfinConfigured
     byId("movie-subscription-status").textContent =
       !isJellyfinConfigured()
         && root.querySelector('input[name="movie-cleanup"]:checked')?.value === "watched"
-        ? "Für die Gesehen-Löschung muss unter Einstellungen ein Jellyfin-Profil gewählt sein."
+        ? mediaCenterText("Für die Gesehen-Löschung muss unter Einstellungen ein Jellyfin-Profil gewählt sein.")
         : "";
     scope = dialog.open();
     for (const id of ["movie-subscription-close", "movie-subscription-cancel"]) scope.listen(byId(id), "click", () => dialog.close());
@@ -49,7 +51,7 @@ export function createMovieSubscriptionRules(root, { model, isJellyfinConfigured
     scope.listen(byId("movie-subscription-remove"), "click", () => { if (context?.key) void mutate("/api/movie-subscriptions/remove", { keys: [context.key] }); });
     for (const radio of root.querySelectorAll('input[name="movie-cleanup"]')) scope.listen(radio, "change", () => {
       byId("movie-subscription-status").textContent = !isJellyfinConfigured() && radio.checked && radio.value === "watched"
-        ? "Für die Gesehen-Löschung muss unter Einstellungen ein Jellyfin-Profil gewählt sein." : "";
+        ? mediaCenterText("Für die Gesehen-Löschung muss unter Einstellungen ein Jellyfin-Profil gewählt sein.") : "";
     });
   }
 

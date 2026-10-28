@@ -73,6 +73,7 @@ def test_passive_metrics_health_ranking_and_privacy(tmp_path):
     voe = next(row for row in metric if row["hoster"] == "voe")
     assert voe["metrics_24h"]["attempts"] == 6
     assert voe["metrics_24h"]["median_resolve_ms"] == 102.5
+    assert owner.store.flush()
     assert "SUPERSECRET" not in owner.store.path.read_text()
     assert "/0" not in owner.store.path.read_text()
     candidates = [SimpleNamespace(name="VOE", url="https://voe.example/embed"), SimpleNamespace(name="Vidoza", url="https://vidoza.example/embed")]
@@ -186,6 +187,7 @@ def test_attempt_event_does_not_invent_completed_success(tmp_path):
     assert entry["history"][-1]["event"] == "resolve_attempt"
     assert entry.get("samples", []) == []
     assert not owner.hosters.candidates("voe")[0]["proven"]
+    assert owner.store.flush()
     assert "token=secret" not in owner.store.path.read_text()
 
 

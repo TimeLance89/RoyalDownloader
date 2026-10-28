@@ -1,3 +1,4 @@
+import { inboxKey, subscriptionKey } from "./dismissals.js";
 export function notificationCount(value) {
   const count = Number(value);
   return Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
@@ -11,9 +12,10 @@ export function notificationHasIssue(entry) {
   );
 }
 
-export function buildSubscriptionInbox(items, health = {}) {
+export function buildSubscriptionInbox(items, health = {}, hidden = () => false) {
   const entries = (Array.isArray(items) ? items : []).map((entry) => ({
     entry,
+    key: subscriptionKey(entry),
     // Alte Server kennen open_count noch nicht. new_count darf dann nicht um
     // queued/failed reduziert werden, weil diese Mengen überlappen konnten.
     openCount: notificationCount(entry.open_count ?? entry.new_count),
@@ -24,11 +26,13 @@ export function buildSubscriptionInbox(items, health = {}) {
     waitingSourceCount: notificationCount(entry.waiting_release_count),
     downloadedCount: notificationCount(entry.downloaded_count),
     hasIssue: notificationHasIssue(entry),
-  })).filter((item) => (
+  })).filter(item => !hidden(item.key)).filter((item) => (
     item.openCount || item.queuedCount || item.waitingLanguageCount || item.languagePendingCount || item.upcomingCount
       || item.waitingSourceCount || item.downloadedCount || item.hasIssue
   ));
-  const globalError = String(health?.error || "").trim();
+  const error = String(health?.error || "").trim();
+  const globalKey = inboxKey("global", error);
+  const globalError = hidden(globalKey) ? "" : error;
   const counts = {
     all: entries.length + (globalError ? 1 : 0),
     new: entries.filter((item) => item.openCount > 0).length,
@@ -42,7 +46,7 @@ export function buildSubscriptionInbox(items, health = {}) {
     waitingLanguage: sum.waitingLanguage + item.waitingLanguageCount,
     downloaded: sum.downloaded + item.downloadedCount,
   }), { open: 0, queued: 0, waitingLanguage: 0, downloaded: 0 });
-  return { entries, counts, totals, globalError };
+  return { entries, counts, totals, globalError, globalKey };
 }
 
 export function inboxEntriesForFilter(model, filter = "all") {

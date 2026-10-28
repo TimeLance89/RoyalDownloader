@@ -1,3 +1,4 @@
+import { mediaCenterName, mediaCenterMark } from "../media-center.js";
 const labels = {
     owned: "✓ In Jellyfin",
     missing: "Fehlt in Jellyfin",
@@ -10,13 +11,13 @@ const labels = {
 
 
 export function jellyfinStatusText(status) {
-  return labels[status] || labels.checking;
+  return (labels[status] || labels.checking).replaceAll("Jellyfin", mediaCenterName());
 }
 
 export function setCatalogJellyfinBadge(badge, status) {
   const normalized = labels[status] ? status : "checking";
   badge.className = `catalog-jellyfin-badge is-${normalized}`;
-  badge.textContent = normalized === "owned" ? "✓ JF" : normalized === "missing" ? "– JF" : "JF ?";
-  badge.title = labels[normalized];
-  badge.setAttribute("aria-label", labels[normalized]);
+  badge.textContent = normalized === "owned" ? `✓ ${mediaCenterMark()}` : normalized === "missing" ? `– ${mediaCenterMark()}` : `${mediaCenterMark()} ?`;
+  badge.title = jellyfinStatusText(normalized);
+  badge.setAttribute("aria-label", jellyfinStatusText(normalized));
 }

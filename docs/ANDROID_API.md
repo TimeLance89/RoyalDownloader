@@ -34,7 +34,60 @@ Stand: API-Version 1. Diese Dokumentation beschreibt zuerst den bestehenden `/ap
 }
 ```
 
-`POST /api/auth/login` erwartet `{username,password}` und setzt bei Erfolg das HttpOnly-Cookie `royal_session`. Die serverseitige Sitzung läuft spätestens nach 30 Tagen oder 14 Tagen Inaktivität ab. `POST /api/auth/logout` widerruft das Cookie. HTTP Basic bleibt für bestehende Skripte verfügbar.
+`POST /api/auth/login` erwartet `{username,password,otp_code?}` und setzt bei Erfolg das HttpOnly-Cookie `royal_session`. Die serverseitige Sitzung läuft spätestens nach 30 Tagen oder 14 Tagen Inaktivität ab. `POST /api/auth/logout` widerruft das Cookie. HTTP Basic bleibt für bestehende Skripte verfügbar.
+
+## Zweiter Faktor (TOTP)
+
+Der öffentliche Capability-Handshake enthält additiv:
+
+```json
+{"authentication":{"second_factor":{"type":"totp","login_field":"otp_code","recovery_codes":true}}}
+```
+
+Für Konten mit aktiviertem 2FA liefern `POST /api/auth/login` und
+`POST /api/v1/auth/login` nach korrektem Passwort ohne zweiten Faktor HTTP 403:
+
+```json
+{"detail":{"code":"mfa_required","message":"Authenticator-Code oder Wiederherstellungscode erforderlich."}}
+```
+
+Dabei werden weder Sitzung noch Cookie/Bearer ausgegeben. Der Client zeigt ein
+Code-Eingabefeld und sendet dieselbe Anmeldung erneut, ergänzt um den String
+`otp_code` (sechsstelliger aktueller Code oder Wiederherstellungscode). Auch
+führende Nullen bleiben erhalten. Ein akzeptierter TOTP-Code ist einmalig.
+
+Fehlercodes sind `mfa_invalid` (403; bei Sperre 429), `mfa_rate_limited` (429,
+`Retry-After`) sowie `mfa_unavailable`/`mfa_store_unavailable` (503). Die Anmeldung
+wird bei solchen Antworten nicht als erfolgreich behandelt. Ohne aktiviertes
+2FA bleiben Anfrage und Erfolgsantwort unverändert. Web- und Mobile-Sitzungen
+bleiben getrennt; `/api/v1/auth/login` setzt weiterhin kein Browser-Cookie.
+
+Die folgenden eigenen Kontorouten existieren als `/api/me/totp...` für Web und
+`/api/v1/me/totp...` für Mobile-Bearer:
+
+| Methode | Suffix | Eingabe / Ergebnis |
+| --- | --- | --- |
+| GET | leer | `{enabled,pending,recovery_codes_remaining}` |
+| POST | `/setup` | `{current_password}` → `{secret,otpauth_uri,qr_data_url,expires_in}` |
+| POST | `/confirm` | `{current_password,otp_code}` → `{enabled,user,recovery_codes}` |
+| POST | `/disable` | `{current_password,otp_code}` → `{enabled,user}` |
+| POST | `/recovery-codes` | `{current_password,otp_code}` → `{recovery_codes}` |
+
+Die Mobile-Antworten von Confirm/Disable enthalten einen Ersatz-Bearer
+`access_token`, `token_type` und `expires_in`. Der bisherige Bearer und andere
+Sitzungen dieses Kontos werden ungültig. Wiederherstellungscodes werden nur in
+Erstellungsantworten geliefert. Geheimnisse nicht loggen oder in normalen
+Client-Caches ablegen. Profilgebundene Anfragen können `X-Royal-Profile` mit der
+aktuellen Benutzer-ID senden; eine Abweichung wird mit 409 abgewiesen.
+
+`user.mfa_enabled` zeigt den Aktivierungsstatus, keine Geheimnisse. Auch
+Profilwechsel und Passwort-/Loginname-Änderungen benötigen bei aktivem 2FA
+`otp_code`. Ein administrativer Passwort-Reset entfernt den zweiten Faktor nicht;
+`/api/auth/first-login` benötigt ihn weiterhin. HTTP Basic ist für diese Konten
+nicht mehr zulässig. Ältere Apps ohne Code-Eingabe müssen aktualisiert werden;
+RD bietet ihnen keinen automatischen Sicherheits-Bypass.
+
+Bedienung und Sicherung: [TOTP.md](TOTP.md).
 
 ## Discovery und Details
 

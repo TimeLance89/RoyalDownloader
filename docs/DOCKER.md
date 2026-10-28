@@ -459,3 +459,6 @@ browser; mount a proxy secret file into both services when using `_FILE`.
 
 DNS validation also goes through the proxy. Offline egress causes ordinary
 request failures, never a direct retry. See [routing and limitations](EGRESS.md).
+
+
+Eigene Domain mit geführter NAS-Einrichtung: [Externer Zugriff](REMOTE_ACCESS.md).

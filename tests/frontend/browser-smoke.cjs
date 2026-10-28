@@ -65,6 +65,8 @@ const server = createServer(async (req, res) => {
     const queue = { count: 0, groups: [], activity: {}, providers: {} };
     let accountMode = "ready", accountCreates = 0, accountResets = 0, accountDeletes = 0, passwordChanges = 0, accountRevokes = 0;
     let accountUsers = [];
+    let accountSessions = [{ id: "current-session", label: "Current browser", kind: "web", current: true },
+      { id: "other-session", label: "Other browser", kind: "web", current: false }];
     const user = { id: "fixture", display_name: "Test", username: "test", role: "admin" };
     await page.routeWebSocket("**/ws", ws => { socket = ws; sockets++; });
     await page.route("**/api/**", async route => {
@@ -119,7 +121,12 @@ const server = createServer(async (req, res) => {
       if (url.pathname === "/api/auth/users/new-member" && route.request().method() === "DELETE") {
         accountDeletes++; accountUsers = []; data = { ok: true };
       }
-      if (url.pathname === "/api/auth/sessions/revoke") { accountRevokes++; data = { revoked: 1, active_sessions: 1 }; }
+        if (url.pathname === "/api/me/sessions") data = { sessions: accountSessions };
+        if (url.pathname === "/api/me/totp") data = { enabled: false, recovery_codes_remaining: 0 };
+        if (url.pathname === "/api/me/sessions/revoke-others") {
+          accountRevokes++; accountSessions = accountSessions.filter(row => row.current);
+          data = { revoked: 1, sessions: accountSessions };
+        }
       if (url.pathname === "/api/me/password") {
         passwordChanges++;
         if (accountMode === "slow") await new Promise(resolve => setTimeout(resolve, 450));
@@ -563,23 +570,32 @@ const server = createServer(async (req, res) => {
     for (let i = 0; i < 3; i++) await page.evaluate(() => { switchTab("home"); switchTab("einstellungen"); });
     await page.evaluate(() => document.querySelector('[data-settings-target="settings-account"]').click());
     await page.waitForFunction(() => document.getElementById("account-state").textContent.includes("Angemeldet"));
-    await page.locator("#new-user-display-name").evaluate(input => { input.value = "Member Fixture"; });
-    await page.locator("#new-user-username").evaluate(input => { input.value = "member"; });
-    await page.locator("#new-user-create").evaluate(button => button.click());
+    await page.locator('[data-account-tab="household"]').click();
+    await page.locator("#account-user-add").click();
+    await page.locator("#new-user-display-name").fill("Member Fixture");
+    await page.locator("#new-user-username").fill("member");
+    await page.locator("#new-user-create").click();
     await page.waitForFunction(() => document.querySelector('[data-user-id="new-member"]'));
     assert.equal(accountCreates, 1);
+    await page.locator('.account-household-row:has([data-user-id="new-member"]) summary').click();
+    page.once("dialog", dialog => dialog.accept());
     await page.locator('[data-user-action="reset"][data-user-id="new-member"]').click();
     await page.waitForFunction(() => document.getElementById("account-users-status").textContent.includes("zurückgesetzt"));
     assert.equal(accountResets, 1);
+    await page.locator('.account-household-row:has([data-user-id="new-member"]) summary').click();
     page.once("dialog", dialog => dialog.accept());
     await page.locator('[data-user-action="delete"][data-user-id="new-member"]').click();
     await page.waitForFunction(() => !document.querySelector('[data-user-id="new-member"]')).catch(async error => {
       console.error({ accountDeletes, accountResets, status: await page.locator("#account-users-status").textContent(), errors }); throw error;
     });
     assert.equal(accountDeletes, 1);
-    await page.locator("#account-revoke").evaluate(button => button.click());
-    await page.waitForFunction(() => document.getElementById("account-revoke-status").textContent.includes("1 Sitzung"));
+    await page.locator('[data-account-tab="devices"]').click();
+    page.once("dialog", dialog => dialog.accept());
+    await page.locator("#account-revoke").click();
+    await page.waitForFunction(() => document.getElementById("account-revoke-status").textContent.includes("1 andere Sitzung"));
     assert.equal(accountRevokes, 1);
+    await page.locator('[data-account-tab="security"]').click();
+    await page.locator('[data-account-credential="password"]').click();
     await page.evaluate(() => {
       document.getElementById("account-password").value = "fixture-only-password";
       document.getElementById("account-password-repeat").value = "wrong";
@@ -672,7 +688,8 @@ const server = createServer(async (req, res) => {
     assert.equal(seerrSyncs, 1);
     assert.equal(await page.locator("#seerr-url").inputValue(), "http://draft-fixture");
     // Shared folder dialog supports selection, focus restoration and cancellation.
-    await page.locator('[data-settings-target="settings-general"]').click();
+    await page.locator('[data-settings-target="settings-storage"]').click();
+    await page.locator("#storage-base-editor > summary").click();
     await page.locator("#save-path").fill("/fixture");
     await page.locator("#browse-dir-btn").click();
     await page.locator("#dir-modal .dir-item").waitFor();
@@ -935,6 +952,7 @@ const server = createServer(async (req, res) => {
     await page.locator('[data-settings-target="settings-automation"]').click();
     await page.locator('.smart-schedule-choice:has(input[name="weekday-mode"][value="night"])').click();
     await page.locator('.smart-schedule-choice:has(input[name="weekend-mode"][value="same"])').click();
+    await page.locator('[data-automation-tab="limits"]').click();
     await page.locator("#max-parallel-downloads").selectOption("3");
     await page.locator("#max-bandwidth-mbps").fill("7.5");
     await page.evaluate(() => sharedPresentation.automation.save());

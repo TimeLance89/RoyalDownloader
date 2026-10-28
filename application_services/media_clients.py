@@ -7,6 +7,7 @@ from application_services.runtime import (
     import_backend_namespace,
     publish_service,
 )
+from integrations.media_center import media_client
 
 globals().update(import_backend_namespace())
 
@@ -56,7 +57,7 @@ def get_jellyfin_client() -> JellyfinClient:
     # Full ownership scans span multiple pages on established libraries. The
     # former five-second per-page timeout made the queue safety gate report
     # Jellyfin as stale while the server was still returning valid data.
-    return JellyfinClient(cfg.get("url", ""), cfg.get("api_key", ""), timeout=20.0)
+    return media_client(cfg, timeout=20.0)
 
 
 def _build_recommender_config() -> JellyfinRecommenderConfig:

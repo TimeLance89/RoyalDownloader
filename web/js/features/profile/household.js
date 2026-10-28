@@ -1,3 +1,4 @@
+import { mediaCenterText } from "../../shared/media-center.js";
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
 import { isAbortError } from "../../core/errors.js";
@@ -25,6 +26,8 @@ export function createHousehold(root, { userRoleLabel }) {
     find("household-unlock").hidden = true;
     find("household-manage").hidden = true;
     find("household-password").value = "";
+    if (find("household-otp")) find("household-otp").value = "";
+    if (find("household-otp-field")) find("household-otp-field").hidden = true;
     find("household-password-repeat").value = "";
     find("household-password-repeat").hidden = true;
     find("household-password-repeat-label").hidden = true;
@@ -149,13 +152,16 @@ export function createHousehold(root, { userRoleLabel }) {
       ? `Administrator bestätigen: Gib das Passwort von ${currentUser?.display_name || currentUser?.username || 'deinem Administratorkonto'} ein.`
       : firstLogin
         ? `Dieser Zugang wird zum ersten Mal verwendet. Lege jetzt ein eigenes Passwort für ${user.display_name} fest. Loginname: „${user.username}“.`
-        : `Gib einmal das Passwort von ${user.display_name} ein. Danach kannst du in dieser Sitzung frei zwischen den Profilen wechseln.`;
+        : user.mfa_enabled
+          ? `Gib für ${user.display_name} das Passwort und einen aktuellen Authenticator-Code oder Wiederherstellungscode ein.`
+          : `Gib einmal das Passwort von ${user.display_name} ein. Danach kannst du in dieser Sitzung frei zwischen den Profilen wechseln.`;
     find("household-password-label").textContent = firstLogin ? "Neues Passwort" : "Passwort";
     password.autocomplete = firstLogin ? "new-password" : "current-password";
     repeat.hidden = !firstLogin;
     repeatLabel.hidden = !firstLogin;
     repeat.required = firstLogin;
     find("household-unlock").hidden = false;
+    if (find("household-otp-field")) find("household-otp-field").hidden = action === "manage" || !user.mfa_enabled;
     password.focus();
   }
 
@@ -168,13 +174,15 @@ export function createHousehold(root, { userRoleLabel }) {
     try {
       await api.post(
         "/api/me/household/switch",
-        { user_id: user.id, password },
+        { user_id: user.id, password, otp_code: find("household-otp")?.value.trim() || "" },
         { signal: current.signal },
       );
       if (!current.active) return;
       location.reload();
     } catch (error) {
       if (!current.active || isAbortError(error)) return;
+      if (["mfa_required", "mfa_invalid"].includes(error.code)) showUnlock({ ...user, mfa_enabled: true }, "switch");
+      else if (error.status === 403 && find("household-unlock").hidden) showUnlock(user, "switch");
       status.textContent = error.message;
       status.classList.add("error");
       find("household-password").select();
@@ -186,7 +194,7 @@ export function createHousehold(root, { userRoleLabel }) {
       showUnlock(user, "first-login");
       return;
     }
-    if (root.dataset.switchingUnlocked === "true") {
+    if (root.dataset.switchingUnlocked === "true" && !user.mfa_enabled) {
       void switchHouseholdUser(user);
       return;
     }
@@ -208,7 +216,7 @@ export function createHousehold(root, { userRoleLabel }) {
     try {
       await api.post(
         "/api/auth/first-login",
-        { username: user.username, password, password_repeat: repeat },
+        { username: user.username, password, password_repeat: repeat, otp_code: find("household-otp")?.value.trim() || "" },
         { signal: current.signal },
       );
       if (!current.active) return;
@@ -338,7 +346,7 @@ export function createHousehold(root, { userRoleLabel }) {
     select.disabled = true;
     find("household-manage-save").disabled = false;
     status.classList.remove("error");
-    status.textContent = "Jellyfin-Profile werden geladen …";
+    status.textContent = mediaCenterText("Jellyfin-Profile werden geladen …");
     form.hidden = false;
 
     try {
@@ -351,37 +359,37 @@ export function createHousehold(root, { userRoleLabel }) {
       const options = [
         Object.assign(document.createElement("option"), {
           value: "",
-          textContent: "Nicht mit Jellyfin verknüpfen",
+          textContent: mediaCenterText("Nicht mit Jellyfin verknüpfen"),
         }),
       ];
       users.forEach(jellyfinUser => {
         const option = document.createElement("option");
         option.value = jellyfinUser.id || "";
-        option.textContent = jellyfinUser.name || jellyfinUser.id || "Jellyfin";
+        option.textContent = jellyfinUser.name || jellyfinUser.id || mediaCenterText("Jellyfin");
         options.push(option);
       });
       select.replaceChildren(...options);
       if (config.user_id && !users.some(jellyfinUser => jellyfinUser.id === config.user_id)) {
         const stale = document.createElement("option");
         stale.value = config.user_id;
-        stale.textContent = config.user_name || "Bisher verknüpfter Jellyfin-Benutzer";
+        stale.textContent = config.user_name || mediaCenterText("Bisher verknüpfter Jellyfin-Benutzer");
         select.append(stale);
       }
       select.value = config.user_id || "";
       managedJellyfinWritable = Boolean(config.configured && config.available !== false);
       select.disabled = !managedJellyfinWritable;
       status.textContent = !config.configured
-        ? "Jellyfin ist nicht eingerichtet. Name und Profilbild können trotzdem gespeichert werden."
+        ? mediaCenterText("Jellyfin ist nicht eingerichtet. Name und Profilbild können trotzdem gespeichert werden.")
         : config.available === false
-          ? "Jellyfin-Benutzer sind gerade nicht erreichbar. Name und Profilbild bleiben bearbeitbar."
+          ? mediaCenterText("Jellyfin-Benutzer sind gerade nicht erreichbar. Name und Profilbild bleiben bearbeitbar.")
           : config.user_id
-            ? `Verknüpft mit ${config.user_name || "Jellyfin"}.`
-            : "Noch kein Jellyfin-Profil verknüpft.";
+            ? mediaCenterText(`Verknüpft mit ${config.user_name || mediaCenterText("Jellyfin")}.`)
+            : mediaCenterText("Noch kein Jellyfin-Profil verknüpft.");
     } catch (error) {
       if (!current.active || isAbortError(error)) return;
       managedJellyfinWritable = false;
       select.disabled = true;
-      status.textContent = `Jellyfin: ${error.message}. Name und Profilbild können trotzdem gespeichert werden.`;
+      status.textContent = mediaCenterText(`Jellyfin: ${error.message}. Name und Profilbild können trotzdem gespeichert werden.`);
     }
   }
 
@@ -422,7 +430,7 @@ export function createHousehold(root, { userRoleLabel }) {
       const saved = profile.user || { ...user, display_name: name, avatar_id: selectedAvatarId };
       Object.assign(user, saved);
       const linkedName = managedJellyfinWritable && select.value
-        ? (select.selectedOptions[0]?.textContent || "Jellyfin")
+        ? (select.selectedOptions[0]?.textContent || mediaCenterText("Jellyfin"))
         : "";
       status.textContent = linkedName
         ? `✓ ${saved.display_name || name} ist mit ${linkedName} verknüpft.`

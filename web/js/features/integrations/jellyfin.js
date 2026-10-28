@@ -1,12 +1,14 @@
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
 import { createJellyfinUserPicker, fillJellyfinUsers } from "./jellyfin-users.js";
+import { createMediaCenterSettings } from "./media-center.js";
 
 export function createJellyfinSettings(root, { client = api } = {}) {
   const byId = id => root.querySelector(`#${id}`);
   let config = {}, initialized = false;
   let owner = createScope(), scope, pending;
   let revision = 0, dirty = false;
+  const mediaCenter = createMediaCenterSettings(byId("media-center-settings"), { client, onActivated: async () => { dirty = false; await initialize(); } });
   const picker = createJellyfinUserPicker(root, { client, urlId: "jellyfin-url", keyId: "jellyfin-api-key",
     selectId: "jellyfin-user-id", buttonId: "jellyfin-users-load", statusId: "jellyfin-user-status" });
   const cleanupDefault = () => ["keep", "watched_seasons", "watched_episodes"].includes(config.cleanup_default) ? config.cleanup_default : "keep";
@@ -27,7 +29,8 @@ export function createJellyfinSettings(root, { client = api } = {}) {
     if (pending) return pending;
     const current = owner;
     const request = client.get("/api/jellyfin/config", { signal: current.signal })
-      .then(value => { if (current.active) { config = value; initialized = true; render(); } })
+      .then(async value => { if (current.active) { config = value; initialized = true; render(); await mediaCenter.initialize(); } })
+      .catch(error => { if (current.active) mediaCenter.unavailable(); throw error; })
       .finally(() => { if (pending === request) pending = null; });
     pending = request; return request;
   }
@@ -47,23 +50,24 @@ export function createJellyfinSettings(root, { client = api } = {}) {
     }, { signal: current.signal });
     if (!current.active) return;
     config = value;
+    await mediaCenter.initialize();
     if (atRevision === revision) dirty = false;
     render(); return value;
   }
   return {
-    get: () => Object.freeze({ userConfigured: Boolean(config.url && config.has_api_key && config.user_id), cleanupDefault: cleanupDefault() }),
+    get: () => { const active = mediaCenter.get?.() || config; return Object.freeze({ userConfigured: Boolean(active.url && active.has_api_key && active.user_id), cleanupDefault: active.provider === "plex" ? "keep" : cleanupDefault() }); },
     initialize, save,
     mount() {
       if (scope) return;
       if (!owner.active) owner = createScope();
-      scope = createScope(); picker.mount(); render();
+      scope = createScope(); picker.mount(); mediaCenter.mount(); render();
       const changed = () => { dirty = true; revision++; };
       scope.listen(root, "input", changed); scope.listen(root, "change", changed);
       void initialize().catch(error => { if (scope?.active) byId("jellyfin-user-status").textContent = error.message; });
     },
     refresh: initialize,
-    unmount() { scope?.dispose(); scope = null; picker.unmount(); },
-    dispose() { owner.dispose(); scope?.dispose(); scope = null; picker.unmount(); pending = null; },
+    unmount() { scope?.dispose(); scope = null; picker.unmount(); mediaCenter.unmount(); },
+    dispose() { owner.dispose(); scope?.dispose(); scope = null; picker.unmount(); mediaCenter.unmount(); pending = null; },
     resume() { if (!owner.active) owner = createScope(); },
   };
 }

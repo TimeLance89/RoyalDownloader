@@ -387,3 +387,21 @@
 .royal-announcement-actions button { cursor: pointer; color: #ffe2b4; background: rgba(152,76,47,.25); padding: 7px 11px; border: 1px solid rgba(214,154,99,.35); border-radius: 9px; }
 .royal-announcement-actions button:focus-visible { outline: 2px solid #f3d6a4; outline-offset: 2px; }
 @media (max-width: 520px) { .royal-announcement { padding: 12px; } }
+
+/* Inbox removal and compact source presentation. */
+.source-issue-group { border: 1px solid var(--border, #31373b); border-radius: 12px; padding: 14px; margin: 12px 0; background: rgba(255,255,255,.025); }
+.source-issue-group > summary { cursor: pointer; font-weight: 650; font-size: .9rem; color: var(--muted, #aab3bb); }
+.source-issue-group .notif-context { margin: 12px 0; }
+.source-issue-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border, #31373b); }
+.source-issue-row strong { font-size: .85rem; overflow-wrap: anywhere; }
+.notif-item-dismiss, .source-issue-row button { color: inherit; background: transparent; border: 1px solid var(--border, #31373b); border-radius: 8px; padding: 7px 10px; cursor: pointer; }
+.notif-item-dismiss:hover { background: rgba(255,255,255,.08); }
+@media (max-width: 520px) { .source-issue-row { flex-wrap: wrap; } #notif-dismiss-all { font-size: .7rem; padding: 8px; } }
+
+@media (max-width: 520px) {
+  .notif-head { grid-template-columns: minmax(0, 1fr); }
+  .notif-head-copy { padding-right: 34px; }
+  .notif-head > .notif-head-actions { grid-row: 2; justify-content: flex-start; gap: 8px; flex-wrap: wrap; }
+  .notif-head .notif-close { position: absolute; top: 14px; right: 12px; }
+}
+/* End inbox removal presentation. */

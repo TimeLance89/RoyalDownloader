@@ -14,6 +14,8 @@ export function createSettingsNavigation(root) {
       ? requestedId
       : "settings-overview";
     panel.classList.toggle("is-overview", id === "settings-overview");
+    panel.classList.toggle("is-remote-access", id === "settings-remote-access");
+    panel.classList.toggle("has-local-actions", ["settings-general", "settings-storage", "settings-account", "settings-automation"].includes(id));
 
     sections.forEach((section) => {
       const active = section.id === id;
@@ -72,7 +74,8 @@ export function createSettingsNavigation(root) {
         scope.listen(button, "click", () => activate(button.dataset.settingsOpen));
       });
 
-      const markDirty = () => {
+      const markDirty = event => {
+        if (event?.target.closest("#settings-remote-access, #settings-account, #settings-automation, #installation-dialog")) return;
         const status = root.querySelector("#settings-saved-status");
         if (status) status.textContent = "Ungespeicherte Änderungen.";
       };

@@ -1,3 +1,4 @@
+import { mediaCenterText } from "../../shared/media-center.js";
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
 import { needsEpisodeLanguageProof, seriesDownloadLanguages, episodeLanguageChecked as checkedForProfile } from "./series-language-policy.js";
@@ -181,7 +182,7 @@ export function createSeriesEpisodes(root, {
         : "Staffeln sind da · Bestand und Metadaten werden im Hintergrund geprüft …";
     }
     if (series.jellyfin_available === false) {
-      return "Jellyfin konnte nicht eindeutig abgeglichen werden · Auswahl und Download bleiben möglich.";
+      return mediaCenterText("Jellyfin konnte nicht eindeutig abgeglichen werden · Auswahl und Download bleiben möglich.");
     }
     return "";
   }
@@ -244,7 +245,7 @@ export function createSeriesEpisodes(root, {
     }
     else if (series.availability_error) tile.title = "Verfügbarkeitsprüfung fehlgeschlagen";
     else if (series.availability_pending) tile.title = "Verfügbarkeit wird geprüft";
-    else if (episode.in_jellyfin) tile.title = "Bereits in Jellyfin vorhanden";
+    else if (episode.in_jellyfin) tile.title = mediaCenterText("Bereits in Jellyfin vorhanden");
     else if (episode.downloaded) tile.title = "Bereits heruntergeladen";
     else if (isEpisodeQueued(episode)) tile.title = "Bereits in der Warteschlange";
     else if (episode.unreleased) tile.title = `Download gesperrt · verfügbar ab ${releaseText}`;

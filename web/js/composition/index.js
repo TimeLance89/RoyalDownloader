@@ -102,6 +102,7 @@ export function preparePresentation() {
     getHome: () => homeDomain,
   });
   subscriptionsDomain = composeSubscriptions({
+    getProfile: () => profileDomain,
     movieSubscriptions,
     movieSubscriptionRules,
     subscriptions,

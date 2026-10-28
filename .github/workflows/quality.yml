@@ -33,7 +33,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: "24"
 
@@ -83,8 +83,21 @@ jobs:
       - name: Series inventory adopts deferred results and stops polling after close
         run: node tests/frontend/series-inventory-retry-browser.cjs
 
+      - name: Authenticator setup, recovery and second-factor login
+        run: |
+          node tests/frontend/totp-browser.cjs
+          node tests/frontend/remote-access-browser.cjs
+
       - name: Source Sentinel provider and hoster settings and repair confirmation
-        run: node tests/frontend/provider-monitor-browser.cjs
+        run: |
+          node tests/frontend/provider-monitor-browser.cjs
+          node tests/frontend/inbox-dismissal-browser.cjs
+
+      - name: Settings operation, storage, account and automation flows
+        run: |
+          node tests/frontend/settings-operation-browser.cjs
+          node tests/frontend/account-settings-browser.cjs
+          node tests/frontend/automation-settings-browser.cjs
 
       - name: Guided language setup, subscription choices and readiness transition
         run: node tests/frontend/language-studio-browser.cjs
@@ -111,6 +124,11 @@ jobs:
           node tests/frontend/setup-browser.cjs
           node tests/frontend/onboarding-studio-browser.cjs
 
+      - name: Jellyfin and Plex onboarding, connection failures and atomic selection
+        run: |
+          node --test tests/frontend/media-center.test.mjs
+          node tests/frontend/media-center-browser.cjs
+
       - name: Native mobile gestures, seams, orientation and navigation
         run: |
           node tests/frontend/series-selection-browser.cjs
@@ -134,7 +152,7 @@ jobs:
 
       - name: Upload mobile Download Center before and after renderings
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: mobile-download-center-chromium
           path: artifacts/mobile-download-center/
@@ -153,7 +171,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: "24"
       - name: Install isolated measurement tooling
@@ -182,7 +200,7 @@ jobs:
           ROYAL_VISUAL_BASELINE_WEB="${RUNNER_TEMP}/royal-perf-baseline/web" node tests/frontend/carousel-visual.cjs
       - name: Offscreen layout budget and stable page height
         run: node tests/frontend/offscreen-browser.cjs
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: frontend-performance
@@ -238,18 +256,21 @@ jobs:
           echo "backend=${backend}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Python
-        uses: actions/setup-python@751276eafca55f10f252026015f43c488f2322ba # immutable v6 line
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # immutable v6 line
         with:
           python-version: "3.12"
           cache: pip
 
       - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
 
       - name: Install Python dependencies
         run: python -m pip install -r requirements-dev.lock
+
+      - name: Validate Python dependency lock consistency
+        run: python scripts/check_dependency_lock_consistency.py
 
       - name: Compile Python sources
         run: |
@@ -288,6 +309,20 @@ jobs:
         timeout-minutes: 4
         run: timeout 180s python -m pytest -q tests/test_http_resume.py
 
+      - name: Plex and Jellyfin configuration, switching and compatibility
+        if: ${{ steps.change-scope.outputs.backend == 'true' }}
+        timeout-minutes: 4
+        run: >-
+          timeout 180s python -m pytest -q
+          tests/test_plex_media_center.py
+          tests/test_jellyfin_optional_settings.py
+          tests/test_jellyfin_live_state.py
+          tests/test_per_user_jellyfin_profile.py
+          tests/test_domain_routers.py
+          tests/test_frontend_layers.py
+          tests/test_module_boundaries.py
+          tests/test_web_static.py
+
       - name: Delete-before-download movie replacement and queue safeguards
         if: ${{ steps.change-scope.outputs.backend == 'true' }}
         timeout-minutes: 4
@@ -312,6 +347,12 @@ jobs:
           tests/test_api_auth_router.py
           tests/test_saved_media.py
           tests/test_watchlist_inbox_payload.py
+          tests/test_source_monitor_runtime.py
+          tests/test_source_watchdog.py
+          tests/test_inbox_dismissals.py
+          tests/test_totp.py
+          tests/test_totp_api.py
+          tests/test_remote_access.py
 
       - name: Storage mount identity, permissions and move safeguards
         if: ${{ steps.change-scope.outputs.backend == 'true' }}
@@ -352,12 +393,12 @@ jobs:
         run: |
           # Identical official digest at each registry: never fall back to an
           # unpinned or floating base image if a public mirror is rate-limited.
-          digest="sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2"
-          local_tag="python:3.12.13-slim-bookworm"
+          digest="sha256:6a0e06f5ba0b373d051aabd3fffb9b873f27f9a2a3a14bcbe37dee6f0e3bbc70"
+          local_tag="python:3.12.15-slim-bookworm"
           images=(
-            "public.ecr.aws/docker/library/python:3.12.13-slim-bookworm@${digest}"
-            "mirror.gcr.io/library/python:3.12.13-slim-bookworm@${digest}"
-            "docker.io/library/python:3.12.13-slim-bookworm@${digest}"
+            "public.ecr.aws/docker/library/python:3.12.15-slim-bookworm@${digest}"
+            "mirror.gcr.io/library/python:3.12.15-slim-bookworm@${digest}"
+            "docker.io/library/python:3.12.15-slim-bookworm@${digest}"
           )
           for attempt in 1 2; do
             for image in "${images[@]}"; do
@@ -390,7 +431,7 @@ jobs:
       - name: Scan container for high and critical CVEs
         if: ${{ steps.change-scope.outputs.backend == 'true' }}
         timeout-minutes: 5
-        uses: aquasecurity/trivy-action@d2a0b60797ff03db6132bd4e2b293f9b37081297 # trivy 0.74 line
+        uses: aquasecurity/trivy-action@8f28faec26515256b6d22074d1d2a8986f4cbd87 # trivy 0.76 line
         with:
           image-ref: royal-downloader:quality
           format: table
@@ -404,7 +445,7 @@ jobs:
       - name: Generate container SBOM
         if: ${{ steps.change-scope.outputs.backend == 'true' }}
         timeout-minutes: 5
-        uses: aquasecurity/trivy-action@d2a0b60797ff03db6132bd4e2b293f9b37081297
+        uses: aquasecurity/trivy-action@8f28faec26515256b6d22074d1d2a8986f4cbd87
         with:
           image-ref: royal-downloader:quality
           format: cyclonedx
@@ -685,7 +726,7 @@ jobs:
 
       - name: Upload security artifacts
         if: ${{ steps.change-scope.outputs.backend == 'true' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # immutable v6 line
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # immutable v6 line
         with:
           name: security-verification-artifacts
           path: |

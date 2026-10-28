@@ -1,3 +1,4 @@
+import { mediaCenterText } from "../../shared/media-center.js";
 export function createSeriesStatus(statusElement, badgeElement, { onLibraryStatus = () => {} } = {}) {
   function updateSeriesStatus(series) {
     if (!series) return;
@@ -12,7 +13,7 @@ export function createSeriesStatus(statusElement, badgeElement, { onLibraryStatu
       return;
     }
     if (series.jellyfin_available === false) {
-      status.textContent = `${series.episode_count} Episoden · Jellyfin-Abgleich nicht verfügbar`;
+      status.textContent = mediaCenterText(`${series.episode_count} Episoden · Jellyfin-Abgleich nicht verfügbar`);
       return;
     }
     if (series.jellyfin_configured) {
@@ -20,7 +21,7 @@ export function createSeriesStatus(statusElement, badgeElement, { onLibraryStatu
         (sum, season) => sum + season.episodes.filter((episode) => episode.in_jellyfin).length,
         0,
       );
-      status.textContent = `${series.episode_count} Episoden · ${jellyfinCount} in Jellyfin`;
+      status.textContent = mediaCenterText(`${series.episode_count} Episoden · ${jellyfinCount} in Jellyfin`);
       return;
     }
     status.textContent = `${series.episode_count} Episoden`;
@@ -33,24 +34,24 @@ export function createSeriesStatus(statusElement, badgeElement, { onLibraryStatu
     badge.className = "series-jellyfin-status";
     if (checking || series?.jellyfin_pending) {
       badge.classList.add("is-checking");
-      label.textContent = "Jellyfin wird geprüft";
+      label.textContent = mediaCenterText("Jellyfin wird geprüft");
       return;
     }
     if (series?.jellyfin_stale) {
       const episodes = (series.seasons || []).flatMap((season) => season.episodes || []);
       const jellyfinCount = episodes.filter((episode) => episode.in_jellyfin).length;
       badge.classList.add("is-unavailable");
-      label.textContent = `${jellyfinCount} Episoden · letzter Jellyfin-Stand`;
+      label.textContent = mediaCenterText(`${jellyfinCount} Episoden · letzter Jellyfin-Stand`);
       return;
     }
     if (series?.availability_error || series?.jellyfin_available === false) {
       badge.classList.add("is-unavailable");
-      label.textContent = "Jellyfin-Abgleich nicht verfügbar";
+      label.textContent = mediaCenterText("Jellyfin-Abgleich nicht verfügbar");
       return;
     }
     if (!series?.jellyfin_configured) {
       badge.classList.add("is-disconnected");
-      label.textContent = "Jellyfin nicht verbunden";
+      label.textContent = mediaCenterText("Jellyfin nicht verbunden");
       return;
     }
     const episodes = (series.seasons || []).flatMap((season) => season.episodes || []);
@@ -61,10 +62,10 @@ export function createSeriesStatus(statusElement, badgeElement, { onLibraryStatu
     }
     badge.classList.add(jellyfinCount ? "is-owned" : "is-missing");
     label.textContent = jellyfinCount === episodes.length && episodes.length
-      ? "Vollständig in Jellyfin"
+      ? mediaCenterText("Vollständig in Jellyfin")
       : jellyfinCount
-        ? `${jellyfinCount} Episoden in Jellyfin`
-        : "Nicht in Jellyfin";
+        ? mediaCenterText(`${jellyfinCount} Episoden in Jellyfin`)
+        : mediaCenterText("Nicht in Jellyfin");
   }
 
   return { update: updateSeriesStatus, badge: updateSeriesJellyfinBadge };

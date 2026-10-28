@@ -27,14 +27,14 @@ jobs:
           echo "ARCHIVE_BYTES=$(stat -c%s royal-discovery-source.tar.gz)" >> "$GITHUB_ENV"
       - name: Upload worktree archive
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: royal-discovery-source
           path: royal-discovery-source.tar.gz
           if-no-files-found: error
           retention-days: 1
       - name: Set up Python 3.12
-        uses: actions/setup-python@751276eafca55f10f252026015f43c488f2322ba
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: "3.12"
       - name: Install locked development requirements
@@ -88,7 +88,7 @@ jobs:
           node tests/frontend/performance-budget.cjs artifacts/frontend-performance/baseline/metrics.json artifacts/frontend-performance/current/metrics.json
       - name: Upload visual evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: royal-discovery-visual-evidence
           path: |

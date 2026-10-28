@@ -1,8 +1,11 @@
+import { inboxKey } from "../notifications/dismissals.js";
 import { api } from "../../core/api.js";
 
 /** Separately owned, opt-in official messages; never merge into watchlist data. */
-export function createAnnouncementInbox(root, { onChange, getFilter, isOpen, client = api }) {
+export function createAnnouncementInbox(root, { onChange, getFilter, isOpen, hidden = () => false, dismiss = async () => {}, client = api }) {
   const document = root.ownerDocument;
+  const key = item => inboxKey("announcement", [item.id, item.revision]);
+  const visibleItems = () => enabled ? items.filter(item => !item.revoked && !hidden(key(item))) : [];
   let items = [];
   let enabled = true;
   let timer = null;
@@ -45,7 +48,7 @@ export function createAnnouncementInbox(root, { onChange, getFilter, isOpen, cli
   function render() {
     if (!mounted) return;
     root.querySelector(".royal-announcement-group")?.remove();
-    const visible = enabled ? items.filter(item => !item.revoked) : [];
+    const visible = visibleItems();
     const unread = visible.filter(item => !item.read).length;
     const badge = root.querySelector("#notif-badge");
     if (!badge) return;
@@ -110,6 +113,11 @@ export function createAnnouncementInbox(root, { onChange, getFilter, isOpen, cli
         });
         footer.append(button);
       }
+      const remove = document.createElement("button");
+      remove.type = "button"; remove.className = "notif-item-dismiss"; remove.textContent = "Entfernen";
+      remove.setAttribute("aria-label", `Mitteilung ${item.title} entfernen`);
+      remove.addEventListener("click", () => { void dismiss([key(item)]); });
+      footer.append(remove);
       card.append(footer);
       group.append(card);
     });
@@ -118,6 +126,7 @@ export function createAnnouncementInbox(root, { onChange, getFilter, isOpen, cli
 
   return {
     render, reload,
+    keys: () => ["all", "new"].includes(getFilter()) ? visibleItems().filter(item => getFilter() !== "new" || !item.read).map(key) : [],
     mount() {
       if (mounted) return;
       mounted = true;

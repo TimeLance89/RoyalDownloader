@@ -19,11 +19,16 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from core.auth import MAX_PASSWORD_LENGTH, MAX_USERNAME_LENGTH
+from api.totp_support import verify_second_factor
+from api.api_totp_router import create_totp_router
+from api.api_account_sessions_router import create_account_sessions_router
+from api.profile_owner_guard import require_profile_owner
 
 
 class LoginBody(BaseModel):
     username: str = Field(max_length=MAX_USERNAME_LENGTH)
     password: str = Field(max_length=MAX_PASSWORD_LENGTH)
+    otp_code: str = Field(default="", max_length=128)
 
 
 class ApiV1LoginBody(LoginBody):
@@ -33,6 +38,7 @@ class ApiV1LoginBody(LoginBody):
 
 
 class AuthConfigBody(BaseModel):
+    otp_code: str = Field(default="", max_length=128)
     username: str = Field(max_length=MAX_USERNAME_LENGTH)
     password: str = Field(max_length=MAX_PASSWORD_LENGTH)
     current_password: str | None = Field(default="", max_length=MAX_PASSWORD_LENGTH)
@@ -49,17 +55,20 @@ class FirstLoginBody(LoginBody):
 
 
 class PasswordChangeBody(BaseModel):
+    otp_code: str = Field(default="", max_length=128)
     current_password: str = Field(max_length=MAX_PASSWORD_LENGTH)
     password: str = Field(max_length=MAX_PASSWORD_LENGTH)
     password_repeat: str = Field(max_length=MAX_PASSWORD_LENGTH)
 
 
 class UsernameChangeBody(BaseModel):
+    otp_code: str = Field(default="", max_length=128)
     current_password: str = Field(max_length=MAX_PASSWORD_LENGTH)
     username: str = Field(min_length=1, max_length=MAX_USERNAME_LENGTH)
 
 
 class HouseholdSwitchBody(BaseModel):
+    otp_code: str = Field(default="", max_length=128)
     user_id: str = Field(min_length=1, max_length=120)
     password: str = Field(default="", max_length=MAX_PASSWORD_LENGTH)
 
@@ -117,6 +126,7 @@ class AuthDependencies:
     save_profile_avatar: Callable[[str, str, bytes], dict] | None = None
     delete_profile_avatar: Callable[[str], dict] | None = None
     profile_avatar_exists: Callable[[str], bool] | None = None
+    mfa: Any = None
 
 
 def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
@@ -187,6 +197,7 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         request: Request,
         label: str,
         session_kind: str,
+        otp_code: str = "",
     ) -> tuple[str, dict, str]:
         key = dependencies.client_key(request)
         login_guard = dependencies.login_guard()
@@ -225,6 +236,8 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
                 401,
                 f"Benutzername oder Passwort ist falsch. Noch {remaining} Versuch(e).",
             )
+        user = dependencies.user_store().find(username)
+        proof = verify_second_factor(dependencies, user, otp_code)
         login_guard.register_success(key)
         account_login_guard.register_success(account_key)
         session_label = str(label or "").strip()[:120]
@@ -233,6 +246,7 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
             label=session_label,
             kind=session_kind,
             user_id=str(user.get("id")) if user else "",
+            **proof,
         )
         payload = auth_status_payload(request)
         payload.update({
@@ -249,10 +263,13 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         session_kind: str,
     ) -> tuple[str, str]:
         account = dependencies.auth_account()
+        proof = {}
+        existing_user = dependencies.user_store().find(account.get("username", ""))
         if bool(account.get("configured")):
             confirmed = dependencies.verify_credentials(account.get('username', ''), body.current_password or '')
             if not confirmed:
                 raise HTTPException(403, "Das aktuelle Passwort ist falsch.")
+            proof = verify_second_factor(dependencies, existing_user, body.otp_code)
         try:
             username = appauth.validate_username(body.username)
             password = appauth.validate_password(body.password)
@@ -273,6 +290,8 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         token = session_store.create(
             label=session_label,
             kind=session_kind,
+            user_id=str(existing_user["id"]) if existing_user else "",
+            **proof,
         )
         return username, token
 
@@ -344,7 +363,7 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
                     key: item.get(key)
                     for key in (
                         "id", "username", "display_name", "avatar_id", "role",
-                        "enabled", "setup_required",
+                        "enabled", "setup_required", "mfa_enabled",
                     )
                 }
                 for item in users if item.get("enabled")
@@ -463,20 +482,25 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
                 409,
                 f"„{target.get('display_name') or target.get('username')}“ muss zuerst ein eigenes Passwort einrichten.",
             )
-        if not switching_unlocked:
+        proof = {}
+        target_mfa = bool(target.get("mfa", {}).get("enabled"))
+        if not target_mfa:
+            proof = verify_second_factor(dependencies, target, "")
+        if not switching_unlocked or target_mfa:
             confirmed = dependencies.verify_credentials(str(target.get('username') or ''), body.password)
             if not confirmed:
                 raise HTTPException(
                     403,
                     f"Das Passwort für „{target.get('display_name') or target.get('username')}“ ist falsch.",
                 )
+            proof = verify_second_factor(dependencies, target, body.otp_code)
             if not session_store.unlock_profile_switching(
                 token, kind=appauth.SESSION_KIND_WEB,
             ):
                 raise HTTPException(401, "Die Sitzung ist nicht mehr gültig.")
             switching_unlocked = True
         if not session_store.switch_user(
-            token, str(target["id"]), kind=appauth.SESSION_KIND_WEB,
+            token, str(target["id"]), kind=appauth.SESSION_KIND_WEB, **proof,
         ):
             raise HTTPException(409, "Das Profil konnte nicht gewechselt werden.")
         return {
@@ -490,8 +514,10 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         user = dependencies.current_user(request.headers, request.cookies)
         if not user:
             raise HTTPException(401, "Anmeldung erforderlich.")
+        require_profile_owner(request.headers, str(user["id"]))
         if not dependencies.verify_credentials(user['username'], body.current_password):
             raise HTTPException(403, "Das aktuelle Passwort ist falsch.")
+        proof = verify_second_factor(dependencies, user, body.otp_code)
         try:
             username = appauth.validate_username(body.username)
             updated = dependencies.user_store().set_username(str(user["id"]), username)
@@ -509,10 +535,12 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         user = dependencies.current_user(request.headers, request.cookies)
         if not user:
             raise HTTPException(401, "Anmeldung erforderlich.")
+        require_profile_owner(request.headers, str(user["id"]))
         if body.password != body.password_repeat:
             raise HTTPException(400, "Die beiden Passwörter stimmen nicht überein.")
         if not dependencies.verify_credentials(user['username'], body.current_password):
             raise HTTPException(403, "Das aktuelle Passwort ist falsch.")
+        proof = verify_second_factor(dependencies, user, body.otp_code)
         try:
             password_hash = appauth.hash_password(appauth.validate_password(body.password))
         except ValueError as exc:
@@ -523,6 +551,7 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
             label=request.headers.get("user-agent", "")[:120],
             kind=appauth.SESSION_KIND_WEB,
             user_id=str(user["id"]),
+            **proof,
         )
         response = JSONResponse({"user": updated, "configured": True, "active_sessions": 1})
         set_session_cookie(response, request, token)
@@ -557,6 +586,7 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
             request,
             request.headers.get("user-agent", ""),
             appauth.SESSION_KIND_WEB,
+            body.otp_code,
         )
         response = JSONResponse(payload)
         set_session_cookie(response, request, token)
@@ -569,8 +599,9 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
             raise HTTPException(401, "Anmeldung oder Passwortsetzung nicht möglich.")
         try: password = appauth.validate_password(body.password)
         except ValueError as exc: raise HTTPException(400, str(exc)) from exc
+        proof = verify_second_factor(dependencies, user, body.otp_code)
         dependencies.user_store().set_password(user["id"], appauth.hash_password(password))
-        token = dependencies.session_store().create(label=request.headers.get("user-agent", "")[:120], kind=appauth.SESSION_KIND_WEB, user_id=user["id"])
+        token = dependencies.session_store().create(label=request.headers.get("user-agent", "")[:120], kind=appauth.SESSION_KIND_WEB, user_id=user["id"], **proof)
         if not dependencies.session_store().unlock_profile_switching(
             token, kind=appauth.SESSION_KIND_WEB,
         ):
@@ -711,6 +742,7 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
             request,
             requested_label,
             appauth.SESSION_KIND_MOBILE,
+            body.otp_code,
         )
         payload.update({
             "api_version": dependencies.api_version,
@@ -814,38 +846,33 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
             "device_label": session_label,
         }
 
+    def revoke_owned_or_legacy(request, kind, token):
+        user = dependencies.current_user(request.headers, request.cookies)
+        store = dependencies.session_store()
+        try:
+            if user:
+                require_profile_owner(request.headers, str(user["id"]))
+                removed = store.revoke_user(str(user["id"]), keep_token=token)
+                active = len(store.list_for_user(str(user["id"]), token))
+            else:
+                # Compatibility for the original single-account environment setup.
+                removed = store.revoke_all(keep_token=token, kind=kind)
+                active = store.count(kind)
+        except appauth.SessionPersistenceError as exc:
+            raise HTTPException(503, "Sitzungsänderung konnte nicht gespeichert werden.") from exc
+        return {"ok": True, "revoked": removed, "active_sessions": active,
+                "current_session_preserved": bool(token)}
+
     @router.post("/api/auth/sessions/revoke")
     def api_auth_sessions_revoke(request: Request):
-        session_store = dependencies.session_store()
-        removed = session_store.revoke_all(
-            keep_token=dependencies.authenticated_web_token(request.cookies),
-            kind=appauth.SESSION_KIND_WEB,
-        )
-        dependencies.log(f"{removed} andere Sitzung(en) beendet.")
-        return {
-            "ok": True,
-            "revoked": removed,
-            "active_sessions": session_store.count(
-                appauth.SESSION_KIND_WEB,
-            ),
-        }
+        return revoke_owned_or_legacy(request, appauth.SESSION_KIND_WEB,
+                                      dependencies.authenticated_web_token(request.cookies))
 
     @router.post("/api/v1/auth/sessions/revoke")
     def api_v1_auth_sessions_revoke(request: Request):
-        keep_token = dependencies.authenticated_mobile_token(request.headers)
-        session_store = dependencies.session_store()
-        removed = session_store.revoke_all(
-            keep_token=keep_token,
-            kind=appauth.SESSION_KIND_MOBILE,
-        )
-        dependencies.log(f"{removed} andere Sitzung(en) beendet.")
-        return {
-            "ok": True,
-            "revoked": removed,
-            "active_sessions": session_store.count(
-                appauth.SESSION_KIND_MOBILE,
-            ),
-            "current_session_preserved": bool(keep_token),
-        }
+        return revoke_owned_or_legacy(request, appauth.SESSION_KIND_MOBILE,
+                                      dependencies.authenticated_mobile_token(request.headers))
 
+    router.include_router(create_totp_router(dependencies, set_session_cookie))
+    router.include_router(create_account_sessions_router(dependencies))
     return router

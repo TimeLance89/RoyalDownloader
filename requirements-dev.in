@@ -2,7 +2,7 @@
 bandit
 coverage
 httpx2
-pip>=26.2.1
+pip>=26.2.2
 pip-audit
 pytest
 ruff

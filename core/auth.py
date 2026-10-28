@@ -203,6 +203,7 @@ class SessionStore:
                     "label": str(entry.get("label") or ""),
                     "kind": kind,
                     "user_id": str(entry.get("user_id") or ""),
+                    "auth_epoch": str(entry.get("auth_epoch") or ""),
                     "household_unlocked": bool(entry.get("household_unlocked")),
                     "profile_switch_unlocked": bool(entry.get("profile_switch_unlocked")),
                     "_persisted_last_seen": last_seen,
@@ -266,7 +267,7 @@ class SessionStore:
         return bool(stale)
 
     # -- API ----------------------------------------------------------------
-    def create(self, label: str = "", kind: str = SESSION_KIND_WEB, user_id: str = "") -> str:
+    def create(self, label: str = "", kind: str = SESSION_KIND_WEB, user_id: str = "", auth_epoch: str = "") -> str:
         """Legt eine Sitzung an und gibt das Klartext-Token für das Cookie zurück."""
         if kind not in SESSION_KINDS:
             raise ValueError("Unbekannter Sitzungstyp.")
@@ -286,6 +287,7 @@ class SessionStore:
                 "label": str(label or "")[:120],
                 "kind": kind,
                 "user_id": str(user_id or "")[:120],
+                "auth_epoch": str(auth_epoch or ""),
                 "household_unlocked": False,
                 "profile_switch_unlocked": False,
                 "_persisted_last_seen": now,
@@ -349,7 +351,7 @@ class SessionStore:
                 raise
             return True
 
-    def switch_user(self, token: str, user_id: str, kind: Optional[str] = None) -> bool:
+    def switch_user(self, token: str, user_id: str, kind: Optional[str] = None, auth_epoch: str = "") -> bool:
         """Move a valid session to another household identity."""
         target = str(user_id or "").strip()[:120]
         if not target or not self.validate(token, kind):
@@ -361,7 +363,9 @@ class SessionStore:
                 return False
             previous_user = str(entry.get("user_id") or "")
             previous_admin_unlock = bool(entry.get("household_unlocked"))
+            previous_epoch = entry.get("auth_epoch", "")
             entry["user_id"] = target
+            entry["auth_epoch"] = str(auth_epoch or "")
             # Profile switching may stay unlocked for the browser session, but
             # privileged profile administration must be confirmed again after
             # changing identities.
@@ -371,15 +375,21 @@ class SessionStore:
             except SessionPersistenceError:
                 entry["user_id"] = previous_user
                 entry["household_unlocked"] = previous_admin_unlock
+                entry["auth_epoch"] = previous_epoch
                 raise
             return True
 
-    def user_id(self, token: str, kind: Optional[str] = None) -> str:
+    def user_id(self, token: str, kind: Optional[str] = None, *, touch: bool = True) -> str:
         """Return the authenticated session owner without exposing token state."""
-        if not self.validate(token, kind): return ""
+        if not self.validate(token, kind, touch=touch): return ""
         with self._lock:
             entry = self._sessions.get(_token_fingerprint(token)) or {}
             return str(entry.get("user_id") or "")
+
+    def auth_epoch(self, token: str) -> str:
+        with self._lock:
+            entry = self._sessions.get(_token_fingerprint(token)) or {}
+            return str(entry.get("auth_epoch") or "")
 
     def validate(
         self,
@@ -476,8 +486,52 @@ class SessionStore:
             removed = {key: entry for key, entry in self._sessions.items() if key != keep and entry.get("user_id") == target}
             if not removed: return 0
             for key in removed: self._sessions.pop(key, None)
-            self._save_locked()
+            try:
+                self._save_locked()
+            except SessionPersistenceError:
+                self._sessions.update(removed)
+                raise
             return len(removed)
+
+    @staticmethod
+    def _public_reference(fingerprint: str) -> str:
+        # A UI reference is neither the bearer token nor its stored fingerprint.
+        return hashlib.sha256(("royal-session-view:" + fingerprint).encode()).hexdigest()
+
+    def list_for_user(self, user_id: str, current_token: str = "") -> list[dict]:
+        target = str(user_id or "")
+        if not target:
+            return []
+        current = _token_fingerprint(current_token) if current_token else ""
+        with self._lock:
+            self._purge_locked(time.time())
+            rows = [{"id": self._public_reference(key), "label": entry.get("label", ""),
+                     "kind": entry.get("kind", SESSION_KIND_WEB), "created_at": entry["created"],
+                     "last_seen_at": entry["last_seen"], "current": key == current}
+                    for key, entry in self._sessions.items()
+                    if entry.get("user_id") == target or (key == current and not entry.get("user_id"))]
+            return sorted(rows, key=lambda row: (not row["current"], -row["last_seen_at"]))
+
+    def revoke_for_user(self, reference: str, user_id: str, current_token: str = "") -> bool:
+        if not user_id or not reference or len(reference) != 64 or any(char not in "0123456789abcdef" for char in reference):
+            return False
+        current = _token_fingerprint(current_token) if current_token else ""
+        with self._lock:
+            self._purge_locked(time.time())
+            key = next((key for key, entry in self._sessions.items()
+                        if entry.get("user_id") == str(user_id)
+                        and hmac.compare_digest(self._public_reference(key), reference)), None)
+            if key is None:
+                return False
+            if key == current:
+                raise ValueError("Für diese Sitzung die Aktion Abmelden verwenden.")
+            removed = self._sessions.pop(key)
+            try:
+                self._save_locked()
+            except SessionPersistenceError:
+                self._sessions[key] = removed
+                raise
+            return True
 
     def count(self, kind: Optional[str] = None) -> int:
         if kind is not None and kind not in SESSION_KINDS:

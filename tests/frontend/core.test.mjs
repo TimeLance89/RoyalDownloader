@@ -1382,10 +1382,12 @@ function settingsFormFixture() {
     querySelector(id) {
       if (!nodes.has(id)) nodes.set(id, Object.assign(new EventTarget(), {
         value: "", checked: false, disabled: false, textContent: "", dataset: {},
+        ownerDocument: root.ownerDocument,
       }));
       return nodes.get(id);
     },
   });
+  root.ownerDocument.getElementById = id => root.querySelector(`#${id}`);
   return { root, nodes };
 }
 
@@ -1495,7 +1497,7 @@ test("settings wait for bootstrap and report partial saves with their failing se
   const view = createSettings(root, {
     getFeatures: () => features, language: () => "de", locale: () => "de-DE",
     languageWizard: { dispose() {} }, onSaved: async () => { refreshes++; },
-    client: { get: () => new Promise(resolve => { load = resolve; }), post: async () => { writes++; return {}; } },
+    client: { get: url => url === "/api/config" ? new Promise(resolve => { load = resolve; }) : Promise.resolve({}), post: async () => { writes++; return {}; } },
   });
   try {
     const initializing = view.initialize(); view.mount();
@@ -1534,13 +1536,7 @@ test("updater save acknowledgements preserve edits made while the request is pen
 
 
 test("settings abort a save sequence on navigation and keep newer edits", async () => {
-  const nodes = new Map();
-  const root = new EventTarget();
-  root.querySelector = id => {
-    if (!nodes.has(id)) nodes.set(id, Object.assign(new EventTarget(), { value: "", textContent: "", disabled: false }));
-    return nodes.get(id);
-  };
-  root.querySelectorAll = () => [];
+  const { root, nodes } = settingsFormFixture();
   let complete;
   const calls = [];
   const feature = { initialize: async () => {}, save: async () => { calls.push("feature"); } };
@@ -2047,4 +2043,18 @@ test("update links are initially hidden and their layout stays in the update sta
   assert.ok(updater.indexOf('id="updater-detail"') < updater.indexOf('id="updater-links"'));
   assert.match(updater, /id="updater-changes" class="hidden"/);
   assert.match(updater, /id="updater-changelog" class="hidden"/);
+});
+
+import { installationPaths, validInstallationPath } from "../../web/js/features/settings/installation-target.js";
+test("installation paths follow the chosen target OS independently of network mode", () => {
+  assert.deepEqual(installationPaths(""), ["", ""]);
+  for (const os of ["windows", "linux", "macos"]) {
+    for (const path of installationPaths(os)) assert.equal(validInstallationPath(os, path), true);
+  }
+  assert.equal(validInstallationPath("windows", "/volume1/media/Filme"), false);
+  assert.equal(validInstallationPath("linux", installationPaths("windows")[0]), false);
+  assert.equal(validInstallationPath("macos", "relative/media"), false);
+  assert.equal(validInstallationPath("linux", "/media\nHOST=0.0.0.0"), false);
+  assert.equal(validInstallationPath("windows", "//nas/media/Filme"), true);
+  assert.equal(validInstallationPath("linux", "/volume2/Filme"), true);
 });

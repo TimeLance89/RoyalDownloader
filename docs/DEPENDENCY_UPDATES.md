@@ -2,7 +2,7 @@
 
 Production installs use `requirements.lock`; Docker and native startup do not
 resolve from the looser input file. The current reviewed runtime includes
-Python 3.12.13, FastAPI 0.141.1, Uvicorn 0.52.0, yt-dlp 2026.7.4, curl-cffi
+Python 3.12.15, FastAPI 0.141.1, Uvicorn 0.52.0, yt-dlp 2026.7.4, curl-cffi
 0.16.0, and cryptography 48.0.1. Seerr defaults to v3.4.1.
 
 To propose an update, edit only the direct constraints in `requirements.in`,

@@ -2,6 +2,7 @@
 # Runtime service publication is intentionally invisible to static name resolution.
 # ruff: noqa: F821
 
+import hashlib
 import uuid
 
 from application_services.runtime import (
@@ -877,6 +878,7 @@ def watchlist_payload() -> dict:
                 status = "current"
             items.append({
                 **w,
+                "inbox_episode_revision": hashlib.sha256("\n".join(sorted(pending)).encode()).hexdigest(),
                 "download_mode": mode,
                 "download_mode_label": WATCH_MODE_LABELS[mode],
                 "checking": bool(w.get("check_in_progress")),
