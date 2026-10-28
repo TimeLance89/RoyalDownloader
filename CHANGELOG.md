@@ -110,12 +110,49 @@
 - Poll compact diagnostics and load history/repair profiles on demand, with
   bounded caching, revision invalidation and cancellation on navigation.
 
-### Series subscription presentation
+## v2.0.2 – 2026-10-26
 
-- Align the subscribed-series shelf with the cinema catalog: compact poster
-  cards, readable titles and separate rule/status text. Reuse existing artwork
-  through the thumbnail URL policy with lazy loading and a monogram fallback;
-  opening details and managing subscriptions keep their existing behavior.
+Promote the Overnight changes since v2.0.1, preserving existing Stable release
+history, API contracts and persistent settings.
+
+### Subscribed series
+
+- Show compact posters in the subscribed-series shelf with separate title,
+  subscription rule and status. Reuse existing cover/backdrop data with lazy
+  loading, proxy fallback and initials when artwork is unavailable.
+- Preserve detail navigation and management actions on desktop and mobile.
+
+### Signed announcements
+
+- Add signature-verified official announcements to the Abo-Inbox, including
+  per-profile read state, expiration, revocation and verified offline cache.
+- Add a persistent local receipt switch and owner-only publishing controls.
+  Global publishing requires explicit official-server configuration and the
+  matching private signing key; ordinary installation admins cannot publish.
+- Document the HTTPS feed and pseudonymous installation/profile receipts.
+  Receipt statistics are best-effort client reports, not attested counts.
+
+### Film source search and NAS configuration
+
+- Distinguish ongoing source retries from confirmed source unavailability in
+  movie details without changing provider, polling or timeout behavior.
+- Clarify DOWNLOAD_DIR/SERIES_DIR versus NAS host mounts in .env.example,
+  document disabled publisher defaults and deprecate BIND_ADDRESS in favor
+  of ROYAL_BIND_ADDRESS.
+
+### Quality and dependency security
+
+- Use the matching versioned Playwright container for browser gates, avoiding
+  repeated operating-system package downloads and infrastructure timeouts.
+- Require real successful Chromium, performance and WebKit results; remove the
+  temporary PR-specific browser skip while retaining the full test coverage.
+- Update the development dependency filelock to 4.2.4 for its security fixes.
+
+## v2.0.1 – 2026-10-21
+
+Promote the current Stable `main` snapshot after the Overnight merge, including
+Royal Discovery 3.0 and its browsing, storage and NAS reliability fixes.
+Existing API and persistent-data formats are retained.
 
 ### NAS resource and startup hotfix
 
