@@ -1,4 +1,5 @@
 import { WATCH_MODE_DEFAULT } from "../shared/constants/watch-policy.js";
+import { setMediaCenter } from "../shared/media-center.js";
 import { WATCH_MODE_LABELS } from "../shared/constants/watch-policy.js";
 import { WATCH_MODE_EXPLANATIONS } from "../shared/constants/watch-policy.js";
 import { WATCH_CLEANUP_DEFAULT } from "../shared/constants/watch-policy.js";
@@ -204,7 +205,8 @@ export function createShellActions({
       try {
         if (data.type === "log") {
           appendLog(data.message, data.level);
-      } else if (data.type === "jellyfin_update") {
+      } else if (data.type === "jellyfin_update" || data.type === "media_center_update") {
+        if (data.type === "media_center_update") setMediaCenter(data.provider);
         refreshFpJellyfinStatus();
         refreshSeriesJellyfinStatus();
         refreshAllCatalogJellyfinStatuses();

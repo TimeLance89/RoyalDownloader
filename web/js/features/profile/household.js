@@ -1,3 +1,4 @@
+import { mediaCenterText } from "../../shared/media-center.js";
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
 import { isAbortError } from "../../core/errors.js";
@@ -345,7 +346,7 @@ export function createHousehold(root, { userRoleLabel }) {
     select.disabled = true;
     find("household-manage-save").disabled = false;
     status.classList.remove("error");
-    status.textContent = "Jellyfin-Profile werden geladen …";
+    status.textContent = mediaCenterText("Jellyfin-Profile werden geladen …");
     form.hidden = false;
 
     try {
@@ -358,37 +359,37 @@ export function createHousehold(root, { userRoleLabel }) {
       const options = [
         Object.assign(document.createElement("option"), {
           value: "",
-          textContent: "Nicht mit Jellyfin verknüpfen",
+          textContent: mediaCenterText("Nicht mit Jellyfin verknüpfen"),
         }),
       ];
       users.forEach(jellyfinUser => {
         const option = document.createElement("option");
         option.value = jellyfinUser.id || "";
-        option.textContent = jellyfinUser.name || jellyfinUser.id || "Jellyfin";
+        option.textContent = jellyfinUser.name || jellyfinUser.id || mediaCenterText("Jellyfin");
         options.push(option);
       });
       select.replaceChildren(...options);
       if (config.user_id && !users.some(jellyfinUser => jellyfinUser.id === config.user_id)) {
         const stale = document.createElement("option");
         stale.value = config.user_id;
-        stale.textContent = config.user_name || "Bisher verknüpfter Jellyfin-Benutzer";
+        stale.textContent = config.user_name || mediaCenterText("Bisher verknüpfter Jellyfin-Benutzer");
         select.append(stale);
       }
       select.value = config.user_id || "";
       managedJellyfinWritable = Boolean(config.configured && config.available !== false);
       select.disabled = !managedJellyfinWritable;
       status.textContent = !config.configured
-        ? "Jellyfin ist nicht eingerichtet. Name und Profilbild können trotzdem gespeichert werden."
+        ? mediaCenterText("Jellyfin ist nicht eingerichtet. Name und Profilbild können trotzdem gespeichert werden.")
         : config.available === false
-          ? "Jellyfin-Benutzer sind gerade nicht erreichbar. Name und Profilbild bleiben bearbeitbar."
+          ? mediaCenterText("Jellyfin-Benutzer sind gerade nicht erreichbar. Name und Profilbild bleiben bearbeitbar.")
           : config.user_id
-            ? `Verknüpft mit ${config.user_name || "Jellyfin"}.`
-            : "Noch kein Jellyfin-Profil verknüpft.";
+            ? mediaCenterText(`Verknüpft mit ${config.user_name || mediaCenterText("Jellyfin")}.`)
+            : mediaCenterText("Noch kein Jellyfin-Profil verknüpft.");
     } catch (error) {
       if (!current.active || isAbortError(error)) return;
       managedJellyfinWritable = false;
       select.disabled = true;
-      status.textContent = `Jellyfin: ${error.message}. Name und Profilbild können trotzdem gespeichert werden.`;
+      status.textContent = mediaCenterText(`Jellyfin: ${error.message}. Name und Profilbild können trotzdem gespeichert werden.`);
     }
   }
 
@@ -429,7 +430,7 @@ export function createHousehold(root, { userRoleLabel }) {
       const saved = profile.user || { ...user, display_name: name, avatar_id: selectedAvatarId };
       Object.assign(user, saved);
       const linkedName = managedJellyfinWritable && select.value
-        ? (select.selectedOptions[0]?.textContent || "Jellyfin")
+        ? (select.selectedOptions[0]?.textContent || mediaCenterText("Jellyfin"))
         : "";
       status.textContent = linkedName
         ? `✓ ${saved.display_name || name} ist mit ${linkedName} verknüpft.`

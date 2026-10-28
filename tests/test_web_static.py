@@ -11,12 +11,13 @@ from api.web_static import NoCacheStaticFiles
 WEB = Path(__file__).resolve().parents[1] / "web"
 
 
-def test_css_bundle_retains_exact_cascade_and_reduces_44_imports_to_one_response():
+def test_css_bundle_retains_exact_cascade_and_reduces_45_imports_to_one_response():
     assets = NoCacheStaticFiles(directory=str(WEB), html=True)
     plain, compressed = assets._stylesheet()
     manifest = (WEB / "style.css").read_text(encoding="utf-8")
     imports = re.findall(r"@import\s+url\(['\"]([^'\"]+)['\"]\);", manifest)
-    assert len(imports) == 44
+    assert len(imports) == 45
+    assert any("/styles/media-center.css" in url for url in imports)
     expected = manifest
     for url in imports:
         css = (WEB / url.split("?", 1)[0].lstrip("/")).read_text(encoding="utf-8")

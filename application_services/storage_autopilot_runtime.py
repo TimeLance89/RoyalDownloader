@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 import core.config as appconfig
 from application_services.runtime import backend_value
 from core.queue_jobs import media_type_for_slug
-from integrations.jellyfin_client import JellyfinClient
+from integrations.media_center import media_client
 from storage.storage_autopilot import (
     get_autopilot,
     observe_volumes,
@@ -67,7 +67,7 @@ def queue_context() -> list[dict]:
 
 
 def playback_idle() -> bool:
-    config = appconfig.load_jellyfin()
+    config = appconfig.load_media_center()
     if config.get("url") and config.get("api_key"):
         try:
             parsed = urlparse(config["url"])
@@ -75,7 +75,7 @@ def playback_idle() -> bool:
                 return False
         except ValueError:
             return False
-    client = JellyfinClient(config.get("url", ""), config.get("api_key", ""), timeout=5)
+    client = media_client(config, timeout=5)
     if not client.configured:
         return True
     return client.has_active_playback() is False

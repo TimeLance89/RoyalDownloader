@@ -185,6 +185,7 @@ const server = createServer(async (req, res) => {
     });
     await applicationHandle.evaluate(application => { application.core.actions.switchTab("einstellungen"); document.querySelector('[data-settings-target="settings-media"]').click(); });
     await page.waitForFunction(() => document.querySelector("#jellyfin-url").value.includes("jellyfin.fixture"));
+    await page.locator('.media-center-existing > summary').click();
     await page.locator("#jellyfin-url").fill("http://unsaved.fixture");
     await applicationHandle.evaluate(application => application.integrations.jellyfin.refresh());
     assert.equal(await page.locator("#jellyfin-url").inputValue(), "http://unsaved.fixture");

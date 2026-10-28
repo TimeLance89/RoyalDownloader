@@ -19,6 +19,8 @@ SEERR_SCAN_RETRY_SECONDS = 5 * 60
 
 def configure_moonfin_seerr(seerr_url: str, enabled: bool) -> dict:
     """Konfiguriert Plugin 1.9.1 und aktuelle Versionen ohne andere Werte zu löschen."""
+    if state.jellyfin_cfg.get("provider") == "plex":
+        return {"configured": False, "detail": "Moonfin ist eine Jellyfin-Erweiterung. Seerr kann unabhängig davon weiter genutzt werden."}
     jf_url = str(state.jellyfin_cfg.get("url") or "").strip().rstrip("/")
     api_key = str(state.jellyfin_cfg.get("api_key") or "").strip()
     user_id = str(state.jellyfin_cfg.get("user_id") or "").strip()

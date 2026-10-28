@@ -43,6 +43,29 @@ def _sync_household_jellyfin_profiles(config) -> int:
 
 
 def _run_recommender_once() -> bool:
+    state = backend_value("state")
+    with state.jellyfin_cache_lock:
+        active_config = dict(state.jellyfin_cfg)
+    if active_config.get("provider") == "plex":
+        from integrations.media_center import profile_identity
+        client = backend_value("get_jellyfin_client")()
+        users = backend_value("USER_STORE").list()
+        synced = False
+        for public in users:
+            if not public.get("enabled"):
+                continue
+            user = backend_value("USER_STORE").get(public["id"]) or {}
+            identity, _ = profile_identity(user, active_config)
+            if not identity and user.get("id") == "admin-legacy":
+                identity = active_config.get("user_id", "")
+            if not identity:
+                continue
+            items = client._list_items({"IncludeItemTypes": "Movie,Series", "UserId": identity}, 500, "Plex-Geschmackssync")
+            if items is not None:
+                watched, _ = legacy.split_watched(items)
+                state.taste_profiles.for_user(user["id"]).replace_jellyfin_items(watched)
+                synced = True
+        return synced
     try:
         config = backend_value("_build_recommender_config")()
     except backend_value("JellyfinRecommenderConfigurationError") as exc:

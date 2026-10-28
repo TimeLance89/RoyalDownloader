@@ -858,6 +858,44 @@ def save_jellyfin(
     })
 
 
+def load_media_center() -> dict:
+    values = _read_all()
+    provider = values.get("media_center_provider", "jellyfin")
+    if provider == "plex":
+        try:
+            config = json.loads(values.get("plex_connection", "{}"))
+        except (ValueError, TypeError):
+            config = {}
+        if not isinstance(config, dict):
+            config = {}
+        return {**config, "provider": "plex", "cleanup_default": "keep"}
+    return {**load_jellyfin(), "provider": "jellyfin"}
+
+
+def load_media_connection(provider: str) -> dict:
+    if provider == "jellyfin":
+        return {**load_jellyfin(), "provider": "jellyfin"}
+    try:
+        config = json.loads(_read_all().get("plex_connection", "{}"))
+    except (ValueError, TypeError):
+        config = {}
+    if not isinstance(config, dict):
+        config = {}
+    return {**config, "provider": "plex", "cleanup_default": "keep"}
+
+
+def save_media_center(provider: str, config: dict) -> bool:
+    if provider not in {"jellyfin", "plex"}:
+        raise ValueError("Unbekanntes Mediencenter.")
+    updates = {"media_center_provider": provider}
+    if provider == "plex":
+        updates["plex_connection"] = json.dumps(config)
+    else:
+        updates.update({f"jellyfin_{key}": str(config.get(key) or "") for key in ("url", "api_key", "user_id", "user_name")})
+        updates["jellyfin_cleanup_default"] = normalize_cleanup_mode(config.get("cleanup_default"))
+    return _update_all(updates)
+
+
 def load_tmdb() -> dict:
     values = _read_all()
     return {

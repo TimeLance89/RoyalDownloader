@@ -1535,7 +1535,7 @@
             <div id="household-avatar-grid" class="household-avatar-grid" role="radiogroup" aria-label="Profilbild auswählen"></div>
           </fieldset>
 
-          <label for="household-jellyfin-user">Jellyfin-Benutzer</label>
+          <label for="household-jellyfin-user">Mediencenter-Profil</label>
           <select id="household-jellyfin-user"><option value="">Nicht mit Jellyfin verknüpfen</option></select>
           <p>Wiedergabeverlauf, Favoriten und Bewertungen dieses Jellyfin-Benutzers fließen nur in dieses Royal-Profil ein.</p>
           <small id="household-manage-status" role="status" aria-live="polite"></small>
@@ -1574,7 +1574,7 @@
               <span aria-hidden="true">⇄</span><strong>Quellen</strong><small>Katalog &amp; Routing</small>
             </a>
             <a href="#settings-media" data-settings-target="settings-media">
-              <span aria-hidden="true">◫</span><strong>Dienste</strong><small>Jellyfin, Seerr, TMDB</small>
+              <span aria-hidden="true">◫</span><strong>Dienste</strong><small>Mediencenter, Seerr, TMDB</small>
             </a>
             <a href="#settings-automation" data-settings-target="settings-automation">
               <span aria-hidden="true">↻</span><strong>Automatik</strong><small>Prüfpläne &amp; Zeitfenster</small>
@@ -1618,7 +1618,7 @@
               </button>
               <button class="settings-launch-card is-service" type="button" data-settings-open="settings-media">
                 <span class="settings-launch-symbol" aria-hidden="true">◫</span>
-                <span class="settings-launch-copy"><small>VERBINDUNGEN</small><strong>Externe Dienste</strong><em>Jellyfin, Ollama, Seerr, TMDB und Telegram</em></span>
+                <span class="settings-launch-copy"><small>VERBINDUNGEN</small><strong>Externe Dienste</strong><em>Mediencenter, Ollama, Seerr, TMDB und Telegram</em></span>
                 <i aria-hidden="true">→</i>
               </button>
               <button class="settings-launch-card is-auto" type="button" data-settings-open="settings-automation">
@@ -1820,7 +1820,9 @@
             </header>
             <div class="settings-card-grid settings-service-grid">
         <div class="settings-group settings-card settings-card-wide">
-          <h3>Jellyfin (NAS)</h3>
+          <div id="media-center-settings"></div>
+          <details class="media-center-existing">
+          <summary>Jellyfin-Verbindung verwalten</summary>
           <p class="dim settings-hint">Server und API-Schlüssel gelten für den ganzen Haushalt. Persönliche Jellyfin-Profile werden über „Wer schaut gerade?“ → ⚙ verknüpft.</p>
           <div class="path-input-row">
             <input id="jellyfin-url" type="text" placeholder="http://192.168.178.47:8096">
@@ -1863,6 +1865,7 @@
             </div>
             <p class="cleanup-default-warning"><span aria-hidden="true">!</span><span>Löschregeln können die zugehörigen Mediendateien in Jellyfin dauerhaft entfernen.</span></p>
           </fieldset>
+          </details>
         </div>
 
         <div class="settings-group settings-card seerr-settings">

@@ -70,7 +70,11 @@ class SavedMediaSync:
 
     def status(self, profile):
         client = self.client()
-        jf_user = profile.get("jellyfin_user_id") or ""
+        if getattr(client, "provider", "jellyfin") == "plex":
+            binding = (profile.get("media_profiles") or {}).get("plex", {})
+            jf_user = binding.get("user_id", "") if binding.get("server_id") == client.server_id else ""
+        else:
+            jf_user = profile.get("jellyfin_user_id") or ""
         if not jf_user:
             return {"state": "unlinked", "ready": []}
         if not client.configured:
@@ -136,6 +140,9 @@ class SavedMediaSync:
         grouped = {}
         profiles = self.profiles()
         for profile in profiles:
+            if getattr(client, "provider", "jellyfin") == "plex":
+                binding = (profile.get("media_profiles") or {}).get("plex", {})
+                profile = {**profile, "jellyfin_user_id": binding.get("user_id", "") if binding.get("server_id") == client.server_id else ""}
             if not profile.get("enabled") or not profile.get("jellyfin_user_id"):
                 continue
             try:
@@ -197,5 +204,5 @@ def saved_media_sync():
     if _sync is None:
         _sync = SavedMediaSync(backend_value("state").saved_media,
                               lambda: backend_value("get_jellyfin_client")(),
-                              lambda: backend_value("USER_STORE").list_jellyfin_profiles())
+                              lambda: backend_value("USER_STORE").list_media_profiles())
     return _sync
