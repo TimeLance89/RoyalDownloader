@@ -17,7 +17,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  frontend-browser:
+  frontend-browser-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [catalog, settings-mobile]
     runs-on: ubuntu-latest
     # Pin the same Playwright release as the npm package below.
     # The official image already contains Chromium, WebKit and system libraries;
@@ -55,81 +59,101 @@ jobs:
           echo "ROYAL_BROWSER=chromium" >> "$GITHUB_ENV"
 
       - name: Browser interaction and lifecycle regression
+        if: ${{ matrix.suite == 'catalog' }}
         run: node tests/frontend/browser-smoke.cjs
 
       - name: Failed boot recovery and visually identical bundled styles
+        if: ${{ matrix.suite == 'catalog' }}
         run: node tests/frontend/startup-recovery-browser.cjs
 
       - name: Series subscription artwork, fallback and detail navigation
+        if: ${{ matrix.suite == 'catalog' }}
         run: node tests/frontend/subscription-summary-browser.cjs
 
       - name: Populated movie and series catalogs on desktop and touch mobile
+        if: ${{ matrix.suite == 'catalog' }}
         run: node tests/frontend/catalog-browser.cjs
       - name: Series hidden prefetch, silent recovery and reveal on downward scroll
+        if: ${{ matrix.suite == 'catalog' }}
         run: node tests/frontend/series-pagination-browser.cjs
 
       - name: Movie and series viewport window releases offscreen cards and posters
+        if: ${{ matrix.suite == 'catalog' }}
         run: node tests/frontend/catalog-window-browser.cjs
 
       - name: Trailer handoff retains position and prevents duplicate background players
+        if: ${{ matrix.suite == 'catalog' }}
         run: node tests/frontend/trailer-handoff-browser.cjs
 
       - name: Series Jellyfin ribbons follow enriched identities and confirmed detail inventory
+        if: ${{ matrix.suite == 'catalog' }}
         run: node tests/frontend/series-jellyfin-ribbon-browser.cjs
 
       - name: Movie Jellyfin ribbons survive details, cached navigation and background checks
+        if: ${{ matrix.suite == 'catalog' }}
         run: node tests/frontend/movie-jellyfin-browser.cjs
 
       - name: Series inventory adopts deferred results and stops polling after close
+        if: ${{ matrix.suite == 'catalog' }}
         run: node tests/frontend/series-inventory-retry-browser.cjs
 
       - name: Authenticator setup, recovery and second-factor login
+        if: ${{ matrix.suite == 'settings-mobile' }}
         run: |
           node tests/frontend/totp-browser.cjs
           node tests/frontend/remote-access-browser.cjs
 
       - name: Source Sentinel provider and hoster settings and repair confirmation
+        if: ${{ matrix.suite == 'settings-mobile' }}
         run: |
           node tests/frontend/provider-monitor-browser.cjs
           node tests/frontend/inbox-dismissal-browser.cjs
 
       - name: Settings operation, storage, account and automation flows
+        if: ${{ matrix.suite == 'settings-mobile' }}
         run: |
           node tests/frontend/settings-operation-browser.cjs
           node tests/frontend/account-settings-browser.cjs
           node tests/frontend/automation-settings-browser.cjs
 
       - name: Guided language setup, subscription choices and readiness transition
+        if: ${{ matrix.suite == 'settings-mobile' }}
         run: node tests/frontend/language-studio-browser.cjs
 
       - name: Storage Autopilot permissions, volume policy and touch layouts
+        if: ${{ matrix.suite == 'settings-mobile' }}
         run: |
           node tests/frontend/storage-autopilot-browser.cjs
           node tests/frontend/storage-mount-status-browser.cjs
 
       - name: Similar title navigation and independent detail failures
+        if: ${{ matrix.suite == 'catalog' }}
         run: node tests/frontend/similar-browser.cjs
 
       - name: People filmography, mobile filters and checked batch downloads
+        if: ${{ matrix.suite == 'catalog' }}
         run: node tests/frontend/people-browser.cjs
 
       - name: Personal Jellyfin wishes, separate profiles and delayed responses
+        if: ${{ matrix.suite == 'catalog' }}
         run: |
           node --test tests/frontend/saved-media.test.mjs
           node tests/frontend/saved-media-browser.cjs
 
       - name: First-run setup and authentication browser regression
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && matrix.suite == 'settings-mobile' }}
         run: |
           node tests/frontend/setup-browser.cjs
           node tests/frontend/onboarding-studio-browser.cjs
 
       - name: Jellyfin and Plex onboarding, connection failures and atomic selection
+        if: ${{ matrix.suite == 'catalog' }}
         run: |
           node --test tests/frontend/media-center.test.mjs
           node tests/frontend/media-center-browser.cjs
 
       - name: Native mobile gestures, seams, orientation and navigation
+        if: ${{ matrix.suite == 'settings-mobile' }}
         run: |
           node tests/frontend/series-selection-browser.cjs
           node tests/frontend/episode-probe-browser.cjs
@@ -138,11 +162,13 @@ jobs:
           node tests/frontend/mobile-browser.cjs
 
       - name: Mobile settle fallback without scrollend
+        if: ${{ matrix.suite == 'settings-mobile' }}
         env:
           ROYAL_SCROLLEND_FALLBACK: "1"
         run: node tests/frontend/mobile-browser.cjs
 
       - name: Mobile Download Center states, artwork, actions and large queues
+        if: ${{ matrix.suite == 'settings-mobile' }}
         env:
           ROYAL_DOWNLOAD_BASELINE: ${{ runner.temp }}/royal-download-baseline/web
         run: |
@@ -151,15 +177,27 @@ jobs:
           node tests/frontend/download-center-browser.cjs
 
       - name: Upload mobile Download Center before and after renderings
-        if: always()
+        if: ${{ always() && matrix.suite == 'settings-mobile' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: mobile-download-center-chromium
           path: artifacts/mobile-download-center/
 
       - name: Frozen desktop and mobile CSS equivalence
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && matrix.suite == 'catalog' }}
         run: node tests/frontend/css-equivalence.cjs
+
+  # Keep the existing required check name while bounding each Chromium group.
+  frontend-browser:
+    needs: frontend-browser-tests
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require both Chromium groups
+        env:
+          SUITE_RESULT: ${{ needs.frontend-browser-tests.result }}
+        run: test "$SUITE_RESULT" = success
 
   frontend-performance:
     runs-on: ubuntu-latest
