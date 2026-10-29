@@ -301,3 +301,43 @@ def test_real_async_child_pipes_are_drained_and_transport_closes():
         finally:
             await owned.stop_async(process, timeout=1)
     asyncio.run(run())
+
+
+def test_unstarted_thread_can_be_cleaned_after_thread_creation_failure(monkeypatch):
+    pool = VOEBrowserPool(setup_voe=False)
+    def fail(_thread):
+        raise RuntimeError('fixture cannot start thread')
+    monkeypatch.setattr(threading.Thread, 'start', fail)
+    with pytest.raises(RuntimeError, match='cannot start thread'):
+        pool._start_once()
+    pool._cleanup_failed_start()
+    assert pool._thread is pool._loop is pool._browser is None
+    pool.close()
+
+
+def test_loop_creation_failure_signals_startup_failure_without_timeout(monkeypatch):
+    pool = VOEBrowserPool(setup_voe=False)
+    def fail():
+        raise OSError('fixture loop resource limit')
+    monkeypatch.setattr(asyncio, 'new_event_loop', fail)
+    with pytest.raises(OSError, match='resource limit'):
+        pool._start_once()
+    pool._cleanup_failed_start()
+    assert pool._thread is pool._loop is pool._browser is None
+
+
+def test_loop_published_during_join_is_cleaned_before_owner_is_cleared(monkeypatch):
+    pool = VOEBrowserPool(setup_voe=False)
+    loop = asyncio.new_event_loop()
+    calls = []
+    async def cleanup():
+        calls.append(True)
+        return True
+    monkeypatch.setattr(pool, '_async_browser_stop', cleanup)
+    def join(**kwargs):
+        pool._loop = loop
+    pool._thread = SimpleNamespace(ident=1, join=join, is_alive=lambda: False)
+    pool._cleanup_failed_start()
+    assert calls == [True]
+    assert loop.is_closed()
+    assert pool._loop is None

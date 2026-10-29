@@ -441,9 +441,7 @@ class VOEBrowserPool:
         self._stop_requested.clear()
 
         def _thread_main():
-            loop = asyncio.new_event_loop()
-            self._loop = loop
-            asyncio.set_event_loop(loop)
+            loop = None
 
             async def startup():
                 self._browser = await self._async_browser_start()
@@ -451,6 +449,9 @@ class VOEBrowserPool:
                     await self._async_setup_voe_token()
 
             try:
+                loop = asyncio.new_event_loop()
+                self._loop = loop
+                asyncio.set_event_loop(loop)
                 self._startup_task = loop.create_task(startup())
                 loop.run_until_complete(self._startup_task)
                 if not self._stop_requested.is_set():
@@ -461,15 +462,15 @@ class VOEBrowserPool:
                 exc_holder[0] = exc if isinstance(exc, Exception) else RuntimeError("Browser start cancelled")
             finally:
                 self._ready = False
-                try:
-                    cleaned = loop.run_until_complete(self._async_browser_stop())
-                except BaseException:
-                    cleaned = False
-                    logger.warning("Browser owner cleanup incomplete")
-                # An unreaped handle/uncancellable task keeps its loop available
-                # for a later close; never create another pool over this owner.
-                if cleaned:
-                    loop.close()
+                if loop is not None:
+                    try:
+                        cleaned = loop.run_until_complete(self._async_browser_stop())
+                    except BaseException:
+                        cleaned = False
+                        logger.warning("Browser owner cleanup incomplete")
+                    # Retain failed owners instead of closing their loop early.
+                    if cleaned:
+                        loop.close()
                 ready_evt.set()
 
         self._thread = threading.Thread(target=_thread_main, name="voe-browser", daemon=True)
@@ -496,9 +497,12 @@ class VOEBrowserPool:
             except RuntimeError:
                 pass  # The owner may have completed and closed it concurrently.
         if thread is not None and thread is not threading.current_thread():
-            thread.join(timeout=15)
+            if getattr(thread, "ident", None) is not None:
+                thread.join(timeout=15)
             if thread.is_alive():
                 raise RuntimeError("Browser cleanup still running; owner retained")
+        # The worker may publish its loop after the stop request was issued.
+        loop = self._loop
         if loop is not None and not loop.is_closed():
             if not loop.run_until_complete(self._async_browser_stop()):
                 raise RuntimeError("Browser cleanup incomplete; owner retained")

@@ -688,8 +688,12 @@ class DownloadJob:
     def _reap_process(self):
         process = self._proc
         if process is not None:
-            if process.poll() is None:
-                self._terminate_process_tree()
+            if os.name == "nt":
+                try:
+                    if process.poll() is None:
+                        self._terminate_process_tree()
+                except Exception:
+                    pass  # Still wait even if the platform tree signal fails.
             if stop(process):
                 self._proc = None
 
