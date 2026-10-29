@@ -10,13 +10,12 @@ import math
 import os
 import queue
 import re
-import signal
 import sys
 import json
 import hashlib
 import shutil
 import subprocess
-from core.owned_process import spawn, stop
+from core.owned_process import spawn, stop, signal_process
 from core.egress import get_manager
 import threading
 import time
@@ -908,7 +907,7 @@ class DownloadJob:
                     timeout=5, check=False,
                 )
             else:
-                os.killpg(os.getpgid(proc.pid), signal.SIGKILL if force else signal.SIGTERM)
+                signal_process(proc, force=force)
         except (OSError, subprocess.SubprocessError):
             try:
                 proc.kill() if force else proc.terminate()

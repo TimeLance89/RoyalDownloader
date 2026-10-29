@@ -61,6 +61,11 @@ def _result(process, reaped):
     return reaped
 
 
+def signal_process(process, *, force=False):
+    """Nonblocking cancellation; the handle owner must subsequently wait."""
+    _signal(process, force=force)
+
+
 def stop(process, *, timeout=3):
     if process is None:
         return True
