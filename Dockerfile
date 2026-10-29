@@ -23,6 +23,7 @@ ARG DEBIAN_OPENSSL_SECURITY_FLOOR="3.0.22-1~deb12u2"
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
+        tini \
         xvfb \
         ffmpeg \
         ca-certificates \
@@ -110,4 +111,5 @@ ENV SERIENDL_DATA_DIR=/app/data \
 EXPOSE 8765
 
 USER royal
+ENTRYPOINT ["/usr/bin/tini", "-s", "--"]
 CMD ["python", "container_entrypoint.py"]

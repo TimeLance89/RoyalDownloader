@@ -22,10 +22,10 @@ import shutil
 import string
 import threading
 import time
-import warnings
 from typing import Callable, List, Optional, Tuple
 from urllib.parse import quote, urljoin, urlparse
 
+from core.owned_process import stop_async
 from core.egress import get_manager
 from media.source_language import StreamInfo, with_media_titles
 from core.network_guard import (
@@ -389,6 +389,8 @@ class VOEBrowserPool:
         self._async_lock: Optional[asyncio.Lock] = None  # wird im Loop erstellt
         self._ready = False
         self._closed = False
+        self._startup_task = None
+        self._stop_requested = threading.Event()
 
     def extract(
         self,
@@ -408,32 +410,14 @@ class VOEBrowserPool:
             return self._do_extract(target_url, wait_seconds, referer)
 
     def close(self):
-        """Browser stoppen, Thread sauber beenden."""
+        """The owning thread cleans processes before it closes its event loop."""
         with self._lock:
-            if self._closed:
-                return
             self._closed = True
-            if self._browser is not None and self._loop is not None:
-                try:
-                    future = asyncio.run_coroutine_threadsafe(
-                        self._async_browser_stop(), self._loop
-                    )
-                    future.result(timeout=10)
-                except Exception as exc:
-                    logger.warning("Browser-Stop Fehler: %s", exc)
-            if self._loop is not None:
-                try:
-                    self._loop.call_soon_threadsafe(self._loop.stop)
-                except Exception:
-                    pass
-            if self._thread is not None:
-                self._thread.join(timeout=5)
-            self._browser = None
-            self._loop = None
-            self._thread = None
-            self._ready = False
+            self._cleanup_failed_start()
 
     def _start(self):
+        if self._thread is not None or self._loop is not None or self._browser is not None:
+            self._cleanup_failed_start()
         last_exc: Optional[Exception] = None
         for attempt in range(2):
             try:
@@ -453,53 +437,80 @@ class VOEBrowserPool:
 
     def _start_once(self):
         ready_evt = threading.Event()
-        exc_holder: list = [None]
+        exc_holder = [None]
+        self._stop_requested.clear()
 
         def _thread_main():
-            try:
-                self._loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(self._loop)
-                self._browser = self._loop.run_until_complete(
-                    self._async_browser_start()
-                )
+            loop = None
+
+            async def startup():
+                self._browser = await self._async_browser_start()
                 if self._setup_voe:
-                    self._loop.run_until_complete(self._async_setup_voe_token())
-                self._ready = True
-                ready_evt.set()
-                self._loop.run_forever()
-            except Exception as exc:
-                exc_holder[0] = exc
-                ready_evt.set()
+                    await self._async_setup_voe_token()
+
+            try:
+                loop = asyncio.new_event_loop()
+                self._loop = loop
+                asyncio.set_event_loop(loop)
+                self._startup_task = loop.create_task(startup())
+                loop.run_until_complete(self._startup_task)
+                if not self._stop_requested.is_set():
+                    self._ready = True
+                    ready_evt.set()
+                    loop.run_forever()
+            except BaseException as exc:
+                exc_holder[0] = exc if isinstance(exc, Exception) else RuntimeError("Browser start cancelled")
             finally:
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    if self._loop is not None:
-                        try:
-                            self._loop.close()
-                        except Exception:
-                            pass
+                self._ready = False
+                if loop is not None:
+                    try:
+                        cleaned = loop.run_until_complete(self._async_browser_stop())
+                    except BaseException:
+                        cleaned = False
+                        logger.warning("Browser owner cleanup incomplete")
+                    # Retain failed owners instead of closing their loop early.
+                    if cleaned:
+                        loop.close()
+                ready_evt.set()
 
-        self._thread = threading.Thread(target=_thread_main, daemon=True)
+        self._thread = threading.Thread(target=_thread_main, name="voe-browser", daemon=True)
         self._thread.start()
-
         if not ready_evt.wait(timeout=90):
             raise RuntimeError("Browser-Start Timeout (90s)")
         if exc_holder[0]:
             raise exc_holder[0]
+        if not self._ready:
+            raise RuntimeError("Browser owner stopped during startup")
 
     def _cleanup_failed_start(self):
-        """Räumt einen unvollständigen nodriver-Start vor dem Retry auf."""
-        loop = self._loop
+        """Cancel startup, then let its owner reap before retrying or closing."""
+        self._stop_requested.set()
+        loop, thread = self._loop, self._thread
         if loop is not None and not loop.is_closed() and loop.is_running():
+            def request_stop():
+                if self._startup_task is not None and not self._startup_task.done():
+                    self._startup_task.cancel()
+                else:
+                    loop.stop()
             try:
-                loop.call_soon_threadsafe(loop.stop)
-            except Exception:
-                pass
-        if self._thread is not None and self._thread.is_alive():
-            self._thread.join(timeout=5)
+                loop.call_soon_threadsafe(request_stop)
+            except RuntimeError:
+                pass  # The owner may have completed and closed it concurrently.
+        if thread is not None and thread is not threading.current_thread():
+            if getattr(thread, "ident", None) is not None:
+                thread.join(timeout=15)
+            if thread.is_alive():
+                raise RuntimeError("Browser cleanup still running; owner retained")
+        # The worker may publish its loop after the stop request was issued.
+        loop = self._loop
+        if loop is not None and not loop.is_closed():
+            if not loop.run_until_complete(self._async_browser_stop()):
+                raise RuntimeError("Browser cleanup incomplete; owner retained")
+            loop.close()
         self._browser = None
         self._loop = None
         self._thread = None
+        self._startup_task = None
         self._async_lock = None
         self._ready = False
 
@@ -537,6 +548,7 @@ class VOEBrowserPool:
         # Ursache im Log statt nodrivers generischem Root-Hinweis.
         config = uc.Config(**options)
         browser = uc.Browser(config)
+        self._browser = browser  # retain partial starts before the first await
         try:
             await browser.start()
             return browser
@@ -601,35 +613,15 @@ class VOEBrowserPool:
 
     @staticmethod
     async def _failed_browser_diagnostic(browser) -> str:
-        """Stoppt einen Fehlstart und liest die letzten Chromium-Meldungen."""
+        """Reap the owned child without logging raw (potentially private) stderr."""
         process = getattr(browser, "_process", None)
         if process is None:
             return "Chromium-Prozess wurde nicht erzeugt"
-
-        try:
-            if process.returncode is None:
-                process.terminate()
-            try:
-                _, stderr = await asyncio.wait_for(process.communicate(), timeout=5)
-            except asyncio.TimeoutError:
-                process.kill()
-                _, stderr = await process.communicate()
-        except Exception as exc:
-            return f"Prozessdiagnose fehlgeschlagen: {exc}"
-        finally:
-            # Verhindert, dass nodrivers atexit-Handler den bereits beendeten
-            # Fehlstart später noch einmal behandelt.
-            try:
-                import nodriver as uc
-                uc.util.get_registered_instances().discard(browser)
-            except Exception:
-                pass
-            browser._process = None
-            browser._process_pid = None
-
-        message = stderr.decode("utf-8", errors="replace") if stderr else ""
-        lines = [line.strip() for line in message.splitlines() if line.strip()]
-        return " | ".join(lines[-6:])[-1200:]
+        if not await stop_async(process):
+            return "Chromium-Cleanup unvollständig"
+        browser._process = None
+        browser._process_pid = None
+        return f"Chromium-Prozesscode {process.returncode}"
 
     async def _async_setup_voe_token(self):
         """Einmal pro Session: VOE-Token holen, im localStorage setzen."""
@@ -646,35 +638,39 @@ class VOEBrowserPool:
             self._log(f"  VOE-Setup teilweise fehlgeschlagen: {exc}")
 
     async def _async_browser_stop(self):
-        process = getattr(self._browser, "_process", None)
-        try:
-            if self._browser is not None:
-                self._browser.stop()
-        except Exception:
-            pass
-        # nodriver beendet beim Browser.stop() nicht zuverlässig alle eigenen
-        # Listener-/Keepalive-Tasks. Werden sie danach mit dem Event-Loop
-        # geschlossen, bleiben Chromium-Kinder als Zombies zurück und Python
-        # meldet "Task was destroyed but it is pending". Erst abbrechen und
-        # einsammeln, dann den Chromium-Prozess reapen.
+        browser = self._browser
+        process = getattr(browser, "_process", None)
+        # nodriver.stop() schedules aclose without awaiting it, and can erase
+        # process ownership. Keep the handle ourselves and wait explicitly.
+        if not await stop_async(process):
+            return False
+        if browser is not None:
+            close = getattr(browser, "aclose", None)
+            if close is not None:
+                task = asyncio.create_task(close())
+                done, _ = await asyncio.wait({task}, timeout=2)
+                if done:
+                    task.exception() if not task.cancelled() else None
+                else:
+                    task.cancel()
+            try:
+                import nodriver as uc
+                uc.util.get_registered_instances().discard(browser)
+            except Exception:
+                pass
+            browser._process = None
+            browser._process_pid = None
         current = asyncio.current_task()
-        pending = [
-            task for task in asyncio.all_tasks()
-            if task is not current and not task.done()
-        ]
+        pending = [task for task in asyncio.all_tasks() if task is not current and not task.done()]
         for task in pending:
             task.cancel()
         if pending:
-            await asyncio.gather(*pending, return_exceptions=True)
-        if process is not None and process.returncode is None:
-            try:
-                await asyncio.wait_for(process.wait(), timeout=5)
-            except asyncio.TimeoutError:
-                try:
-                    process.kill()
-                    await process.wait()
-                except Exception:
-                    pass
+            _, remaining = await asyncio.wait(pending, timeout=1)
+            if remaining:
+                logger.warning("Browser tasks still closing; owner retained")
+                return False
+        self._browser = None
+        return True
 
     def _do_extract(
         self, target_url: str, wait_seconds: int, referer: str = "",
