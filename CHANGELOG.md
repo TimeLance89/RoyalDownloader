@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### Browser process ownership and zombie prevention
+
+- Reap owned Chromium/Xvfb and yt-dlp children with bounded terminate/wait/kill/wait
+  cleanup, including partial startup, cancellation and callback failures.
+- Let the VOE owner thread clean subprocesses and listeners before closing its
+  loop; retain failed cleanup owners instead of starting overlapping retries.
+- Run the container image under Tini even without an external Compose init flag;
+  preserve isolated CDP targets, pool reuse, download concurrency and Jellyfin scans.
+- Add aggregate process-handle diagnostics, offline Linux process-tree regression
+  tests and an operator-only NAS verification guide for issue #590.
+
+### Coordinated Jellyfin scans after completed downloads
+
+- Persist and coalesce completed-media scan requests from downloads, Telegram
+  and Seerr; respect running Jellyfin tasks and enforce at least five minutes
+  between full scan attempts across threads, processes and restarts.
+- Reuse final-file media validation, reject changed/staged/invalid media and
+  bound retries. An accepted scan cannot become an endless Seerr retry loop
+  when Jellyfin fails to recognize a title. Never delete media on scan failure.
+- Preserve movie badges, episode/watchlist reconciliation and user mapping;
+  expose safe scan and recognition diagnostics without credentials. Document
+  Jellyfin task API compatibility, timing options and remaining live diagnosis.
+
 ### Household return to protected profiles
 
 - Include each profile's public 2FA flag in the household picker, so switching

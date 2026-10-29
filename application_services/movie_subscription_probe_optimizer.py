@@ -552,7 +552,8 @@ def _download_ytdlp_for_height(self, height: int, concurrent_fragments=None):
         popen_kwargs["start_new_session"] = True
     if self._cancelled:
         return False, "Abgebrochen"
-    self._proc = subprocess.Popen(
+    from core.owned_process import spawn
+    self._proc = spawn(subprocess.Popen,
         cmd,
         env=get_manager().subprocess_environment(self.stream_url, untrusted=True),
         stdout=subprocess.PIPE,
@@ -630,7 +631,7 @@ def _download_ytdlp_for_height(self, height: int, concurrent_fragments=None):
         self._proc.wait(timeout=10)
     except subprocess.TimeoutExpired:
         self._terminate_process_tree(force=True)
-        self._proc.wait()
+        self._proc.wait(timeout=3)
     if self._cancelled:
         return False, "Abgebrochen"
     if slow:

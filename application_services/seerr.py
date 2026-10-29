@@ -7,6 +7,8 @@ from application_services.runtime import (
     publish_service,
 )
 
+from application_services.media_scans import request_media_scan
+
 globals().update(import_backend_namespace())
 
 
@@ -144,6 +146,10 @@ def _seerr_job_result(job: dict, slug: str, ok: bool, message: str, out_path: Pa
         completed = list(record.get("completed_slugs", []))
         failures = list(record.get("failures", []))
         if ok:
+            paths = list(record.get("completed_paths", []))
+            if str(out_path) not in paths:
+                paths.append(str(out_path))
+            record["completed_paths"] = paths
             if slug not in completed:
                 completed.append(slug)
         else:
@@ -596,30 +602,20 @@ def _seerr_process_series(request: SeerrRequest, metadata: dict) -> None:
 
 
 def _seerr_retry_completed_scan(request: SeerrRequest, previous: dict) -> None:
-    """Stößt den Jellyfin-Scan erneut an, bis Seerr das Medium als verfügbar meldet."""
+    """Bounded handoff of known final files, never a blind recurring full scan."""
     now = time.time()
-    last_retry = float(previous.get("last_scan_retry", 0) or 0)
-    if now - last_retry < SEERR_SCAN_RETRY_SECONDS:
+    attempts = int(previous.get("scan_retry_attempts", 0) or 0)
+    if attempts >= 3 or now - float(previous.get("last_scan_retry", 0) or 0) < SEERR_SCAN_RETRY_SECONDS * 2 ** attempts:
         return
-    with state.seerr_scan_retry_lock:
-        if now - state.seerr_last_scan_retry < SEERR_SCAN_RETRY_SECONDS:
-            return
-        state.seerr_last_scan_retry = now
-    jellyfin = get_jellyfin_client()
-    started = bool(jellyfin.configured and jellyfin.refresh_library())
-    message = (
-        "Download abgeschlossen; Jellyfin-Scan erneut gestartet."
-        if started
-        else "Download abgeschlossen; Jellyfin-Scan konnte nicht gestartet werden."
-    )
-    _seerr_update_record(
-        request.request_id,
-        status="completed",
-        last_scan_retry=now,
-        message=message,
-    )
-    if not started:
-        log(f"Seerr #{request.request_id}: {message}", "warn")
+    outcomes = [request_media_scan("seerr", path) for path in previous.get("completed_paths", [])]
+    message = "Download abgeschlossen; Erkennung in Jellyfin steht noch aus."
+    if not outcomes:
+        message = "Download abgeschlossen; keine bestätigten Dateipfade für einen sicheren Scan vorhanden. Bibliothek und Mounts prüfen."
+    elif attempts == 2:
+        message += " Begrenzte Scan-Anforderungen ausgeschöpft; Bibliothek und Mounts prüfen."
+    _seerr_update_record(request.request_id, status="completed", last_scan_retry=now,
+                         scan_retry_attempts=attempts + 1, message=message)
+
 
 
 def _seerr_record_matches_request(record: dict, request: SeerrRequest) -> bool:
@@ -669,6 +665,7 @@ def _seerr_process_request(request: SeerrRequest) -> None:
     status = previous.get("status", "")
     if request.media_status == SEERR_MEDIA_AVAILABLE:
         if status != "available":
+            log("Medienerkennung bestätigt: source=seerr")
             _seerr_update_record(
                 request.request_id, status="available", media_type=request.media_type,
                 tmdb_id=request.tmdb_id, seasons=list(request.seasons),

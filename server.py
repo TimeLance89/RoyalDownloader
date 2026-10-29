@@ -79,7 +79,8 @@ from media.provider_health import COOLDOWN, HEALTHY, PROBING, ProviderHealth
 from media.resolved_link_cache import ResolvedLinkCache
 from core.runtime_cache import BoundedTTLCache
 from core.runtime_diagnostics import RuntimeDiagnostics
-from application_services.runtime_maintenance import maintain_runtime
+from application_services.runtime_maintenance import maintain_runtime, start_storage_services, stop_storage_services
+from application_services.media_scans import media_scan_diagnostics
 from api.api_system_router import create_system_router
 from api.api_module_router import create_module_router
 from api.api_ai_router import create_ai_router
@@ -502,8 +503,7 @@ def start_background_services():
     threading.Thread(target=restore_persisted_queue, daemon=True).start()
     state.module_manager.start_enabled()
     provider_monitor.start()
-    from application_services.storage_autopilot_runtime import start as start_storage_autopilot
-    start_storage_autopilot()
+    start_storage_services()
 
 register_builtin_worker_controllers(state.module_manager)
 
@@ -574,8 +574,7 @@ async def lifespan(app: FastAPI):
         remote_access_verifier.close()
         await asyncio.to_thread(state.module_manager.stop_all)
         await asyncio.to_thread(provider_monitor.stop)
-        from application_services.storage_autopilot_runtime import stop as stop_storage_autopilot
-        await asyncio.to_thread(stop_storage_autopilot)
+        await asyncio.to_thread(stop_storage_services)
         cache_maintenance_task.cancel()
         heartbeat_task.cancel()
         await asyncio.gather(cache_maintenance_task, heartbeat_task, return_exceptions=True)
@@ -646,7 +645,8 @@ def _capabilities_payload():
 
 app = FastAPI(lifespan=lifespan)
 app.include_router(
-    create_system_router(state.runtime_cache_diagnostics, _capabilities_payload, runtime_diagnostics.snapshot),
+    create_system_router(state.runtime_cache_diagnostics, _capabilities_payload,
+                         lambda: {**runtime_diagnostics.snapshot(), "media_scans": media_scan_diagnostics()}),
 )
 app.include_router(create_module_router(state.module_manager))
 install_authentication_middleware(

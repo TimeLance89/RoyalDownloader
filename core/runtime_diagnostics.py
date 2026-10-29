@@ -85,6 +85,8 @@ class RuntimeDiagnostics:
                 "stall_count": self.stalls,
                 "last_stall": dict(self.last_stall) if self.last_stall else None,
             }
+        from core.owned_process import snapshot as process_cleanup_snapshot
+        result["owned_process_cleanup"] = process_cleanup_snapshot()
         result["thread_count"] = threading.active_count()
         result["container_memory"] = container_memory()
         result["process_resources"] = process_resources()

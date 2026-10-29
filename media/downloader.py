@@ -10,12 +10,12 @@ import math
 import os
 import queue
 import re
-import signal
 import sys
 import json
 import hashlib
 import shutil
 import subprocess
+from core.owned_process import spawn, stop, signal_process
 from core.egress import get_manager
 import threading
 import time
@@ -675,12 +675,27 @@ class DownloadJob:
                 resume_store.discard()
             self.on_done(success, msg)
         except Exception as exc:
+            self._reap_process()
             self._cleanup_staging()
             if self._cancelled and not self._preserve_resume_on_cancel:
                 store = self._http_resume_store()
                 if store:
                     store.discard()
             self.on_done(False, str(exc))
+        finally:
+            self._reap_process()
+
+    def _reap_process(self):
+        process = self._proc
+        if process is not None:
+            if os.name == "nt":
+                try:
+                    if process.poll() is None:
+                        self._terminate_process_tree()
+                except Exception:
+                    pass  # Still wait even if the platform tree signal fails.
+            if stop(process):
+                self._proc = None
 
     def _finalize(self) -> tuple:
         """Validiert und veroeffentlicht eine Datei atomar am Ziel."""
@@ -896,7 +911,7 @@ class DownloadJob:
                     timeout=5, check=False,
                 )
             else:
-                os.killpg(os.getpgid(proc.pid), signal.SIGKILL if force else signal.SIGTERM)
+                signal_process(proc, force=force)
         except (OSError, subprocess.SubprocessError):
             try:
                 proc.kill() if force else proc.terminate()
@@ -983,7 +998,7 @@ class DownloadJob:
             popen_kwargs["start_new_session"] = True
         if self._cancelled:
             return False, "Abgebrochen"
-        self._proc = subprocess.Popen(
+        self._proc = spawn(subprocess.Popen,
             cmd,
             env=get_manager().subprocess_environment(self.stream_url, untrusted=True),
             stdout=subprocess.PIPE,
@@ -1068,7 +1083,7 @@ class DownloadJob:
             self._proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
             self._terminate_process_tree(force=True)
-            self._proc.wait()
+            self._proc.wait(timeout=3)
         if self._cancelled:
             return False, "Abgebrochen"
         if storage_error:
