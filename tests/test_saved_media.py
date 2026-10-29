@@ -210,6 +210,50 @@ def test_series_episode_reads_are_bounded_to_wished_visible_series(monkeypatch):
     assert all(call[0] == f"/Users/{A}/Items" for call in calls)
 
 
+def test_saved_movies_hydrate_only_wishes_and_preserve_ambiguity(monkeypatch):
+    client = JellyfinClient("http://jellyfin.test", "key")
+    duplicate = UUID(int=14).hex
+    unrelated = UUID(int=15).hex
+    index = [movie(Path=None), movie(Id=duplicate, Path=None), movie(8, Id=unrelated)]
+    calls = []
+    def read(endpoint, params, *_args):
+        calls.append((endpoint, params))
+        if "Ids" not in params:
+            return deepcopy(index)
+        assert params["Ids"] == ",".join(sorted([MOVIE, duplicate]))
+        return [movie(), movie(Id=duplicate)]
+    monkeypatch.setattr(client, "_list_endpoint_items", read)
+    rows = client.saved_library(A, [wish()])
+    assert calls[0][1]["Fields"] == "ProviderIds"
+    assert calls[1][1]["Fields"] == "ProviderIds,MediaSources,Path"
+    assert all(endpoint == f"/Users/{A}/Items" for endpoint, _ in calls)
+    assert resolve_wishes([wish()], rows) == {}  # duplicate identity still ambiguous
+    assert all(row["Id"] != unrelated for row in rows)
+
+
+def test_saved_movie_hydration_failure_is_not_an_empty_library(monkeypatch):
+    client = JellyfinClient("http://jellyfin.test", "key")
+    monkeypatch.setattr(client, "_list_endpoint_items", lambda _endpoint, params, *_args:
+                        None if "Ids" in params else [movie(Path=None)])
+    assert client.saved_library(A, [wish()]) is None
+
+
+def test_saved_movie_hydration_bounds_query_size(monkeypatch):
+    client = JellyfinClient("http://jellyfin.test", "key")
+    wishes = [wish(identity=identity) for identity in range(205)]
+    rows = [movie(identity, Id=UUID(int=identity + 1000).hex) for identity in range(205)]
+    batches = []
+    def read(_endpoint, params, *_args):
+        if "Ids" not in params:
+            return rows
+        batch = params["Ids"].split(",")
+        batches.append(batch)
+        return [row for row in rows if row["Id"] in batch]
+    monkeypatch.setattr(client, "_list_endpoint_items", read)
+    assert len(client.saved_library(A, wishes)) == 205
+    assert [len(batch) for batch in batches] == [100, 100, 5]
+
+
 def test_transport_keeps_auth_in_headers_and_rejects_redirects(monkeypatch):
     client = JellyfinClient("http://jellyfin.test", "key")
     request = Mock(return_value=SimpleNamespace(status_code=200, content=b"{}", json=lambda: {"Id": UUID(int=100).hex}, raise_for_status=lambda: None))
