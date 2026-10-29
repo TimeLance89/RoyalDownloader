@@ -317,6 +317,8 @@ jobs:
           tests/test_plex_media_center.py
           tests/test_jellyfin_optional_settings.py
           tests/test_jellyfin_live_state.py
+          tests/test_jellyfin_scan_manager.py
+          tests/test_media_scan_handoffs.py
           tests/test_per_user_jellyfin_profile.py
           tests/test_domain_routers.py
           tests/test_frontend_layers.py

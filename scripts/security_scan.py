@@ -37,7 +37,7 @@ SANDBOX_BYPASS = "--no-" + "sandbox"
 # exact inventory here so skipping that generic rule never permits a new call
 # site silently. Each client has a separate endpoint/scheme invariant below.
 EXPECTED_URLOPEN_CALLS = {
-    "integrations/jellyfin_client.py": 4,
+    "integrations/jellyfin_client.py": 5,  # authenticated task-state read and task-start endpoints
     "integrations/telegram_bot.py": 2,
     "integrations/tmdb_client.py": 1,
     "features/smart_automation.py": 1,

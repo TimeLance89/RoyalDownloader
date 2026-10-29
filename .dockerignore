@@ -25,6 +25,8 @@ settings.ini
 *cookies*.txt
 *.sqlite
 *.sqlite3
+media_scans.sqlite3*
+media_scans.lock
 *.db
 __pycache__/
 *.py[cod]
