@@ -4,6 +4,8 @@
 
 import math
 
+from integrations.jellyfin_reads import background_inventory_reads
+
 from application_services.runtime import (
     backend_value,
     import_backend_namespace,
@@ -290,16 +292,14 @@ def _refresh_jellyfin_after_download_once():
                     log("Jellyfin-Aktualisierung verworfen: Konfiguration wurde geändert.", "warn")
                     return
 
-            get_jellyfin_library(force=True)
-            # Die Film-Badges verwenden bewusst einen separaten, kleineren
-            # Index. Auch dieser muss dem laufenden Jellyfin-Import folgen.
-            get_jellyfin_movie_identities(force=True)
-            # Der globale Bestand und der benutzerspezifische Gesehen-Status
-            # dürfen sich nicht gegenseitig überschreiben.
-            get_jellyfin_episodes(force=True)
-            get_jellyfin_series(force=True)
-            if user_id:
-                get_jellyfin_user_episodes(force=True)
+            with background_inventory_reads():
+                # Rich movie snapshots also publish the identical badge index.
+                # Keep every reconciliation deadline and separate user data.
+                get_jellyfin_library(force=True)
+                get_jellyfin_episodes(force=True)
+                get_jellyfin_series(force=True)
+                if user_id:
+                    get_jellyfin_user_episodes(force=True)
             with state.jellyfin_cache_lock:
                 # Ein Bibliotheksscan kann die Episoden jeder einzelnen Serie
                 # verändert haben. Detail-Caches werden deshalb atomar

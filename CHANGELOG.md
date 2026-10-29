@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Shared Jellyfin inventory reads
+
+- Coalesce overlapping live-monitor and forced inventory reads per server,
+  configuration and user; preserve fresh manual checks and immediate cached UI reads.
+- Derive movie badge identities from the rich movie snapshot, eliminating five
+  redundant inventory traversals per post-download reconciliation (25 → 20 with
+  a configured user). Keep all five reconciliation deadlines and scan safeguards.
+- Enforce background failure backoff despite repeated stale-cache wakeups; manual
+  checks can retry immediately. Retain cached artwork/status rows while download
+  safety remains fail-closed.
+- Read a slim user-visible identity index for personal wishes and fetch playback
+  fields only for wished movies and episodes. Keep ACLs, ambiguous-match rejection,
+  private playlist repair and the existing 30-second synchronization cadence.
+- Add aggregate read diagnostics and concurrency, freshness and isolation tests.
+
 ### Browser process ownership and zombie prevention
 
 - Reap owned Chromium/Xvfb and yt-dlp children with bounded terminate/wait/kill/wait
