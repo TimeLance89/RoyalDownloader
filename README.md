@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/TimeLance89/RoyalDownloader/releases/tag/v2.0.2"><img alt="Latest release: v2.0.2" src="docs/assets/release-version-v2.svg" /></a>
+  <a href="https://github.com/TimeLance89/RoyalDownloader/releases/tag/v2.0.3"><img alt="Latest release: v2.0.3" src="docs/assets/release-version-v2.svg" /></a>
   <a href="https://github.com/TimeLance89/RoyalDownloader/actions/workflows/quality.yml"><img alt="Quality checks" src="https://github.com/TimeLance89/RoyalDownloader/actions/workflows/quality.yml/badge.svg?branch=main" /></a>
   <a href="docs/DOCKER.md"><img alt="Docker Compose" src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&amp;logoColor=white" /></a>
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/License-Apache%202.0-bb8852" /></a>
@@ -164,7 +164,7 @@ breaking API or stored-data migration.
 | **Safer upgrades** | Revision verification, independent Docker startup guard, recoverable versioned runtime and rollback |
 | **More confidence** | Expanded browser, WebKit, security, performance and persistence regression coverage |
 
-Read the [v2.0.2 release notes](docs/releases/v2.0.2.md) or the
+Read the [v2.0.3 release notes](docs/releases/v2.0.3.md) or the
 [full changelog](CHANGELOG.md).
 
 ## How it works

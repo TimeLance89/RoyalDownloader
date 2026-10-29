@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v2.0.3 – 2026-10-29
+
 ### Browser process ownership and zombie prevention
 
 - Reap owned Chromium/Xvfb and yt-dlp children with bounded terminate/wait/kill/wait

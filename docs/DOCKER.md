@@ -6,7 +6,7 @@
 [Repository migration](REPOSITORY_RENAME.md)
 
 > [!NOTE]
-> The current official Stable build is **`v2.0.2`**. Pin fresh installations to
+> The current official Stable build is **`v2.0.3`**. Pin fresh installations to
 > that tag and back up persistent state before upgrading.
 
 ## Contents
@@ -129,7 +129,7 @@ Docker Compose creates a self-contained image with dependencies installed during
 the image build:
 
 ```bash
-git clone --branch v2.0.2 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
+git clone --branch v2.0.3 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
 cd RoyalDownloader
 cp .env.example .env
 docker compose up -d --build
