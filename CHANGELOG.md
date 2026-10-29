@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Browser process ownership and zombie prevention
+
+- Reap owned Chromium/Xvfb and yt-dlp children with bounded terminate/wait/kill/wait
+  cleanup, including partial startup, cancellation and callback failures.
+- Let the VOE owner thread clean subprocesses and listeners before closing its
+  loop; retain failed cleanup owners instead of starting overlapping retries.
+- Run the container image under Tini even without an external Compose init flag;
+  preserve isolated CDP targets, pool reuse, download concurrency and Jellyfin scans.
+- Add aggregate process-handle diagnostics, offline Linux process-tree regression
+  tests and an operator-only NAS verification guide for issue #590.
+
 ### Coordinated Jellyfin scans after completed downloads
 
 - Persist and coalesce completed-media scan requests from downloads, Telegram

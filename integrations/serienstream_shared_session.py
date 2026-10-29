@@ -9,6 +9,8 @@ curl_cffi. It deliberately does not solve or synthesize Turnstile/CAPTCHA.
 
 from __future__ import annotations
 
+from core.owned_process import spawn, stop
+
 import http.client
 import json
 import os
@@ -256,6 +258,16 @@ class _BrowserRuntime:
         self.cdp: _Cdp | None = None
 
     def start(self) -> _Cdp:
+        self.close()
+        if self.chrome is not None or self.xvfb is not None:
+            raise RuntimeError("Browser cleanup incomplete; previous owner retained")
+        try:
+            return self._start()
+        except BaseException:
+            self.close()
+            raise
+
+    def _start(self) -> _Cdp:
         chrome = (
             os.environ.get("CHROME_PATH", "").strip()
             or shutil.which("chromium")
@@ -271,7 +283,7 @@ class _BrowserRuntime:
         profile.mkdir(parents=True, exist_ok=True)
         display_number = 80 + (_free_local_port() % 100)
         self.display = f":{display_number}"
-        self.xvfb = subprocess.Popen(
+        self.xvfb = spawn(subprocess.Popen,
             [xvfb, self.display, "-screen", "0", f"{VIEWPORT_WIDTH}x{VIEWPORT_HEIGHT}x24", "-nolisten", "tcp"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -298,7 +310,7 @@ class _BrowserRuntime:
             if proxy:
                 args.append(f"--proxy-server={proxy}")
         args.append("about:blank")
-        self.chrome = subprocess.Popen(
+        self.chrome = spawn(subprocess.Popen,
             args,
             env={**os.environ, "DISPLAY": self.display},
             stdout=subprocess.DEVNULL,
@@ -338,16 +350,10 @@ class _BrowserRuntime:
         return self.cdp
 
     def close(self) -> None:
-        for process in (self.chrome, self.xvfb):
-            if process is None or process.poll() is not None:
-                continue
-            process.terminate()
-            try:
-                process.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                process.kill()
-        self.chrome = None
-        self.xvfb = None
+        if stop(self.chrome):
+            self.chrome = None
+        if stop(self.xvfb):
+            self.xvfb = None
         self.cdp = None
 
 

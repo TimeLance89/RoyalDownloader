@@ -98,6 +98,10 @@ def apply() -> None:
     ensure_cdp_utf8()   # kaputte cdp-Quelle reparieren, BEVOR nodriver importiert wird
     try:
         import nodriver.core.connection as _conn
+        from core.owned_process import BrowserAsyncio
+        import nodriver.core.browser as browser_module
+        if not isinstance(browser_module.asyncio, BrowserAsyncio):
+            browser_module.asyncio = BrowserAsyncio(browser_module.asyncio)
     except Exception as exc:  # nodriver nicht installiert -> nichts zu tun
         logger.debug("nodriver_patch: import fehlgeschlagen: %s", exc)
         return

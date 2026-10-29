@@ -4,6 +4,7 @@ import signal
 import subprocess
 import sys
 
+from core.owned_process import spawn, stop
 from core.egress import get_manager
 from core.network_guard import stop_safe_proxy
 
@@ -19,20 +20,21 @@ def command(arguments):
 def main():
     process = None
     try:
-        process = subprocess.Popen(command(sys.argv[1:]))
+        process = spawn(subprocess.Popen, command(sys.argv[1:]))
 
         def forward(signum, _frame):
-            if process.poll() is None:
-                process.send_signal(signum)
+            # Unwind the main wait before bounded cleanup; do not re-enter
+            # Popen.wait from its signal handler while its wait lock is held.
+            raise SystemExit(128 + signum)
 
         signal.signal(signal.SIGTERM, forward)
         signal.signal(signal.SIGINT, forward)
         return process.wait()
     finally:
-        if process is not None and process.poll() is None:
-            process.terminate()
-            process.wait(timeout=10)
-        stop_safe_proxy()
+        try:
+            stop(process)
+        finally:
+            stop_safe_proxy()
 
 
 if __name__ == "__main__":

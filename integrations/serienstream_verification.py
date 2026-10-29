@@ -8,6 +8,8 @@ SerienStream cookies only after the site has accepted the normal interaction.
 
 from __future__ import annotations
 
+from core.owned_process import spawn, stop
+
 import base64
 import http.client
 import json
@@ -219,16 +221,10 @@ class SerienStreamVerificationManager:
         )
 
     def _cleanup_locked(self, *, reset_state: bool = True) -> None:
-        for process in (self._chrome, self._xvfb):
-            if process is None or process.poll() is not None:
-                continue
-            process.terminate()
-            try:
-                process.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                process.kill()
-        self._chrome = None
-        self._xvfb = None
+        if stop(self._chrome):
+            self._chrome = None
+        if stop(self._xvfb):
+            self._xvfb = None
         self._cdp = None
         self._port = 0
         self._display = ""
@@ -273,6 +269,15 @@ class SerienStreamVerificationManager:
         return "https://serienstream.to" + href
 
     def _start_processes_locked(self) -> _Cdp:
+        if self._chrome is not None or self._xvfb is not None:
+            raise RuntimeError("Browser cleanup incomplete; previous owner retained")
+        try:
+            return self._spawn_processes_locked()
+        except BaseException:
+            self._cleanup_locked(reset_state=False)
+            raise
+
+    def _spawn_processes_locked(self) -> _Cdp:
         chrome = os.environ.get("CHROME_PATH", "").strip() or shutil.which("chromium") or shutil.which("google-chrome")
         xvfb = shutil.which("Xvfb")
         if not chrome:
@@ -283,7 +288,7 @@ class SerienStreamVerificationManager:
         self.profile_dir.mkdir(parents=True, exist_ok=True)
         display_number = 80 + (_free_local_port() % 100)
         self._display = f":{display_number}"
-        self._xvfb = subprocess.Popen(
+        self._xvfb = spawn(subprocess.Popen,
             [xvfb, self._display, "-screen", "0", f"{VIEWPORT_WIDTH}x{VIEWPORT_HEIGHT}x24", "-nolisten", "tcp"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -311,7 +316,7 @@ class SerienStreamVerificationManager:
                 args.append(f"--proxy-server={proxy}")
         args.append("about:blank")
         env = {**os.environ, "DISPLAY": self._display}
-        self._chrome = subprocess.Popen(
+        self._chrome = spawn(subprocess.Popen,
             args,
             env=env,
             stdout=subprocess.DEVNULL,

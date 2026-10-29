@@ -370,6 +370,10 @@ jobs:
           tests/test_nas_runtime_stability.py
           tests/test_loop_event_bridge.py
           tests/test_browser_failure_cleanup.py
+          tests/test_owned_process.py
+          tests/test_serienstream_shared_session.py
+          tests/test_serienstream_verification.py
+          tests/test_browser_pool_idle.py
           tests/test_runtime_resources.py
           tests/test_websocket_manager.py
           tests/test_browse_responsiveness.py
@@ -429,6 +433,14 @@ jobs:
             --file Dockerfile.release-gate \
             --tag royal-downloader:release-gate \
             .
+
+      - name: Reap real browser-like process trees under the image init
+        if: ${{ steps.change-scope.outputs.backend == 'true' }}
+        timeout-minutes: 1
+        run: |
+          docker run --rm --network none --read-only --tmpfs /tmp \
+            --volume "${GITHUB_WORKSPACE}:/workspace:ro" \
+            royal-downloader:quality python /workspace/tests/fixtures/reaping_probe.py
 
       - name: Scan container for high and critical CVEs
         if: ${{ steps.change-scope.outputs.backend == 'true' }}
