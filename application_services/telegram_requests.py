@@ -8,6 +8,8 @@ from application_services.runtime import (
     publish_service,
 )
 
+from application_services.media_scans import request_media_scan
+
 globals().update(import_backend_namespace())
 
 
@@ -527,11 +529,11 @@ def _telegram_finish_job(job: dict, ok: bool, message: str, out_path: Path):
         _telegram_send(chat_id, f"✅ „{title}“ wurde geladen: {out_path}\nJellyfin ist nicht konfiguriert.")
         return
 
-    log(f"Telegram: Jellyfin-Scan für «{title}» gestartet.")
-    jf_client.refresh_library()
+    log(f"Telegram: Medienaktualisierung für «{title}» angefordert.")
+    request_media_scan("telegram", out_path, evidence={"kind": "movie", "title": title, "year": year, "tmdb_id": job.get("tmdb_id", "")})
     deadline = time.monotonic() + TELEGRAM_JELLYFIN_WAIT_SECONDS
     while time.monotonic() < deadline:
-        items = get_jellyfin_library(force=True)
+        items = get_jellyfin_library(force=False)
         with state.jellyfin_cache_lock:
             data_generation = state.jellyfin_movie_data_generation
             library_available = state.jellyfin_library_available
@@ -545,7 +547,7 @@ def _telegram_finish_job(job: dict, ok: bool, message: str, out_path: Path):
                     f"✅ „{title}“ wurde geladen: {out_path}\nJellyfin ist nicht konfiguriert.",
                 )
                 return
-            jf_client.refresh_library()
+            request_media_scan("telegram", out_path, evidence={"kind": "movie", "title": title, "year": year, "tmdb_id": job.get("tmdb_id", "")})
         if items is None or not library_available:
             time.sleep(15)
             continue
@@ -559,6 +561,7 @@ def _telegram_finish_job(job: dict, ok: bool, message: str, out_path: Path):
                 )
             if stale:
                 continue
+            log("Medienerkennung bestätigt: source=telegram kind=movie")
             _telegram_send(chat_id, f"✅ „{title}“ ist jetzt in Jellyfin verfügbar.")
             return
         time.sleep(15)
@@ -634,12 +637,13 @@ def _telegram_finish_series_request(group: dict):
         _telegram_send(chat_id, f"✅ {len(completed)} Episode(n) von „{title}“ geladen{suffix}.")
         return
 
-    log(f"Telegram: Jellyfin-Scan für Serie «{title}» gestartet.")
-    jf_client.refresh_library()
+    log(f"Telegram: Medienaktualisierung für Serie «{title}» angefordert.")
+    for completed_episode in completed:
+        request_media_scan("telegram", completed_episode["path"], evidence={"kind": "series", "title": title, "tmdb_id": group.get("tmdb_id", ""), "season": completed_episode["season"], "episode": completed_episode["episode"]})
     deadline = time.monotonic() + TELEGRAM_JELLYFIN_WAIT_SECONDS
     while time.monotonic() < deadline:
-        items = get_jellyfin_episodes(force=True)
-        series_items = get_jellyfin_series(force=True)
+        items = get_jellyfin_episodes(force=False)
+        series_items = get_jellyfin_series(force=False)
         with state.jellyfin_cache_lock:
             data_generation = state.jellyfin_episode_data_generation
             current_generation = state.jellyfin_config_generation
@@ -656,7 +660,8 @@ def _telegram_finish_series_request(group: dict):
                     "Jellyfin ist nicht konfiguriert.",
                 )
                 return
-            jf_client.refresh_library()
+            for completed_episode in completed:
+                request_media_scan("telegram", completed_episode["path"], evidence={"kind": "series", "title": title, "tmdb_id": group.get("tmdb_id", ""), "season": completed_episode["season"], "episode": completed_episode["episode"]})
         if (
             items is None or series_items is None
             or not episodes_available
@@ -688,6 +693,7 @@ def _telegram_finish_series_request(group: dict):
             if stale:
                 continue
             suffix = f" · {len(failed)} fehlgeschlagen" if failed else ""
+            log("Medienerkennung bestätigt: source=telegram kind=series")
             _telegram_send(
                 chat_id,
                 f"✅ „{title}“: {len(completed)} Episode(n) sind jetzt in Jellyfin verfügbar{suffix}.",

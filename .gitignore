@@ -91,3 +91,5 @@ movie_releases_cache.json
 provider_monitor.json
 movie_releases_cache.tmp
 movie_replacements.sqlite3*
+media_scans.sqlite3*
+media_scans.lock

@@ -16,6 +16,7 @@ from features.monster_series_extension import (
 from features.episode_source_probe import episode_source_providers
 from features.subscription_languages import subscription_content_languages
 from providers.aniworld import aniworld_episode_slug
+from application_services.media_scans import request_media_scan, media_scan_manager
 
 globals().update(import_backend_namespace())
 
@@ -180,9 +181,9 @@ def on_job_done(
         _ensure_jellyfin_media_readable(out_path)
         # Nicht auf eine vollständig leere Queue warten: Dauerhafte
         # Seerr-/Abo-Queues können sonst fertige Dateien minutenlang vor
-        # Jellyfin verbergen. Die Refresh-Funktion fasst Parallelaufrufe
-        # bereits zusammen.
-        threading.Thread(target=refresh_jellyfin_after_download, daemon=True).start()
+        # Jellyfin verbergen. Der persistente Scan-Manager bündelt die finalen
+        # Dateien, ohne hier Netzwerkzugriffe oder ffprobe auszuführen.
+        request_media_scan("download", out_path, slug=slug)
     else:
         log(f"Fehler {label}: {msg}", "err")
     terminal_job = None
@@ -276,13 +277,13 @@ def _refresh_jellyfin_after_download_once():
             user_id = state.jellyfin_cfg.get("user_id", "").strip()
         if not jf_client.configured:
             return
-        if not jf_client.refresh_library():
-            log("Jellyfin-Bibliotheksscan konnte nicht gestartet werden.", "warn")
-            return
-        log("Jellyfin-Bibliotheksscan gestartet.")
+        # Read-only reconciliation: scan initiation belongs exclusively to the
+        # durable coordinator, including queue-cancellation compatibility calls.
+        log("Medienbestand nach gebündelter Aktualisierung abgleichen.")
         started = time.monotonic()
         for deadline in (5, 15, 30, 60, 120):
-            time.sleep(max(0.0, deadline - (time.monotonic() - started)))
+            if media_scan_manager().stop_event.wait(max(0.0, deadline - (time.monotonic() - started))):
+                return
             withdrawn_slugs: set[str] = set()
             with state.jellyfin_cache_lock:
                 if generation != state.jellyfin_config_generation:

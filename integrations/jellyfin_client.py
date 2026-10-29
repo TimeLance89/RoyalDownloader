@@ -9,6 +9,7 @@ Cloudflare-/TLS-Tricks nötig sind.
 """
 
 import hashlib
+from datetime import datetime
 import json
 import logging
 import re
@@ -363,20 +364,59 @@ class JellyfinClient(JellyfinSavedMixin):
             ))
         return matches
 
-    def refresh_library(self) -> bool:
-        """Startet einen Jellyfin-Bibliotheksscan."""
+    def library_scan_task(self) -> Optional[dict]:
+        """Jellyfin 12.2 ScheduledTask API; unknown state must never allow a scan."""
         if not self.configured:
+            return None
+        req = urllib.request.Request(f"{self.base_url}/ScheduledTasks", headers=jellyfin_auth_headers(self.api_key, accept_json=True))
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as response:
+                tasks = json.loads(response.read(2_000_001).decode("utf-8"))
+            if not isinstance(tasks, list):
+                return None
+            scans = [task for task in tasks if isinstance(task, dict) and task.get("Key") == "RefreshLibrary"]
+            if len(scans) != 1:
+                return None
+            task = scans[0]
+            if task.get("State") not in {"Idle", "Running", "Cancelling"} or not isinstance(task.get("Id"), str) or not 0 < len(task["Id"]) <= 128:
+                return None
+            last_start = 0
+            stamp = (task.get("LastExecutionResult") or {}).get("StartTimeUtc")
+            if stamp:
+                try:
+                    parsed = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+                    if parsed.tzinfo is not None:
+                        last_start = parsed.timestamp()
+                except (ValueError, TypeError, OverflowError):
+                    pass
+            return {"Id": task["Id"], "State": task["State"], "last_start": last_start}
+        except Exception:
+            logger.warning("Jellyfin scan status unavailable")
+            return None
+
+    def start_library_scan(self, task_id: str) -> bool:
+        """Coordinator-only: execute the verified RefreshLibrary scheduled task.
+
+        Unlike Library/Refresh this schedules the task rather than calling
+        ValidateMediaLibrary directly. Never stop/restart a running task.
+        """
+        if not self.configured or not task_id:
             return False
-        url = f"{self.base_url}/Library/Refresh"
         req = urllib.request.Request(
-            url, data=b"", method="POST", headers=jellyfin_auth_headers(self.api_key),
+            f"{self.base_url}/ScheduledTasks/Running/{quote(task_id, safe='')}",
+            data=b"", method="POST", headers=jellyfin_auth_headers(self.api_key),
         )
         try:
             with urllib.request.urlopen(req, timeout=self.timeout):
                 return True
-        except Exception as exc:
-            logger.warning("Jellyfin-Bibliotheksscan fehlgeschlagen (%s): %s", self.base_url, exc)
+        except Exception:
+            logger.warning("Jellyfin scan submission failed")
             return False
+
+    def refresh_library(self) -> bool:
+        """Legacy direct scans are disabled; submit a final file to the coordinator."""
+        logger.warning("Uncoordinated Jellyfin refresh refused; completed media required")
+        return False
 
     def list_users(self) -> Optional[List[dict]]:
         """Liefert auswählbare Jellyfin-Benutzer für den Gesehen-Status."""
