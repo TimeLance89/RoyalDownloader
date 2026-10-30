@@ -67,6 +67,37 @@ def test_classics_combines_genres_and_excludes_pixar():
     assert params["without_companies"] == "3"
 
 
+@pytest.mark.parametrize("world", ["disney", "disney-classics"])
+@pytest.mark.parametrize("language", ["de", "en"])
+def test_disney_includes_historical_studios_and_sequels_across_pages(world, language):
+    client = TMDBClient("key")
+    # Verified TMDB production credits: Sleeping Beauty, Snow White, The Lion
+    # King (1994), The Lion King II and The Lion King 1½ must all be eligible.
+    titles = [(10882, "Sleeping Beauty", "3166"), (408, "Snow White", "3166"),
+              (8587, "The Lion King", "171656"), (9732, "The Lion King II", "3475"),
+              (11430, "The Lion King 1½", "5391")]
+    calls = []
+
+    def discover(path, params):
+        assert path == "/discover/movie"
+        calls.append(params)
+        companies = set(params["with_companies"].split("|"))
+        eligible = [{"id": movie_id, "title": title} for movie_id, title, company in titles
+                    if company in companies]
+        page = int(params["page"])
+        return {"results": eligible[(page - 1) * 3:page * 3],
+                "total_pages": 2, "total_results": len(eligible)}
+
+    with patch.object(client, "_request", side_effect=discover):
+        first = client.movie_world(world, language=language)
+        second = client.movie_world(world, 2, language=language)
+    assert {m["tmdb_id"] for m in first["results"] + second["results"]} == {t[0] for t in titles}
+    assert first["has_more"] is True
+    assert second["has_more"] is False
+    assert first["total_results"] == 5
+    assert all(p["language"] == ("de-DE" if language == "de" else "en-US") for p in calls)
+
+
 def test_star_wars_uses_official_saga_not_fan_film_keywords():
     client = TMDBClient("key")
     parts = [{"id": 1, "title": "Later", "release_date": "2015-01-01", "vote_average": 8,
