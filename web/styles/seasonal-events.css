@@ -9,6 +9,25 @@
 #tab-home .home-event-ornaments { position: absolute; inset: 0; z-index: 4; pointer-events: none; overflow: hidden; border-radius: inherit; }
 #tab-home .home-event-ornaments img { position: absolute; display: block; pointer-events: none; object-fit: contain; }
 #tab-home .home-event-ornaments [hidden] { display: none !important; }
+/* Small light textures animate opacity only; the Hero itself is never repainted. */
+#tab-home .event-light { position: absolute; pointer-events: none; border-radius: 50%; }
+#tab-home .event-light-moon {
+  width: 260px; height: 210px; right: -70px; top: -85px;
+  background: radial-gradient(ellipse, #cdac7d38, #bf8a4320 35%, transparent 70%); opacity: .65;
+}
+#tab-home .event-light-pumpkins {
+  width: 150px; height: 95px; right: 178px; bottom: 88px;
+  background: radial-gradient(ellipse, #f4ac493d, #e67a2720 38%, transparent 70%);
+  opacity: .55; animation: event-lantern-light 5.3s ease-in-out infinite;
+}
+#tab-home .event-light-candle {
+  width: 74px; height: 90px; right: 297px; bottom: 135px;
+  background: radial-gradient(ellipse, #ffd58e70, #e59a3d25 30%, transparent 70%);
+  opacity: .7; animation: event-candle-light 3.7s ease-in-out infinite;
+}
+#tab-home[data-event-lights-paused] .event-light { animation-play-state: paused; }
+@keyframes event-lantern-light { 0%, 100% { opacity: .42; } 48% { opacity: .72; } 68% { opacity: .58; } }
+@keyframes event-candle-light { 0%, 100% { opacity: .58; } 22% { opacity: .78; } 29% { opacity: .65; } 55% { opacity: .84; } 73% { opacity: .67; } }
 #tab-home .event-web-left { width: clamp(100px, 13vw, 185px); top: 0; left: 0; opacity: .7; }
 #tab-home .event-web-right { width: 150px; right: 0; top: 0; transform: scaleX(-1); opacity: .55; }
 #tab-home .event-branch { right: 0; top: 0; height: 100%; width: 200px; opacity: .65; }
@@ -46,5 +65,9 @@
   #tab-home .event-bats { right: 44px; top: 18px; width: 82px; opacity: .55; }
   #tab-home .event-pumpkins { width: 65px; right: 20px; top: 58px; bottom: auto; }
   #tab-home .event-candle { width: 32px; right: 84px; top: 62px; bottom: auto; }
+  #tab-home .event-light-moon { width: 170px; height: 160px; right: -55px; top: -65px; }
+  #tab-home .event-light-pumpkins { width: 100px; height: 70px; right: 2px; top: 44px; bottom: auto; }
+  #tab-home .event-light-candle { width: 64px; height: 75px; right: 67px; top: 36px; bottom: auto; }
   #tab-home[data-seasonal-event="halloween"]:not([data-event-stage="1"]) .home-rail:not(.home-rail-top) .home-card:first-child::after { width: 48px; height: 48px; }
 }
+@media (prefers-reduced-motion: reduce) { #tab-home .event-light { animation: none; } }

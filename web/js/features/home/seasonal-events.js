@@ -10,11 +10,16 @@ export function seasonalEventAt(date = new Date()) {
 
 export function createSeasonalEvents(root, { client = api, now = () => new Date() } = {}) {
   const document = root.ownerDocument, win = document.defaultView;
-  let scope = null, enabled = null, cancelMidnight = null, revision = 0;
+  let scope = null, enabled = null, cancelMidnight = null, revision = 0, heroVisible = true;
+  function syncLightVisibility() {
+    if (scope?.active && enabled && seasonalEventAt(now()) && (document.hidden || !heroVisible)) root.dataset.eventLightsPaused = "true";
+    else delete root.dataset.eventLightsPaused;
+  }
   function clear() {
     root.querySelector(".home-event-ornaments")?.remove();
     delete root.dataset.seasonalEvent;
     delete root.dataset.eventStage;
+    delete root.dataset.eventLightsPaused;
   }
   function render() {
     const event = enabled && scope?.active ? seasonalEventAt(now()) : null;
@@ -34,6 +39,7 @@ export function createSeasonalEvents(root, { client = api, now = () => new Date(
     panel.querySelectorAll("[data-event-min-stage]").forEach(node => {
       node.hidden = Number(node.dataset.eventMinStage) > event.stage;
     });
+    syncLightVisibility();
   }
   function refresh() {
     cancelMidnight?.(); cancelMidnight = null;
@@ -70,6 +76,17 @@ export function createSeasonalEvents(root, { client = api, now = () => new Date(
       void load({ signal: owner.signal }).catch(() => { /* Keep the saved state; decoration never blocks Home. */ });
       owner.listen(document, "visibilitychange", refresh);
       owner.listen(win, "pageshow", refresh);
+      const hero = root.querySelector("#home-hero");
+      heroVisible = true;
+      if (hero && win.IntersectionObserver) {
+        const observer = new win.IntersectionObserver(entries => {
+          if (!owner.active) return;
+          heroVisible = entries[0]?.isIntersecting ?? false;
+          syncLightVisibility();
+        });
+        observer.observe(hero);
+        owner.observe(observer);
+      }
     },
     unmount() { scope?.dispose(); scope = null; cancelMidnight = null; clear(); },
   };

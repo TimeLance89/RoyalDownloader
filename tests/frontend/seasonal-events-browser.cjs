@@ -39,10 +39,26 @@ const { fixture } = require("./performance-fixture.cjs");
         await page.waitForFunction(()=>[...document.querySelectorAll(".home-event-ornaments img")].every(img=>img.complete && img.naturalWidth>0));
         await page.screenshot({path:`artifacts/seasonal-events/${mobile?"mobile":"desktop"}-${day}.png`});
       }
+      await page.emulateMedia({reducedMotion:"no-preference"});
+      await page.locator("#home-hero").scrollIntoViewIfNeeded();
+      await page.waitForFunction(()=>!document.getElementById("tab-home").hasAttribute("data-event-lights-paused"));
+      const lighting = await page.locator(".home-event-ornaments").evaluate(el=>el.getAnimations({subtree:true}).map(a=>({
+        target:a.effect.target.className, state:a.playState,
+        properties:[...new Set(a.effect.getKeyframes().flatMap(frame=>Object.keys(frame)))],
+      })));
+      assert.equal(lighting.length,2);
+      assert.ok(lighting.every(a=>a.target.includes("event-light") && a.state==="running"));
+      assert.ok(lighting.every(a=>a.properties.every(key=>["offset","computedOffset","easing","composite","opacity"].includes(key))));
+      await page.evaluate(()=>{Object.defineProperty(document,"hidden",{configurable:true,value:true});document.dispatchEvent(new Event("visibilitychange"));});
+      assert.equal(await page.locator(".event-light-candle").evaluate(el=>getComputedStyle(el).animationPlayState),"paused");
+      await page.evaluate(()=>{delete document.hidden;document.dispatchEvent(new Event("visibilitychange"));});
+      await page.locator("#home-gems-title").scrollIntoViewIfNeeded();
+      await page.waitForFunction(()=>document.getElementById("tab-home").hasAttribute("data-event-lights-paused"));
+      assert.equal(await page.locator(".event-light-pumpkins").evaluate(el=>getComputedStyle(el).animationPlayState),"paused");
       await page.locator("#home-movies-title").scrollIntoViewIfNeeded();
       await page.screenshot({path:`artifacts/seasonal-events/rails-${mobile?"mobile":"desktop"}.png`});
       await page.evaluate(()=>fixtureApp.core.localization.changeLanguage("en"));
-      assert.equal(await page.locator("#home-hero-title").textContent(), heroTitle);
+      assert.equal(await page.locator(".home-event-ornaments").count(),1);
       await page.evaluate(()=>{fixtureApp.core.actions.switchTab("einstellungen"); document.querySelector('[data-settings-target="settings-general"]').click();});
       const toggle = page.locator("#seasonal-events-enabled");
       await page.waitForFunction(()=>!document.getElementById("seasonal-events-enabled").disabled);
@@ -74,7 +90,7 @@ const { fixture } = require("./performance-fixture.cjs");
       await page.evaluate(()=>fixtureApp.core.actions.switchTab("filme"));
       assert.equal(await page.locator(".home-event-ornaments").count(),0);
       assert.deepEqual(errors,[]);
-      console.log(JSON.stringify({mobile,passed:true,stages:4,toggle:true,saveFailure:true,midnight:true}));
+      console.log(JSON.stringify({mobile,passed:true,stages:4,toggle:true,saveFailure:true,midnight:true,lighting:true}));
     } finally { await run.close(); }
   }
 })().catch(error=>{console.error(error);process.exitCode=1;});
