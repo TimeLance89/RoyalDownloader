@@ -1012,6 +1012,7 @@ test("the stylesheet manifest preserves every ordered CSS module", () => {
     "styles/taste-feedback.css",
     "styles/daily-top.css",
     "styles/language-studio.css",
+    "styles/seasonal-events.css",
     "styles/mobile.css",
   ]);
   for (const path of imports) {

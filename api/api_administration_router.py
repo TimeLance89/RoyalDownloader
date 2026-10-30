@@ -678,6 +678,26 @@ class UILanguageBody(BaseModel):
     language: str = "de"
 
 
+class UIEventsBody(BaseModel):
+    enabled: bool = Field(strict=True)
+
+
+@router.get("/api/v1/ui/events")
+@router.get("/api/ui/events")
+async def api_ui_events_get():
+    enabled = await run_in_threadpool(appconfig.load_seasonal_events_enabled)
+    return {"enabled": enabled}
+
+
+@router.post("/api/v1/ui/events")
+@router.post("/api/ui/events")
+async def api_ui_events_set(body: UIEventsBody):
+    saved = await run_in_threadpool(appconfig.save_seasonal_events_enabled, body.enabled)
+    if not saved:
+        raise HTTPException(500, "Events konnten nicht gespeichert werden. / Could not save events.")
+    return {"enabled": body.enabled, "saved": True}
+
+
 class UITranslationBody(BaseModel):
     target_language: str
     texts: list[str] = Field(max_length=120)

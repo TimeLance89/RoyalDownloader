@@ -1,4 +1,5 @@
 import { createHomeRows } from "../features/home/rows.js";
+import { createSeasonalEvents } from "../features/home/seasonal-events.js";
 import { createHomeLayout } from "../features/home/layout.js";
 import { createRailRenderer } from "../features/home/rail-renderer.js";
 import { createCardDock } from "../features/home/card-dock.js";
@@ -28,6 +29,7 @@ import { createCarousel } from "../shared/components/carousel.js";
 
 export function composeHome({ discoveryPolicy, movieState, artworkUrls, recommendations, getDiscovery, getIntegrations, getCore, getSearch, getProfile }) {
   const services = {
+  seasonalEvents: createSeasonalEvents(document.getElementById("tab-home")),
   discoveryPolicy,
   exposureVisibility: createHomeExposureVisibility(document.getElementById("tab-home"), {
     record: (lane, entries) => discoveryPolicy.recordDiscoveryExposureV2(lane, entries),
