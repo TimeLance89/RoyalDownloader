@@ -33,12 +33,21 @@ const { fixture } = require("./performance-fixture.cjs");
         assert.deepEqual(await geometry(), before, "Decorations must not move or resize the existing UI");
         assert.equal(await page.locator("#home-hero-title").textContent(), heroTitle);
         await page.emulateMedia({reducedMotion:"reduce"});
+        await page.waitForFunction(()=>document.querySelector(".home-event-ornaments").getAnimations({subtree:true}).length===0);
         assert.equal(await page.locator(".home-event-ornaments").evaluate(el=>el.getAnimations({subtree:true}).length), 0);
         assert.equal(await page.locator(".home-event-ornaments").evaluate(el=>getComputedStyle(el).pointerEvents), "none");
         assert.equal(await page.locator(".event-candle").isVisible(), day===31);
         await page.waitForFunction(()=>[...document.querySelectorAll(".home-event-ornaments img")].every(img=>img.complete && img.naturalWidth>0));
         await page.screenshot({path:`artifacts/seasonal-events/${mobile?"mobile":"desktop"}-${day}.png`});
       }
+      await page.evaluate(()=>{
+        window.eventFlashObserved=false;
+        const root=document.getElementById("tab-home");
+        const observer=new MutationObserver(()=>{
+          if(root.hasAttribute("data-event-lightning")){window.eventFlashObserved=true;observer.disconnect();}
+        });
+        observer.observe(root,{attributes:true,attributeFilter:["data-event-lightning"]});
+      });
       await page.emulateMedia({reducedMotion:"no-preference"});
       await page.locator("#home-hero").scrollIntoViewIfNeeded();
       await page.waitForFunction(()=>!document.getElementById("tab-home").hasAttribute("data-event-lights-paused"));
@@ -49,6 +58,17 @@ const { fixture } = require("./performance-fixture.cjs");
       assert.equal(lighting.length,2);
       assert.ok(lighting.every(a=>a.target.includes("event-light") && a.state==="running"));
       assert.ok(lighting.every(a=>a.properties.every(key=>["offset","computedOffset","easing","composite","opacity"].includes(key))));
+      await page.waitForFunction(()=>window.eventFlashObserved,null,{timeout:7000});
+      assert.equal(await page.locator(".home-event-flash").evaluate(el=>getComputedStyle(el).pointerEvents),"none");
+      assert.equal(await page.locator(".home-event-flash img").count(),0,"The flash must never add a lightning drawing or background image");
+      await page.clock.fastForward(1200);
+      assert.equal(await page.locator("#tab-home").getAttribute("data-event-lightning"),null);
+      assert.equal(await page.locator(".event-lightning-flash").evaluate(el=>getComputedStyle(el).opacity),"0","Between flashes the background must be unchanged");
+      await page.emulateMedia({reducedMotion:"reduce"});
+      await page.clock.fastForward(65000);
+      assert.equal(await page.locator("#tab-home").getAttribute("data-event-lightning"),null);
+      assert.equal(await page.locator(".event-lightning-flash").isVisible(),false);
+      await page.emulateMedia({reducedMotion:"no-preference"});
       await page.evaluate(()=>{Object.defineProperty(document,"hidden",{configurable:true,value:true});document.dispatchEvent(new Event("visibilitychange"));});
       assert.equal(await page.locator(".event-light-candle").evaluate(el=>getComputedStyle(el).animationPlayState),"paused");
       await page.evaluate(()=>{delete document.hidden;document.dispatchEvent(new Event("visibilitychange"));});
@@ -68,6 +88,7 @@ const { fixture } = require("./performance-fixture.cjs");
       assert.deepEqual(writes,[{enabled:false}]);
       await page.evaluate(()=>fixtureApp.core.actions.switchTab("home"));
       assert.equal(await page.locator(".home-event-ornaments").count(),0);
+      assert.equal(await page.locator(".home-event-flash").count(),0);
       assert.equal(await page.locator("#tab-home").getAttribute("data-seasonal-event"),null);
       await page.evaluate(()=>{fixtureApp.core.actions.switchTab("einstellungen"); document.querySelector('[data-settings-target="settings-general"]').click();});
       await page.waitForFunction(()=>!document.getElementById("seasonal-events-enabled").disabled);

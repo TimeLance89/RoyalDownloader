@@ -30,3 +30,14 @@ failed saves, stale and cancelled reads, all four stages, mobile/desktop layout
 invariance, image loading, pointer transparency and automatic removal at midnight.
 Lighting tests assert the two opacity-only animations, offscreen/background pausing
 and static reduced-motion presentation on desktop and mobile.
+
+## Brief lightning flashes
+
+An occasional 280 ms light impulse illuminates the existing Hero background and
+then disappears completely. There is no visible lightning drawing, cloud scene,
+fog texture, extra content or permanent colour change.
+
+The impulse animates opacity only. Quiet intervals range from 35–51 seconds on
+October 28 to 18–34 seconds on October 31. Leaving Home, scrolling away from the
+Hero, hiding the browser, disabling Events or enabling reduced motion cancels
+all pending flashes. No rendering loop, sound or additional image assets.

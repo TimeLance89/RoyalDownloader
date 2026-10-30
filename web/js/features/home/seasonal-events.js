@@ -1,6 +1,7 @@
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
-import { halloweenArt } from "./halloween-art.js";
+import { halloweenArt, halloweenFlash } from "./halloween-art.js";
+import { createHalloweenFlash } from "./halloween-flash.js";
 
 /** Browser-local calendar, inclusive dates; no UTC conversion or fixed year. */
 export function seasonalEventAt(date = new Date()) {
@@ -11,15 +12,19 @@ export function seasonalEventAt(date = new Date()) {
 export function createSeasonalEvents(root, { client = api, now = () => new Date() } = {}) {
   const document = root.ownerDocument, win = document.defaultView;
   let scope = null, enabled = null, cancelMidnight = null, revision = 0, heroVisible = true;
+  let flash = null;
   function syncLightVisibility() {
     if (scope?.active && enabled && seasonalEventAt(now()) && (document.hidden || !heroVisible)) root.dataset.eventLightsPaused = "true";
     else delete root.dataset.eventLightsPaused;
+    flash?.sync();
   }
   function clear() {
     root.querySelector(".home-event-ornaments")?.remove();
+    root.querySelector(".home-event-flash")?.remove();
     delete root.dataset.seasonalEvent;
     delete root.dataset.eventStage;
     delete root.dataset.eventLightsPaused;
+    flash?.sync();
   }
   function render() {
     const event = enabled && scope?.active ? seasonalEventAt(now()) : null;
@@ -28,6 +33,13 @@ export function createSeasonalEvents(root, { client = api, now = () => new Date(
     root.dataset.eventStage = String(event.stage);
     const hero = root.querySelector("#home-hero");
     if (!hero) return;
+    if (!hero.querySelector(".home-event-flash")) {
+      const weather = document.createElement("div");
+      weather.className = "home-event-flash";
+      weather.setAttribute("aria-hidden", "true");
+      weather.innerHTML = halloweenFlash;
+      hero.append(weather);
+    }
     let panel = hero.querySelector(".home-event-ornaments");
     if (!panel) {
       panel = document.createElement("div");
@@ -72,6 +84,11 @@ export function createSeasonalEvents(root, { client = api, now = () => new Date(
       if (scope?.active) return;
       scope = createScope();
       const owner = scope;
+      flash = createHalloweenFlash(root, { getState: () => ({
+        active: Boolean(owner.active && enabled && !document.hidden && heroVisible && seasonalEventAt(now()) && root.querySelector(".home-event-flash")),
+        stage: seasonalEventAt(now())?.stage || 0,
+      }) });
+      owner.add(() => { flash?.dispose(); flash = null; });
       refresh();
       void load({ signal: owner.signal }).catch(() => { /* Keep the saved state; decoration never blocks Home. */ });
       owner.listen(document, "visibilitychange", refresh);

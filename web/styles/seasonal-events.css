@@ -71,3 +71,10 @@
   #tab-home[data-seasonal-event="halloween"]:not([data-event-stage="1"]) .home-rail:not(.home-rail-top) .home-card:first-child::after { width: 48px; height: 48px; }
 }
 @media (prefers-reduced-motion: reduce) { #tab-home .event-light { animation: none; } }
+
+/* A momentary light impulse behind the existing UI; invisible between flashes. */
+#tab-home .home-event-flash { position: absolute; inset: 0; z-index: 1; overflow: hidden; pointer-events: none; contain: paint; }
+#tab-home .event-lightning-flash { position: absolute; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at 72% 12%, #edf1ff, #ccd5eea6 36%, transparent 85%); }
+#tab-home[data-event-lightning] .event-lightning-flash { animation: event-lightning-flash 280ms ease-out both; }
+@keyframes event-lightning-flash { 0% { opacity: 0; } 8% { opacity: .65; } 32% { opacity: .18; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { #tab-home .event-lightning-flash { display: none; animation: none; } }

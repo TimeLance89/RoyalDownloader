@@ -9,3 +9,5 @@ export const halloweenArt = `
 <img class="event-pumpkins" src="/assets/events/pumpkins.svg" alt="" data-event-min-stage="3">
 <img class="event-web event-web-right" src="/assets/events/web.svg" alt="" data-event-min-stage="4">
 <img class="event-candle" src="/assets/events/candle.svg" alt="" data-event-min-stage="4">`;
+
+export const halloweenFlash = `<span class="event-lightning-flash"></span>`;
