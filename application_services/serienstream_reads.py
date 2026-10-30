@@ -32,4 +32,3 @@ def read_serienstream(operation, *, health, lock, scraper_factory, on_blocked):
         if recovery and health.status("serienstream")["state"] == "probing":
             health.finish_probe_error("serienstream", "runtime_recovery_failed")
         raise
-
