@@ -82,7 +82,7 @@ jobs:
       - name: Seasonal Home decoration, calendar boundaries and persisted toggle
         if: ${{ matrix.suite == 'catalog' }}
         run: |
-          node --test tests/frontend/seasonal-events.test.mjs
+          node --test tests/frontend/seasonal-events.test.mjs tests/frontend/halloween-flash.test.mjs
           node tests/frontend/seasonal-events-browser.cjs
 
       - name: Series hidden prefetch, silent recovery and reveal on downward scroll
