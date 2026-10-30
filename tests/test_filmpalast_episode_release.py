@@ -51,6 +51,8 @@ def test_filmpalast_dexter_release_overrides_tmdb_without_unlocking_announcement
     ('Example.S02E01.GERMAN.DL.1080p.WEB-GROUP', ('de',)),
     ('Example.S02E01.DL.1080p.WEB-GROUP', ()),
     ('German.Crime.S02E01.1080p.WEB-GROUP', ()),
+    ('Example.S02E01.GERMAN.SUBBED.1080p.WEB-GROUP', ()),
+    ('Example.S02E01.ENGLISH.SUBS.1080p.WEB-GROUP', ()),
     ('Example.S02E01.GERMAN.Demnächst', ()),
     ('Example.S02E010.GERMAN.1080p.WEB-GROUP', ()),
     ('Example.S01E01.GERMAN.1080p.WEB-GROUP', ()),

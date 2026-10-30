@@ -512,7 +512,10 @@ class FilmpalastScraper:
             return ()
         return tuple(language for language, marker in (
             ("de", r"german|deutsch"), ("en", r"english|englisch"),
-        ) if re.search(rf"(?<![a-z0-9])(?:{marker})(?![a-z0-9])", tags, re.I))
+        ) if re.search(
+            rf"(?<![a-z0-9])(?:{marker})(?![a-z0-9])"
+            r"(?![._\s-]+(?:subbed|subs?|subtitles?|ut)(?![a-z0-9]))", tags, re.I,
+        ))
 
     @staticmethod
     def _group_episode_results(results: List[FilmpalastSearchResult]) -> List[FilmpalastSeriesResult]:
