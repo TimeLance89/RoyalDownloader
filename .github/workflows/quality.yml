@@ -240,6 +240,7 @@ jobs:
           git -c safe.directory="$GITHUB_WORKSPACE" worktree add --detach "${RUNNER_TEMP}/royal-perf-baseline" d3aada9099703c0b9d9b6201f49082c52ddff0d7
       - name: Paired frozen baseline (same worker and browser)
         run: |
+          node --test tests/frontend/performance-observation.test.cjs
           ROYAL_WEB_ROOT="${RUNNER_TEMP}/royal-perf-baseline/web" ROYAL_PERF_OUTPUT=artifacts/frontend-performance/baseline node tests/frontend/performance-benchmark.cjs
       - name: Current performance and content budgets
         run: |
