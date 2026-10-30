@@ -31,7 +31,7 @@ export function createLocalization(document, { client = api } = {}) {
       "Helden & Universen": "Heroes & universes",
       "Filmwelten entdecken und mit passenden Filtern eingrenzen.": "Explore movie worlds and refine them with filters.",
       "Filmwelten laden einen eigenen Katalog. Weitere Filme erscheinen beim Scrollen.": "Movie worlds load their own catalogue. Scroll to load more movies.",
-      "Filmwelten laden einen eigenen Katalog. Weitere Filme erscheinen beim Scrollen. Disney Classics umfasst Disney-Animationslangfilme ohne Pixar. Tonsprachen werden erst bei der Quellenprüfung bestätigt.": "Movie worlds load their own catalogue. Scroll to load more movies. Disney Classics covers Disney animated features excluding Pixar. Audio languages are confirmed when sources are checked.",
+      "Filmwelten laden einen eigenen Katalog. Weitere Filme erscheinen beim Scrollen. Disney Classics umfasst Disney-Animationslangfilme einschließlich älterer Produktionen und Fortsetzungen, ohne Pixar. Tonsprachen werden erst bei der Quellenprüfung bestätigt.": "Movie worlds load their own catalogue. Scroll to load more movies. Disney Classics covers Disney animated features including older productions and sequels, excluding Pixar. Audio languages are confirmed when sources are checked.",
       "Keine passenden Filme unter den geladenen Titeln. Filter lockern oder weitere Filme laden.": "No matches among loaded titles. Adjust filters or load more movies.",
       "Älteste zuerst": "Oldest first",
       "Genre": "Genre",

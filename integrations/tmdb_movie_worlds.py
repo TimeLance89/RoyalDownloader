@@ -4,10 +4,15 @@ from copy import deepcopy
 
 from core.runtime_cache import BoundedTTLCache
 
-# Company/keyword IDs identify the catalogue independently of translated titles.
+# Historical and current production credits are separate companies in TMDB.
+# Walt Disney Productions covers e.g. Sleeping Beauty (10882), DisneyToon
+# The Lion King 1½ (11430), and Feature Animation The Lion King (8587).
+DISNEY_COMPANIES = "2|6125|3166|171656|5391|3475|177000|112779"
+
+# Company IDs identify the catalogue independently of translated titles.
 MOVIE_WORLDS = {
-    "disney": {"with_companies": "2|6125"},
-    "disney-classics": {"with_companies": "2|6125", "with_genres": "16",
+    "disney": {"with_companies": DISNEY_COMPANIES},
+    "disney-classics": {"with_companies": DISNEY_COMPANIES, "with_genres": "16",
                         "without_companies": "3", "with_runtime.gte": "40"},
     "pixar": {"with_companies": "3"},
     "marvel": {"with_companies": "420|19551|7505"},
