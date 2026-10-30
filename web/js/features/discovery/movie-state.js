@@ -2,6 +2,7 @@
 export function createMovieState() {
   return {
     results: [], moviesCache: {}, category: null, page: 1, lastPageFull: false,
+    world: "", totalResults: null,
     activeGenre: "Alle Genres", selectedSlug: null, pendingPreload: null,
     metadataCache: {}, requestSeq: 0, metadataRequestSeq: 0, sources: [], loadingMore: false,
     loadError: "", searchActive: false, searchReturn: null,

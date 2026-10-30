@@ -196,6 +196,7 @@ export function composeDiscovery({ movieState, seriesState, artworkUrls, i18n, s
           loadNext: () => services.movieActions.loadNextFpPage(), retry() {
             if (movieState.loadingMore || !movieState.category) return;
             if (movieState.lastPageFull) services.movieActions.loadNextFpPage();
+            else if (movieState.category === "world") services.movieBrowse.world(movieState.world);
             else if (movieState.category === "genre") services.movieActions.fpGenreChange(movieState.activeGenre);
             else services.movieActions.fpShowList(movieState.category);
           },

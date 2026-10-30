@@ -660,13 +660,34 @@
           <div>
             <span class="movie-filter-kicker">FILMREGIE</span>
             <h2 id="movie-filter-title">Was soll heute laufen?</h2>
-            <p>Mehrere Kriterien kombinieren – Royal grenzt das Programm sofort ein.</p>
+            <p>Filmwelten entdecken und mit passenden Filtern eingrenzen.</p>
           </div>
           <div class="movie-filter-result" aria-live="polite">
             <span id="genre-active">Alle Filme</span>
             <strong id="genre-count">Filter werden geladen …</strong>
           </div>
         </header>
+        <div class="movie-world-picker">
+          <label class="movie-filter-field">
+            <span>Filmwelten & Studios</span>
+            <select id="movie-filter-world" aria-label="Filmwelt auswählen" aria-describedby="movie-world-description">
+              <option value="">Alle Filmwelten</option>
+              <optgroup label="Disney & Animation">
+                <option value="disney">Disney Filme</option>
+                <option value="disney-classics">Disney Classics</option>
+                <option value="pixar">Pixar</option>
+                <option value="dreamworks">DreamWorks Animation</option>
+                <option value="ghibli">Studio Ghibli</option>
+              </optgroup>
+              <optgroup label="Helden & Universen">
+                <option value="marvel">Marvel</option>
+                <option value="dc">DC Universe</option>
+                <option value="star-wars">Star Wars · Skywalker-Saga</option>
+              </optgroup>
+            </select>
+          </label>
+          <p id="movie-world-description">Filmwelten laden einen eigenen Katalog. Weitere Filme erscheinen beim Scrollen. Disney Classics umfasst Disney-Animationslangfilme ohne Pixar. Tonsprachen werden erst bei der Quellenprüfung bestätigt.</p>
+        </div>
         <div class="movie-filter-controls">
           <label class="movie-filter-field">
             <span>Genre</span>
@@ -681,6 +702,8 @@
               <option value="2020s">Seit 2020</option>
               <option value="2010s">2010–2019</option>
               <option value="2000s">2000–2009</option>
+              <option value="1990s">1990–1999</option>
+              <option value="1980s">1980–1989</option>
               <option value="classic">Vor 2000</option>
             </select>
           </label>
@@ -715,6 +738,7 @@
             <select id="movie-filter-sort" aria-label="Filme sortieren">
               <option value="default">Royal-Reihenfolge</option>
               <option value="newest">Neueste zuerst</option>
+              <option value="oldest">Älteste zuerst</option>
               <option value="rating">Beste Bewertung</option>
               <option value="title">Titel A–Z</option>
             </select>
@@ -729,6 +753,7 @@
             <button id="movie-filter-reset" type="button" disabled>Zurücksetzen</button>
           </div>
         </footer>
+        <p id="movie-filter-empty" class="movie-filter-empty" role="status" hidden>Keine passenden Filme unter den geladenen Titeln. Filter lockern oder weitere Filme laden.</p>
       </section>
 
       <section class="movie-subscriptions" aria-labelledby="movie-subscriptions-title">
@@ -751,7 +776,7 @@
       <div class="split">
         <div class="panel results-panel" aria-label="Filme">
           <div class="panel-head">
-            <span class="panel-title">Beliebt auf Royal</span>
+            <span id="fp-results-title" class="panel-title">Beliebt auf Royal</span>
             <span id="fp-status" class="dim">Bereit zum Suchen …</span>
           </div>
           <div class="list-head movie-row">

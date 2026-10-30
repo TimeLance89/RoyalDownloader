@@ -5,6 +5,8 @@ export function createMovieFilters(root, {
   fpStatusMessage, fpGenreChange,
 }) {
   const byId = id => root.querySelector(`#${id}`);
+  const english = () => root.ownerDocument.documentElement.lang.startsWith("en");
+  const text = (de, en) => english() ? en : de;
   let filters = { period: "all", rating: "all", availability: "all", language: "all", sort: "default" };
   function fpSmartFilters() { return filters; }
   function fpSmartFilterMatches(result) {
@@ -15,10 +17,12 @@ export function createMovieFilters(root, {
     if (filters.period === "2020s" && year < 2020) return false;
     if (filters.period === "2010s" && (year < 2010 || year > 2019)) return false;
     if (filters.period === "2000s" && (year < 2000 || year > 2009)) return false;
+    if (filters.period === "1990s" && (year < 1990 || year > 1999)) return false;
+    if (filters.period === "1980s" && (year < 1980 || year > 1989)) return false;
     if (filters.period === "classic" && (!year || year >= 2000)) return false;
     if (filters.rating !== "all" && rating < Number(filters.rating)) return false;
     if (filters.availability === "owned" && mediaJellyfinStatus(media) !== "owned") return false;
-    if (filters.availability === "missing" && mediaJellyfinStatus(media) === "owned") return false;
+    if (filters.availability === "missing" && mediaJellyfinStatus(media) !== "missing") return false;
     if (filters.availability === "queued" && !getQueuedSlugs().has(result.slug)) return false;
     if (filters.language !== "all" && !mediaContentLanguages(media).has(filters.language)) return false;
     return true;
@@ -30,7 +34,7 @@ export function createMovieFilters(root, {
 
   function fpSmartSortValue(result, sort) {
     const media = fpResultMedia(result);
-    if (sort === "newest") return Number.parseInt(fpResultYear(result), 10) || 0;
+    if (sort === "newest" || sort === "oldest") return Number.parseInt(fpResultYear(result), 10) || (sort === "oldest" ? 9999 : 0);
     if (sort === "rating") return Number.parseFloat(String(media.rating || "").replace(",", ".")) || 0;
     return 0;
   }
@@ -38,12 +42,13 @@ export function createMovieFilters(root, {
   function fpActiveFilterLabels() {
     const filters = fpSmartFilters();
     const labels = [];
+    if (movieState.world) labels.push(byId("movie-filter-world")?.selectedOptions[0]?.textContent || movieState.world);
     if (movieState.activeGenre !== "Alle Genres") labels.push(movieState.activeGenre);
-    labels.push({ "2020s": "Seit 2020", "2010s": "2010–2019", "2000s": "2000–2009", classic: "Vor 2000" }[filters.period]);
+    labels.push({ "2020s": text("Seit 2020", "Since 2020"), "2010s": "2010–2019", "2000s": "2000–2009", "1990s": "1990–1999", "1980s": "1980–1989", classic: text("Vor 2000", "Before 2000") }[filters.period]);
     if (filters.rating !== "all") labels.push(`★ ${filters.rating}+`);
-    labels.push({ owned: mediaCenterText("In Jellyfin"), missing: mediaCenterText("Nicht in Jellyfin"), queued: "In Queue" }[filters.availability]);
-    labels.push({ de: "Deutsch", en: "Englisch" }[filters.language]);
-    labels.push({ newest: "Neueste zuerst", rating: "Beste Bewertung", title: "Titel A–Z" }[filters.sort]);
+    labels.push({ owned: mediaCenterText("In Jellyfin"), missing: mediaCenterText(text("Nicht in Jellyfin", "Missing from Jellyfin")), queued: text("In Queue", "Queued") }[filters.availability]);
+    labels.push({ de: text("Deutsch", "German"), en: text("Englisch", "English") }[filters.language]);
+    labels.push({ newest: text("Neueste zuerst", "Newest first"), oldest: text("Älteste zuerst", "Oldest first"), rating: text("Beste Bewertung", "Highest rated"), title: text("Titel A–Z", "Title A–Z") }[filters.sort]);
     return labels.filter(Boolean);
   }
 
@@ -52,9 +57,9 @@ export function createMovieFilters(root, {
     const visible = fpSmartFilteredResults();
     const ordered = visible.slice();
     if (filters.sort === "title") {
-      ordered.sort((a, b) => String(a.title || "").localeCompare(String(b.title || ""), "de"));
+      ordered.sort((a, b) => String(fpResultMedia(a).title || "").localeCompare(String(fpResultMedia(b).title || ""), english() ? "en" : "de"));
     } else if (filters.sort !== "default") {
-      ordered.sort((a, b) => fpSmartSortValue(b, filters.sort) - fpSmartSortValue(a, filters.sort));
+      ordered.sort((a, b) => (filters.sort === "oldest" ? -1 : 1) * (fpSmartSortValue(b, filters.sort) - fpSmartSortValue(a, filters.sort)));
     }
     const orderBySlug = new Map(ordered.map((result, index) => [result.slug, index]));
     const rowsBySlug = new Map(
@@ -74,7 +79,7 @@ export function createMovieFilters(root, {
       chips.replaceChildren();
       if (!labels.length) {
         const empty = root.ownerDocument.createElement("span");
-        empty.textContent = "Keine Einschränkungen";
+        empty.textContent = text("Keine Einschränkungen", "No filters applied");
         chips.appendChild(empty);
       } else {
         for (const label of labels) {
@@ -86,7 +91,16 @@ export function createMovieFilters(root, {
       }
     }
     const count = byId("genre-count");
-    if (count) count.textContent = `${visible.length} von ${movieState.results.length} Filmen sichtbar`;
+    if (count) count.textContent = text(`${visible.length} von ${movieState.results.length} geladenen Filmen sichtbar`, `${visible.length} of ${movieState.results.length} loaded movies visible`)
+      + (movieState.world && movieState.totalResults != null ? text(` · ${movieState.totalResults} insgesamt`, ` · ${movieState.totalResults} total`) : "");
+    const active = byId("genre-active");
+    if (active && movieState.world) active.textContent = byId("movie-filter-world")?.selectedOptions[0]?.textContent || movieState.world;
+    const heading = byId("fp-results-title");
+    if (heading) heading.textContent = movieState.world
+      ? byId("movie-filter-world")?.selectedOptions[0]?.textContent || movieState.world
+      : text("Beliebt auf Royal", "Popular on Royal");
+    const emptyState = byId("movie-filter-empty");
+    if (emptyState) emptyState.hidden = visible.length > 0 || movieState.loadingMore || Boolean(movieState.loadError);
     const reset = byId("movie-filter-reset");
     if (reset) reset.disabled = labels.length === 0;
     const status = byId("fp-status");

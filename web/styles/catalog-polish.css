@@ -164,7 +164,7 @@
 }
 
 #tab-filme .movie-filter-studio::after {
-  content: "FILTER / 06";
+  content: none;
   position: absolute;
   top: 12px;
   right: 16px;
@@ -219,8 +219,34 @@
 }
 
 #tab-filme .movie-filter-result strong {
+  display: block;
   color: #8a8d94;
   font: 600 8px/1.2 "JetBrains Mono", monospace;
+}
+
+#tab-filme .movie-world-picker {
+  display: grid;
+  grid-template-columns: minmax(180px, 280px) minmax(0, 1fr);
+  align-items: end;
+  gap: 16px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border, #303238);
+}
+#tab-filme .movie-world-picker p,
+#tab-filme .movie-filter-empty {
+  margin: 0;
+  color: var(--text-muted, #a9abb2);
+  font-size: 12px;
+  line-height: 1.6;
+  max-width: 70ch;
+}
+#tab-filme .movie-filter-empty:not([hidden]) { padding: 14px 0 4px; }
+#tab-filme .movie-world-picker select:focus-visible {
+  outline: 2px solid var(--accent, #dfb866);
+  outline-offset: 3px;
+}
+@media (max-width: 600px) {
+  #tab-filme .movie-world-picker { grid-template-columns: minmax(0, 1fr); gap: 8px; }
 }
 
 #tab-filme .movie-filter-controls {
