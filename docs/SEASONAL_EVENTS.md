@@ -3,7 +3,7 @@
 Halloween runs annually on October 28–31 using the browser's local calendar.
 The existing Home layout, movie artwork, recommendations and controls stay intact.
 A locally bundled photograph of storm clouds sits behind the whole Home view,
-including the rails far below the Hero. No hand-drawn ornaments or lightning bolts.
+including the rails far below the Hero. No newly drawn ornaments or lightning bolts.
 The scene grows darker each day; it disappears automatically on November 1.
 
 The photograph is licensed for use in apps. Source, photographer and license are
@@ -29,3 +29,23 @@ Tests cover calendar boundaries, subsequent years, settings persistence and fail
 saves, stale and cancelled reads, all four stages, mobile/desktop layout invariance,
 local image loading, pointer transparency, full-viewport positioning after scrolling,
 regular flashes below the Hero, hidden-tab/reduced-motion cancellation and midnight cleanup.
+
+## Decorations that build up each day
+
+Existing transparent PNG artwork is anchored to the edges of the Hero and selected
+series/gems/new-title rails. Nothing is drawn with HTML, CSS shapes, inline SVG or
+canvas. Sources, authors, CC0 license and preparation are in the asset credits.
+
+- October 28: one corner web on the Hero.
+- October 29: three placements, adding a bat flock and a web on the series rail.
+- October 30: five placements, adding an illuminated pumpkin and bats at the gems rail.
+- October 31: nine placements, with a pumpkin pair, the opposite Hero web, a pumpkin
+  at the gems rail and a web at the new-title rail.
+
+Images are absolutely positioned and pointer-transparent. Mobile uses smaller Hero
+motifs above the copy and moves the gems pumpkin to the right-hand edge. No image
+animations or new timers; the full-page background flashes retain their existing
+cadence. The nine final placements reuse three local PNGs totaling 217 KB.
+Later-stage files are not requested before their day. Disabling events, leaving
+Home or reaching November 1 removes every decoration as well as the background.
+Refreshing is idempotent and changing to an earlier date removes later motifs.
