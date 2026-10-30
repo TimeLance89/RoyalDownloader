@@ -1,52 +1,65 @@
-/* Decoration is anchored to existing frames; it never participates in layout. */
-#tab-home[data-seasonal-event="halloween"] { --event-copper: #c59162; }
-#tab-home[data-seasonal-event="halloween"] .home-hero {
-  box-shadow: inset 0 0 0 1px #aa754544, inset 0 18px 70px -50px #d0956155;
+/* A licensed photograph, behind the entire Home view at every scroll position. */
+#tab-home[data-seasonal-event="halloween"] {
+  position: relative;
+  isolation: isolate;
+  /* The tab entrance retains transform/blur(0), which otherwise traps fixed children. */
+  animation: none;
+  transform: none;
+  filter: none;
+  background: #03050b;
+  --event-darkness: .80;
 }
-#tab-home[data-seasonal-event="halloween"][data-event-stage="4"] .home-hero {
-  box-shadow: inset 0 0 0 1px #c5916266, inset -90px -35px 120px -95px #bb733b70;
+#tab-home[data-event-stage="2"] { --event-darkness: .82; }
+#tab-home[data-event-stage="3"] { --event-darkness: .85; }
+#tab-home[data-event-stage="4"] { --event-darkness: .87; }
+#tab-home .home-event-backdrop,
+#tab-home .home-event-flash {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  contain: paint;
 }
-#tab-home .home-event-ornaments { position: absolute; inset: 0; z-index: 4; pointer-events: none; overflow: hidden; border-radius: inherit; }
-#tab-home .home-event-ornaments img { position: absolute; display: block; pointer-events: none; object-fit: contain; }
-#tab-home .home-event-ornaments [hidden] { display: none !important; }
-/* Small light textures animate opacity only; the Hero itself is never repainted. */
-#tab-home .event-light { position: absolute; pointer-events: none; border-radius: 50%; }
-#tab-home .event-light-moon {
-  width: 260px; height: 210px; right: -70px; top: -85px;
-  background: radial-gradient(ellipse, #cdac7d38, #bf8a4320 35%, transparent 70%); opacity: .65;
+#tab-home .home-event-backdrop { background: #03050b; }
+#tab-home .home-event-backdrop img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  opacity: calc(1 - var(--event-darkness));
 }
-#tab-home .event-light-pumpkins {
-  width: 150px; height: 95px; right: 178px; bottom: 88px;
-  background: radial-gradient(ellipse, #f4ac493d, #e67a2720 38%, transparent 70%);
-  opacity: .55; animation: event-lantern-light 5.3s ease-in-out infinite;
+/* Existing content stays above the weather; no overlay can wash out text or posters. */
+#tab-home[data-seasonal-event="halloween"] .home-hero { background: transparent; }
+#tab-home[data-seasonal-event="halloween"] .home-hero-art { opacity: .55; }
+#tab-home[data-seasonal-event="halloween"] .home-hero::before { box-shadow: none; }
+#tab-home[data-seasonal-event="halloween"] .home-hero::after {
+  background: linear-gradient(90deg, #03050b99, #03050b30 60%, transparent),
+    linear-gradient(0deg, #03050b55, transparent 45%);
 }
-#tab-home .event-light-candle {
-  width: 74px; height: 90px; right: 297px; bottom: 135px;
-  background: radial-gradient(ellipse, #ffd58e70, #e59a3d25 30%, transparent 70%);
-  opacity: .7; animation: event-candle-light 3.7s ease-in-out infinite;
+#tab-home[data-seasonal-event="halloween"] .home-program {
+  background: linear-gradient(90deg, #03050bb3, #03050b40);
 }
-#tab-home[data-event-lights-paused] .event-light { animation-play-state: paused; }
-@keyframes event-lantern-light { 0%, 100% { opacity: .42; } 48% { opacity: .72; } 68% { opacity: .58; } }
-@keyframes event-candle-light { 0%, 100% { opacity: .58; } 22% { opacity: .78; } 29% { opacity: .65; } 55% { opacity: .84; } 73% { opacity: .67; } }
-#tab-home .event-web-left { width: clamp(100px, 13vw, 185px); top: 0; left: 0; opacity: .7; }
-#tab-home .event-web-right { width: 150px; right: 0; top: 0; transform: scaleX(-1); opacity: .55; }
-#tab-home .event-branch { right: 0; top: 0; height: 100%; width: 200px; opacity: .65; }
-#tab-home .event-bats { right: 110px; top: 20px; width: 135px; opacity: .65; }
-#tab-home .event-pumpkins { right: 195px; bottom: 104px; width: 112px; opacity: .92; }
-#tab-home .event-candle { right: 310px; bottom: 100px; width: 48px; }
-#tab-home[data-seasonal-event="halloween"]:not([data-event-stage="1"]) .home-rail-head h2 { position: relative; }
-#tab-home[data-seasonal-event="halloween"]:not([data-event-stage="1"]) .home-rail-head h2::after {
-  content: ""; position: absolute; top: -12px; right: -36px; width: 42px; height: 24px;
-  background: url('/assets/events/bats.svg') center / contain no-repeat; pointer-events: none; opacity: .65;
+#tab-home .event-lightning-flash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(ellipse at 65% 15%, #d4dff4, #8f9bb9 80%);
 }
-#tab-home[data-seasonal-event="halloween"]:not([data-event-stage="1"]) .home-rail:not(.home-rail-top) .home-card:first-child::after {
-  content: ""; position: absolute; z-index: 7; top: 1px; left: 1px; width: 70px; height: 70px;
-  background: url('/assets/events/web.svg') top left / contain no-repeat; opacity: .6; pointer-events: none;
+#tab-home[data-event-lightning] .event-lightning-flash {
+  animation: event-lightning-flash 280ms ease-out both;
 }
-#tab-home[data-seasonal-event="halloween"]:is([data-event-stage="3"], [data-event-stage="4"]) .home-card:first-child .home-card-art {
-  border-color: #b5845260;
+@keyframes event-lightning-flash {
+  0% { opacity: 0; }
+  8% { opacity: .48; }
+  32% { opacity: .12; }
+  100% { opacity: 0; }
 }
-#tab-home[data-seasonal-event="halloween"][data-event-stage="4"] .home-rail-personal .home-rail-head { box-shadow: 0 1px #b5845224; }
+@media (prefers-reduced-motion: reduce) {
+  #tab-home .event-lightning-flash { display: none; animation: none; }
+}
+
 .seasonal-event-toggle { display: flex; align-items: center; gap: 18px; margin-top: 16px; cursor: pointer; }
 .seasonal-event-toggle > span { flex: 1; }
 .seasonal-event-toggle strong, .seasonal-event-toggle small { display: block; }
@@ -58,23 +71,3 @@
 .seasonal-event-toggle input:checked + i::after { transform: translateX(19px); background: #f6dfb2; }
 .seasonal-event-toggle input:focus-visible + i { outline: 2px solid #edc69a; outline-offset: 4px; }
 .seasonal-event-toggle input:disabled + i { opacity: .45; }
-@media (max-width: 700px) {
-  #tab-home .event-web-left { width: 94px; opacity: .5; }
-  #tab-home .event-web-right { width: 88px; opacity: .4; }
-  #tab-home .event-branch { width: 80px; opacity: .45; }
-  #tab-home .event-bats { right: 44px; top: 18px; width: 82px; opacity: .55; }
-  #tab-home .event-pumpkins { width: 65px; right: 20px; top: 58px; bottom: auto; }
-  #tab-home .event-candle { width: 32px; right: 84px; top: 62px; bottom: auto; }
-  #tab-home .event-light-moon { width: 170px; height: 160px; right: -55px; top: -65px; }
-  #tab-home .event-light-pumpkins { width: 100px; height: 70px; right: 2px; top: 44px; bottom: auto; }
-  #tab-home .event-light-candle { width: 64px; height: 75px; right: 67px; top: 36px; bottom: auto; }
-  #tab-home[data-seasonal-event="halloween"]:not([data-event-stage="1"]) .home-rail:not(.home-rail-top) .home-card:first-child::after { width: 48px; height: 48px; }
-}
-@media (prefers-reduced-motion: reduce) { #tab-home .event-light { animation: none; } }
-
-/* A momentary light impulse behind the existing UI; invisible between flashes. */
-#tab-home .home-event-flash { position: absolute; inset: 0; z-index: 1; overflow: hidden; pointer-events: none; contain: paint; }
-#tab-home .event-lightning-flash { position: absolute; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at 72% 12%, #edf1ff, #ccd5eea6 36%, transparent 85%); }
-#tab-home[data-event-lightning] .event-lightning-flash { animation: event-lightning-flash 280ms ease-out both; }
-@keyframes event-lightning-flash { 0% { opacity: 0; } 8% { opacity: .65; } 32% { opacity: .18; } 100% { opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { #tab-home .event-lightning-flash { display: none; animation: none; } }
