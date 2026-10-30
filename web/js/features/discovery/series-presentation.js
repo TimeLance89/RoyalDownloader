@@ -471,7 +471,9 @@ export function createSeriesPresentation(catalogRoot, detailRoot, {
     renderSeriesDetailDiscovery(series);
   }
 
-  function showSeriesDetail(series, sampleSlug) {
+  function showSeriesDetail(series, sampleSlug, { preserveSelection = false } = {}) {
+    const picked = preserveSelection && seriesState.current?.base_slug === series.base_slug
+      ? new Set(seriesState.epPicked) : new Set();
     showSavedMedia(series);
     const progress = byId("series-probe-progress");
     if (progress) progress.hidden = true;
@@ -482,7 +484,7 @@ export function createSeriesPresentation(catalogRoot, detailRoot, {
     seriesState.cache[series.base_slug] = series;
     updateSeriesResultCard(series.base_slug);
     seriesState.pendingBaseSlug = "";
-    seriesState.epPicked = new Set();
+    seriesState.epPicked = picked;
     updateSeriesResultSelection();
     updateSeriesOverview(series);
     byId("series-watch-btn").disabled = false;

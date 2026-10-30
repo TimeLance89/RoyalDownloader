@@ -1341,6 +1341,19 @@ async def api_monster_tmdb_series_load(body: MonsterSeriesLoadBody):
 async def api_series_load(body: SeriesLoadBody):
     def _work():
         series = state.series_cache.get(body.base_slug) if body.base_slug else None
+        source_refresh_failed = False
+        if series is not None and getattr(state.series_cache, "needs_refresh", lambda _key: False)(series.base_slug):
+            try:
+                fresh = get_series_for_value(body.sample_slug or series.url)
+                if fresh is None or not fresh.all_episodes:
+                    raise RuntimeError("Leerer Quellenstand")
+            except Exception as exc:
+                source_refresh_failed = True
+                state.series_cache.refresh_failed(series.base_slug)
+                log(f"Serienquelle für «{series.title}» nicht aktualisiert: {exc}", "warn")
+            else:
+                series = merge_series_snapshots(series, fresh)
+                state.series_cache[series.base_slug] = series
         if series is None:
             series = get_series_for_value(body.sample_slug)
         if series is None:
@@ -1350,7 +1363,7 @@ async def api_series_load(body: SeriesLoadBody):
             refresh_jellyfin=body.refresh_jellyfin,
             defer_checks=body.defer_checks,
         )
-        missing_seasons = set() if body.defer_checks else series_payload_missing_seasons(payload)
+        missing_seasons = set() if body.defer_checks or source_refresh_failed else series_payload_missing_seasons(payload)
         if missing_seasons:
             log(
                 f"Serienstruktur für «{series.title}» unvollständig "

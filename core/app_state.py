@@ -22,6 +22,7 @@ from providers.moflix import MoflixScraper
 from providers.serienstream import SerienstreamScraper
 from media.resolved_link_cache import ResolvedLinkCache
 from core.runtime_cache import BoundedTTLCache
+from core.series_source_cache import SeriesSourceCache
 from core.runtime_paths import data_dir
 from features.taste_profile import UserTasteProfileStore
 from core.personal_requests import PersonalRequestStore
@@ -301,8 +302,8 @@ class AppState:
         self.sflix_provider_genres: set = set()
         self.ridomovies_provider_genres: set = set()
 
-        self.series_cache = BoundedTTLCache[str, FilmpalastSeries](
-            "series_cache", max_entries=512, ttl_seconds=6 * 60 * 60,
+        self.series_cache = SeriesSourceCache(
+            "series_cache", max_entries=512, ttl_seconds=60 * 60,
             is_pinned=active_series_slug,
         )
         self.series_dir_cache = BoundedTTLCache[tuple, Path](

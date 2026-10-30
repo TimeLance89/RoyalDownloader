@@ -330,3 +330,31 @@ test('TMDB series detail uses the bounded progressive people endpoint', async ()
   }, 'tmdb:111', 'tmdb:111');
   assert.equal(result.seasons.length, 1);
 });
+
+test('cached series appears immediately, then adopts new episodes without losing picks', async () => {
+  const noop = () => {}, shown = [];
+  let finish;
+  const cached = {base_slug:'serienstream:test',title:'Test',seasons:[{season:2,episodes:[{slug:'e1',episode:1,unreleased:true}]}]};
+  const state = {current:null,requestSeq:0,viewGeneration:0,cache:{'serienstream:test':cached},epPicked:new Set()};
+  const loader = createSeriesDetailsLoader({}, {}, {
+    seriesState:state,cancelSeriesChecks:noop,trackDiscoveryPreference:noop,
+    updateSeriesResultSelection:noop,showSeriesLoading:noop,openMediaModal:noop,
+    findSeriesResultCard:()=>null,updateSeriesStatus:noop,refreshSeriesJellyfinStatus:noop,
+    showSeriesDetail(series,slug,{preserveSelection=false}={}) {
+      shown.push(series); state.current=series;
+      if(!preserveSelection)state.epPicked.clear();
+    },
+    client:{post:()=>new Promise(resolve=>{finish=resolve;})},
+  });
+  const pending=loader.open({base_slug:cached.base_slug,sample_slug:'e1',title:'Test'});
+  assert.equal(shown.length,1);
+  assert.equal(typeof finish,'function','A browser cache hit must still contact the server');
+  state.epPicked.add('other-episode');
+  finish({base_slug:cached.base_slug,seasons:[{season:2,episodes:[{slug:'e1',episode:1,unreleased:false},{slug:'e2',episode:2,unreleased:true}]}]});
+  await pending;
+  assert.equal(shown.length,2);
+  assert.equal(state.current.episode_count,2);
+  assert.equal(state.current.seasons[0].episodes[0].unreleased,false);
+  assert.ok(state.epPicked.has('other-episode'));
+  loader.unmount();
+});
