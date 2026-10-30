@@ -1013,6 +1013,7 @@ test("the stylesheet manifest preserves every ordered CSS module", () => {
     "styles/daily-top.css",
     "styles/language-studio.css",
     "styles/mobile.css",
+    "styles/seasonal-events.css",
   ]);
   for (const path of imports) {
     assert.ok(existsSync(new URL(`../web/${path}`, import.meta.url)), path);

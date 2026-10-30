@@ -22,6 +22,11 @@ export function createLocalization(document, { client = api } = {}) {
   const ATTRIBUTES = ["placeholder", "title", "aria-label", "label"];
   const LOCAL_TRANSLATIONS = {
     en: new Map(Object.entries({
+      "Events auf der Startseite": "Home page events",
+      "Saisonale Events": "Seasonal events",
+      "Saisonale Kulissen, passend zur Jahreszeit. Dein Programm und deine Empfehlungen bleiben unverändert.": "Seasonal scenery throughout the year. Your programme and recommendations stay the same.",
+      "Halloween: 28.–31. Oktober, jeden Tag ein wenig mehr Atmosphäre.": "Halloween: October 28–31, with a little more atmosphere each day.",
+      "Gespeichert · wirkt sofort.": "Saved · takes effect immediately.",
       "Filmwelten & Studios": "Movie worlds & studios",
       "Filmwelt auswählen": "Choose a movie world",
       "Alle Filmwelten": "All movie worlds",

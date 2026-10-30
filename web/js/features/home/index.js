@@ -1,6 +1,6 @@
 import { createScope } from "../../core/lifecycle.js";
 
-export function createHomeLifecycle({ root, shuffle, updateRailNavigation, refresh, dayChanged, stopRotation, dock, carousel, hero, recommendations, search, dailyTop, tasteRanking, layout, railRenderer, exposureVisibility }) {
+export function createHomeLifecycle({ root, shuffle, updateRailNavigation, refresh, dayChanged, stopRotation, dock, carousel, hero, recommendations, search, dailyTop, tasteRanking, layout, railRenderer, exposureVisibility, seasonalEvents }) {
   let scope;
   return {
     mount() {
@@ -13,6 +13,7 @@ export function createHomeLifecycle({ root, shuffle, updateRailNavigation, refre
       dock.mount(); railRenderer.mount(); layout.mount(); tasteRanking.mount(); carousel.mount();
       exposureVisibility?.mount();
       hero.mount();
+      seasonalEvents?.mount();
       recommendations.mount(); search.mount(); dailyTop.mount();
       // Local midnight has no server event; only the visible Home needs this check.
       scope.interval(() => { if (dayChanged()) refresh(); }, 5 * 60 * 1000);
@@ -22,6 +23,7 @@ export function createHomeLifecycle({ root, shuffle, updateRailNavigation, refre
       scope?.dispose();
       scope = null;
       exposureVisibility?.unmount();
+      seasonalEvents?.unmount();
       railRenderer.unmount(); layout.unmount(); tasteRanking.unmount(); recommendations.unmount(); search.unmount(); dailyTop.unmount();
       carousel.unmount();
       hero.unmount();

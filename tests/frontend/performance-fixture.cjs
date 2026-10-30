@@ -5,13 +5,13 @@ const { resolve, extname, sep } = require("node:path");
 const playwright = require(process.env.ROYAL_PLAYWRIGHT || "playwright");
 const defaultWeb = resolve(process.env.ROYAL_WEB_ROOT || resolve(__dirname, "../../web"));
 
-async function fixture({ viewport = { width: 1440, height: 1000 }, mobile = false, rate = 1, engine = "chromium", webRoot = defaultWeb, externalFonts = false } = {}) {
+async function fixture({ viewport = { width: 1440, height: 1000 }, mobile = false, rate = 1, engine = "chromium", webRoot = defaultWeb, externalFonts = false, now } = {}) {
   const web = resolve(webRoot);
   const server = createServer(async (req, res) => {
     const path = resolve(web, `.${new URL(req.url, "http://local").pathname.replace(/\/$/, "/index.html")}`);
     if (!path.startsWith(web + sep)) return res.writeHead(403).end();
     try {
-      res.setHeader("Content-Type", { ".js": "text/javascript", ".css": "text/css", ".html": "text/html" }[extname(path)] || "application/octet-stream");
+      res.setHeader("Content-Type", { ".js": "text/javascript", ".css": "text/css", ".html": "text/html", ".svg": "image/svg+xml" }[extname(path)] || "application/octet-stream");
       res.end(await readFile(path));
     } catch { res.writeHead(404).end(); }
   });
@@ -21,6 +21,7 @@ async function fixture({ viewport = { width: 1440, height: 1000 }, mobile = fals
   browser = await playwright[engine].launch({ headless: true });
   const context = await browser.newContext({ viewport, isMobile: mobile, hasTouch: mobile, deviceScaleFactor: mobile ? 3 : 1 });
   const page = await context.newPage();
+  if (now) await page.clock.install({ time: new Date(now) });
   if (process.env.ROYAL_SCROLLEND_FALLBACK === '1') await page.addInitScript(() => {
     window.addEventListener('scrollend', event => event.stopImmediatePropagation(), true);
   });
