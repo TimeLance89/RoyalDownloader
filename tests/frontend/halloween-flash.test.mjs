@@ -20,30 +20,30 @@ function fixture(stage = 4) {
     },
     dispose(){this.active=false;timers.forEach(t=>{t.active=false;});removals.forEach(fn=>fn());},
   };
-  const storm = createHalloweenFlash(root,{getState:()=>state,random:()=>0,scopeFactory:()=>scope,motion});
+  const storm = createHalloweenFlash(root,{getState:()=>state,scopeFactory:()=>scope,motion});
   return {root,motion,timers,state,storm};
 }
 
-test("one strike fades out, then waits at least 18 seconds with no overlapping timers",()=>{
+test("one flash every ten seconds without overlapping timers",()=>{
   const f=fixture();
   f.storm.sync();f.storm.sync();
   assert.equal(f.timers.filter(t=>t.active).length,1);
-  assert.equal(f.timers[0].delay,1600);
+  assert.equal(f.timers[0].delay,1800);
   f.timers[0].run();
   assert.equal(f.root.dataset.eventLightning,"true");
   assert.equal(f.timers[1].delay,360);
   f.storm.sync();assert.equal(f.timers.length,2);
   f.timers[1].run();
   assert.equal(f.root.dataset.eventLightning,undefined);
-  assert.equal(f.timers[2].delay,18000);
+  assert.equal(f.timers[2].delay,9640);
   assert.equal(f.timers.filter(t=>t.active).length,1);
   f.storm.dispose();
 });
 
-test("early Halloween days have longer quiet periods",()=>{
-  for(const [stage,quiet] of [[1,35000],[2,28000],[3,22000],[4,18000]]){
+test("all Halloween days use the same regular cadence",()=>{
+  for(const stage of [1,2,3,4]){
     const f=fixture(stage);f.storm.sync();f.timers[0].run();f.timers[1].run();
-    assert.equal(f.timers[2].delay,quiet);f.storm.dispose();
+    assert.equal(f.timers[2].delay + f.timers[1].delay,10000);f.storm.dispose();
   }
 });
 
@@ -57,7 +57,7 @@ test("reduced motion cancels a live strike and prevents new flashes",()=>{
   assert.equal(f.timers.filter(t=>t.active).length,1);f.storm.dispose();
 });
 
-test("leaving Home, hiding the Hero, disabling events and disposal cancel all storm work",()=>{
+test("leaving Home, hiding the browser, disabling events and disposal cancel all storm work",()=>{
   const f=fixture();f.storm.sync();f.timers[0].run();
   f.state.active=false;f.storm.sync();
   assert.equal(f.root.dataset.eventLightning,undefined);
