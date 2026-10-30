@@ -79,7 +79,6 @@ export function createSeriesDetailsLoader(root, status, {
       showSeriesDetail(enriched, result.sample_slug);
       updateSeriesStatus(enriched);
       refreshSeriesJellyfinStatus();
-      return;
     }
 
     status.textContent = `Öffne Staffeln für «${result.title}» …`;
@@ -122,8 +121,8 @@ export function createSeriesDetailsLoader(root, status, {
       deferChecks: true, signal: owner.signal,
     });
     if (!owner.active || requestId !== seriesState.requestSeq) return;
-      const series = mergeSeriesDetailPayload(result, loaded);
-      showSeriesDetail(series, result.sample_slug);
+      const series = mergeSeriesDetailPayload(cached ? seriesState.current || cached : result, loaded);
+      showSeriesDetail(series, result.sample_slug, { preserveSelection: Boolean(cached) });
       updateSeriesStatus(series);
       refreshSeriesJellyfinStatus();
     } catch (e) {
@@ -132,6 +131,7 @@ export function createSeriesDetailsLoader(root, status, {
       updateSeriesResultSelection();
       console.warn("Serienanbieter nicht erreichbar:", e);
       status.textContent = "Anbieter derzeit nicht erreichbar";
+      if (cached) return; // Keep the usable preview, selection and library state.
       byId("series-detail-title").textContent = result.title;
       byId("series-desc").textContent = result.description || "Metadaten derzeit nicht verfügbar";
       const loading = root.querySelector("#series-tiles .series-loading");
