@@ -18,7 +18,6 @@ from features.monster_series_extension import (
 from features.episode_source_probe import episode_source_providers
 from features.subscription_languages import subscription_content_languages
 from providers.aniworld import aniworld_episode_slug
-from providers.sentinel_runtime import runtime_recovery
 from application_services.media_scans import request_media_scan, media_scan_manager
 
 globals().update(import_backend_namespace())
@@ -590,7 +589,6 @@ def _mark_serienstream_blocked(reason: str, error: str = "") -> dict:
     return updated
 
 
-@runtime_recovery("serienstream")
 def _probe_serienstream_once(item: Optional[dict]) -> bool:
     """Führt genau einen kontrollierten SerienStream-Netzwerkrequest aus."""
     try:

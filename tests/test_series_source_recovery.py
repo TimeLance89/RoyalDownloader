@@ -69,10 +69,16 @@ def test_manual_probe_reaches_transport_with_recovery_ownership(recovery, monkey
         calls.append(url)
         return "<html>source is available</html>"
     scraper = SimpleNamespace(reset_gate=lambda: None, session=SimpleNamespace(get=get))
-    monkeypatch.setattr(lifecycle, "state", SimpleNamespace(sto_lock=threading.Lock()))
+    monkeypatch.setattr(lifecycle, "state", SimpleNamespace(
+        sto_lock=threading.Lock(), queue_prepare_lock=threading.Lock(), provider_health=health))
     monkeypatch.setattr(lifecycle, "get_sto_scraper", lambda: scraper)
-    assert lifecycle._probe_serienstream_once(None)
+    monkeypatch.setattr(lifecycle, "log", lambda *args: None)
+    monkeypatch.setattr(lifecycle, "broadcast", lambda *args: None)
+    monkeypatch.setattr(lifecycle, "serienstream_provider_status", lambda: {})
+    monkeypatch.setattr(lifecycle, "_resume_waiting_provider_jobs", lambda *args: None)
+    lifecycle._execute_provider_probe(None)
     assert len(calls) == 1
+    assert health.request_allowed("serienstream")
     assert sentinel_runtime._recovery.get() is None
 
 

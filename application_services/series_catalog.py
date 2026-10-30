@@ -3,8 +3,7 @@
 # ruff: noqa: F821
 
 import time
-from contextlib import nullcontext
-from providers.sentinel_runtime import runtime_recovery
+from application_services.serienstream_reads import read_serienstream
 from concurrent.futures import ThreadPoolExecutor
 from media.local_inventory import media_probe_pool, validate_cached_media
 
@@ -22,32 +21,8 @@ series_payload_missing_seasons = series_payload.series_payload_missing_seasons
 
 # --- Serienanbieter ----------------------------------------------------------
 def _sto_source_read(operation):
-    """One source read owns recovery after an expired cooldown, including browse."""
-    health = state.provider_health
-    recovery = not health.request_allowed("serienstream")
-    if recovery and not health.begin_probe("serienstream"):
-        raise RuntimeError("SerienStream befindet sich im Provider-Cooldown")
-    try:
-        with state.sto_lock, (runtime_recovery("serienstream") if recovery else nullcontext()):
-            scraper = get_sto_scraper()
-            if recovery:
-                # A cached catalog is not evidence that the source recovered.
-                for name in ("_catalog_cache", "_browse_catalog_cache", "_beliebte_cache"):
-                    setattr(scraper, name, None)
-            result = operation(scraper)
-        if recovery:
-            if result:
-                health.mark_success("serienstream")
-            else:
-                health.finish_probe_error("serienstream", "runtime_recovery_empty")
-        return result
-    except ProviderBlockedError as exc:
-        _mark_serienstream_blocked(exc.reason, str(exc))
-        raise
-    except Exception:
-        if recovery and health.status("serienstream")["state"] == "probing":
-            health.finish_probe_error("serienstream", "runtime_recovery_failed")
-        raise
+    return read_serienstream(operation, health=state.provider_health, lock=state.sto_lock,
+                            scraper_factory=get_sto_scraper, on_blocked=_mark_serienstream_blocked)
 
 
 def _sto_get_series(value: str) -> Optional[FilmpalastSeries]:

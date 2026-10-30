@@ -114,11 +114,15 @@ const { fixture } = require("./performance-fixture.cjs");
       await page.evaluate(()=>{fixtureApp.core.actions.switchTab("einstellungen"); document.querySelector('[data-settings-target="settings-general"]').click();});
       await page.waitForFunction(()=>!document.getElementById("seasonal-events-enabled").disabled);
       fail = true;
-      await toggle.check();
+      // check() asserts the transient checked state, but the failed save may
+      // correctly restore it before Playwright performs that assertion.
+      await toggle.click();
       await page.waitForFunction(()=>document.getElementById("seasonal-events-status").textContent.includes("Preference not saved"));
       assert.equal(await toggle.isChecked(),false);
       await toggle.check();
       await page.waitForFunction(()=>document.getElementById("seasonal-events-status").textContent.includes("Saved"));
+      assert.deepEqual(writes,[{enabled:false},{enabled:true},{enabled:true}],"Failed save and successful retry must both reach the API");
+      assert.equal(await toggle.isChecked(),true);
       await page.screenshot({path:`artifacts/seasonal-events/settings-${mobile?"mobile":"desktop"}.png`});
       await page.evaluate(()=>fixtureApp.core.actions.switchTab("home"));
       await page.waitForSelector(".home-event-backdrop");
