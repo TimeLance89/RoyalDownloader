@@ -11,6 +11,7 @@ from types import SimpleNamespace
 
 from core import egress_urllib
 from integrations.tmdb_people import TMDBPeopleMixin
+from integrations.tmdb_movie_worlds import TMDBMovieWorldsMixin
 
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
@@ -80,7 +81,7 @@ def _clean_movie_query_title(title: str) -> str:
     ).strip()
 
 
-class TMDBClient(TMDBPeopleMixin):
+class TMDBClient(TMDBPeopleMixin, TMDBMovieWorldsMixin):
     def __init__(self, api_key: str = "", language: str = "de-DE", timeout: float = 8.0):
         self.api_key = (api_key or "").strip()
         self.language = language
@@ -104,6 +105,7 @@ class TMDBClient(TMDBPeopleMixin):
         self._now_playing_cache: tuple[float, set[int]] = (0.0, set())
         self._now_playing_movies_cache: tuple[float, list[dict]] = (0.0, [])
         self._lock = threading.Lock()
+        self._init_movie_world_cache()
 
     @property
     def configured(self) -> bool:

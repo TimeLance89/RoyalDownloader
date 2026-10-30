@@ -73,6 +73,12 @@ jobs:
       - name: Populated movie and series catalogs on desktop and touch mobile
         if: ${{ matrix.suite == 'catalog' }}
         run: node tests/frontend/catalog-browser.cjs
+      - name: Movie worlds, filter truth, pagination and DE/EN interface
+        if: ${{ matrix.suite == 'catalog' }}
+        run: |
+          node --test tests/movie_filters.test.mjs tests/movie_catalog_refresh.test.mjs
+          node tests/frontend/movie-worlds-browser.cjs
+
       - name: Series hidden prefetch, silent recovery and reveal on downward scroll
         if: ${{ matrix.suite == 'catalog' }}
         run: node tests/frontend/series-pagination-browser.cjs

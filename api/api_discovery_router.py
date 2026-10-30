@@ -412,11 +412,24 @@ async def api_movie_collection(collection_id: int):
 
 @router.get("/api/v1/movies")
 @router.get("/api/movies")
-async def api_movies(mode: str = "search", query: str = "", genre: str = "", page: int = 1):
+async def api_movies(mode: str = "search", query: str = "", genre: str = "", page: int = 1,
+                     world: str = "", language: str = "de", period: str = "all",
+                     rating: str = "all", sort: str = "default"):
     if page < 1 or page > MOVIE_MAX_GLOBAL_PAGE:
         raise HTTPException(400, f"Seite muss zwischen 1 und {MOVIE_MAX_GLOBAL_PAGE} liegen.")
 
     def _work():
+        if mode == "world":
+            client = get_tmdb_client()
+            if not client.configured:
+                raise HTTPException(503, "TMDB für Filmwelten in den Einstellungen konfigurieren. / Configure TMDB in settings.")
+            try:
+                return client.movie_world(world, page, language=language, period=period,
+                                         rating=rating, sort=sort, genre=genre)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            except RuntimeError as exc:
+                raise HTTPException(502, "Filmwelt nicht verfügbar. / Movie world unavailable.") from exc
         if mode == "search":
             q = query.strip()
             if not q:
@@ -465,6 +478,7 @@ async def api_movies(mode: str = "search", query: str = "", genre: str = "", pag
         # korrekt: Eine weitere globale Seite ist tatsächlich vorhanden.
         "last_page_full": data["has_more"],
         "sources": data["sources"],
+        "total_results": data.get("total_results"),
     }
 
 

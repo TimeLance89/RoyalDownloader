@@ -115,7 +115,11 @@ const server = createServer(async (req, res) => {
           const body = route.request().postDataJSON();
           accountUsers.push({ id: "new-member", enabled: true, ...body });
           data = { user: accountUsers.at(-1) };
-        } else data = { users: [user, ...accountUsers] };
+        } else {
+          // Exercise the gap between mutation success and refreshed account rows.
+          if (accountResets && !accountDeletes) await new Promise(resolve => setTimeout(resolve, 150));
+          data = { users: [user, ...accountUsers] };
+        }
       }
       if (url.pathname.endsWith("/reset-password")) { accountResets++; data = { ok: true }; }
       if (url.pathname === "/api/auth/users/new-member" && route.request().method() === "DELETE") {
@@ -578,10 +582,15 @@ const server = createServer(async (req, res) => {
     await page.waitForFunction(() => document.querySelector('[data-user-id="new-member"]'));
     assert.equal(accountCreates, 1);
     await page.locator('.account-household-row:has([data-user-id="new-member"]) summary').click();
+    const memberRowBeforeReset = await page.locator('.account-household-row:has([data-user-id="new-member"])').elementHandle();
     page.once("dialog", dialog => dialog.accept());
     await page.locator('[data-user-action="reset"][data-user-id="new-member"]').click();
     await page.waitForFunction(() => document.getElementById("account-users-status").textContent.includes("zurückgesetzt"));
     assert.equal(accountResets, 1);
+    // The success message precedes refreshAccountUsers(). Reopen the menu only
+    // after the old row is replaced, otherwise the click can close the old menu
+    // and the refreshed row leaves the delete button hidden.
+    await page.waitForFunction(row => !row.isConnected, memberRowBeforeReset);
     await page.locator('.account-household-row:has([data-user-id="new-member"]) summary').click();
     page.once("dialog", dialog => dialog.accept());
     await page.locator('[data-user-action="delete"][data-user-id="new-member"]').click();
