@@ -219,11 +219,12 @@
 }
 
 #tab-filme .movie-filter-result strong {
-  display: block;
   color: #8a8d94;
   font: 600 8px/1.2 "JetBrains Mono", monospace;
 }
 
+/* Movie worlds filter presentation. */
+#tab-filme .movie-filter-result strong { display: block; }
 #tab-filme .movie-world-picker {
   display: grid;
   grid-template-columns: minmax(180px, 280px) minmax(0, 1fr);
@@ -248,6 +249,7 @@
 @media (max-width: 600px) {
   #tab-filme .movie-world-picker { grid-template-columns: minmax(0, 1fr); gap: 8px; }
 }
+/* End movie worlds filter presentation. */
 
 #tab-filme .movie-filter-controls {
   display: grid;

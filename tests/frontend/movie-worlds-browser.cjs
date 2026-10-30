@@ -43,6 +43,7 @@ const { fixture } = require("./performance-fixture.cjs");
       await page.waitForFunction(() => !fixtureApp.discovery.movieState.loadingMore);
       await page.waitForFunction(() => document.querySelector("#genre-count")?.textContent.includes("total"));
       assert.equal(requests.at(-1).language, "en");
+      assert.equal(await page.locator("#genre-count").isVisible(), true);
       assert.equal(await page.locator('#movie-filter-world option[value="disney"]').textContent(), "Disney movies");
       assert.equal(await page.locator('#movie-filter-world optgroup').last().getAttribute("label"), "Heroes & universes");
       await page.locator("#movie-filter-world").scrollIntoViewIfNeeded();

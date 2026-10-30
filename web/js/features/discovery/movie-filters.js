@@ -5,7 +5,7 @@ export function createMovieFilters(root, {
   fpStatusMessage, fpGenreChange,
 }) {
   const byId = id => root.querySelector(`#${id}`);
-  const english = () => root.ownerDocument.documentElement.lang.startsWith("en");
+  const english = () => root.ownerDocument?.documentElement?.lang?.startsWith("en") || false;
   const text = (de, en) => english() ? en : de;
   let filters = { period: "all", rating: "all", availability: "all", language: "all", sort: "default" };
   function fpSmartFilters() { return filters; }

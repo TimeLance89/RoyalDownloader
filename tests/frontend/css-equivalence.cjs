@@ -85,6 +85,14 @@ const baselineRef = process.env.ROYAL_CSS_BASELINE || "7d93908";
           ?.split("/* End inbox removal presentation. */")[0];
         assert.ok(block, "Missing explicitly scoped Inbox presentation rules");
         await page.addStyleTag({ content: block });
+        // New movie-world controls have no frozen counterpart. Apply only their
+        // marked styles to both sides; movie-worlds-browser covers the new UI.
+        // Keep every existing shell and filter style in the baseline comparison.
+        const moviePolish = readFileSync(resolve(root, "web/styles/catalog-polish.css"), "utf8");
+        const movieWorlds = moviePolish.split("/* Movie worlds filter presentation. */")[1]
+          ?.split("/* End movie worlds filter presentation. */")[0];
+        assert.ok(movieWorlds, "Missing explicitly scoped movie worlds presentation rules");
+        await page.addStyleTag({ content: movieWorlds });
       }
     }
     const snapshot = () => page.evaluate(() => [...document.querySelectorAll("body, body *")]
