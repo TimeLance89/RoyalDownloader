@@ -1,6 +1,7 @@
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
 import { createHalloweenFlash } from "./halloween-flash.js";
+import { clearHalloweenDecorations, renderHalloweenDecorations } from "./halloween-decorations.js";
 
 /** Browser-local calendar, inclusive dates; no UTC conversion or fixed year. */
 export function seasonalEventAt(date = new Date()) {
@@ -13,6 +14,7 @@ export function createSeasonalEvents(root, { client = api, now = () => new Date(
   let scope = null, enabled = null, cancelMidnight = null, revision = 0;
   let flash = null;
   function clear() {
+    clearHalloweenDecorations(root);
     root.querySelector(".home-event-backdrop")?.remove();
     root.querySelector(".home-event-flash")?.remove();
     delete root.dataset.seasonalEvent;
@@ -24,6 +26,7 @@ export function createSeasonalEvents(root, { client = api, now = () => new Date(
     if (!event) { clear(); return; }
     root.dataset.seasonalEvent = event.id;
     root.dataset.eventStage = String(event.stage);
+    renderHalloweenDecorations(root, event.stage);
     if (!root.querySelector(".home-event-backdrop")) {
       const backdrop = document.createElement("div");
       backdrop.className = "home-event-backdrop";

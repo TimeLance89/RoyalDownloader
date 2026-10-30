@@ -11,7 +11,7 @@ async function fixture({ viewport = { width: 1440, height: 1000 }, mobile = fals
     const path = resolve(web, `.${new URL(req.url, "http://local").pathname.replace(/\/$/, "/index.html")}`);
     if (!path.startsWith(web + sep)) return res.writeHead(403).end();
     try {
-      res.setHeader("Content-Type", { ".js": "text/javascript", ".css": "text/css", ".html": "text/html", ".svg": "image/svg+xml", ".jpg": "image/jpeg" }[extname(path)] || "application/octet-stream");
+      res.setHeader("Content-Type", { ".js": "text/javascript", ".css": "text/css", ".html": "text/html", ".svg": "image/svg+xml", ".jpg": "image/jpeg", ".png": "image/png" }[extname(path)] || "application/octet-stream");
       res.end(await readFile(path));
     } catch { res.writeHead(404).end(); }
   });

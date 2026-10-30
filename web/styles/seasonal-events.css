@@ -60,6 +60,36 @@
   #tab-home .event-lightning-flash { display: none; animation: none; }
 }
 
+/* All motifs are existing transparent PNGs. CSS only anchors/sizes the images. */
+#tab-home .home-event-decoration {
+  position: absolute;
+  z-index: 5;
+  display: block;
+  height: auto;
+  pointer-events: none;
+  user-select: none;
+}
+#tab-home .event-decor-web { width: 180px; opacity: .24; filter: invert(1); }
+#tab-home .event-decor-bats { width: 150px; opacity: .45; filter: invert(.65); }
+#tab-home .event-decor-pumpkin { width: 112px; z-index: 6; }
+#tab-home .event-decor-top-left { top: 0; left: 0; }
+#tab-home .event-decor-web.event-decor-top-right { top: 0; right: 0; width: 140px; transform: scaleX(-1); }
+#tab-home .event-decor-bats.event-decor-top-right { top: 48px; right: 110px; }
+#tab-home .event-decor-hero-right { bottom: 140px; right: var(--home-gutter); }
+#tab-home .event-decor-hero-pair { bottom: 132px; right: calc(var(--home-gutter) + 88px); width: 76px; transform: scaleX(-1); }
+#tab-home .event-decor-web.event-decor-rail-left { top: -12px; left: 0; width: var(--home-gutter); }
+#tab-home .event-decor-bats.event-decor-rail-right { top: -22px; right: var(--home-gutter); width: 95px; }
+#tab-home .event-decor-pumpkin.event-decor-rail-left { top: -14px; left: 5px; width: 34px; }
+@media (max-width: 820px) {
+  #tab-home .event-decor-web { width: 86px; }
+  #tab-home .event-decor-web.event-decor-top-right { width: 68px; }
+  #tab-home .event-decor-bats.event-decor-top-right { top: 8px; right: 87px; width: 100px; }
+  #tab-home .event-decor-hero-right { top: 8px; bottom: auto; right: 8px; width: 64px; }
+  #tab-home .event-decor-hero-pair { top: 29px; bottom: auto; right: 62px; width: 46px; }
+  #tab-home .event-decor-bats.event-decor-rail-right { width: 65px; top: -20px; }
+  #tab-home .event-decor-pumpkin.event-decor-rail-left { left: auto; right: 14px; top: -28px; width: 46px; }
+}
+
 .seasonal-event-toggle { display: flex; align-items: center; gap: 18px; margin-top: 16px; cursor: pointer; }
 .seasonal-event-toggle > span { flex: 1; }
 .seasonal-event-toggle strong, .seasonal-event-toggle small { display: block; }

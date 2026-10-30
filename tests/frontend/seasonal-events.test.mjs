@@ -15,7 +15,7 @@ test("Halloween runs annually October 28–31 using local calendar boundaries", 
 });
 
 function service(client) {
-  return createSeasonalEvents({ ownerDocument:{defaultView:{}}, dataset:{}, querySelector:()=>null }, {client});
+  return createSeasonalEvents({ ownerDocument:{defaultView:{}}, dataset:{}, querySelector:()=>null, querySelectorAll:()=>[] }, {client});
 }
 
 test("a stale configuration read cannot undo the saved off preference", async () => {
