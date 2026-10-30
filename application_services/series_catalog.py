@@ -3,6 +3,7 @@
 # ruff: noqa: F821
 
 import time
+from application_services.serienstream_reads import read_serienstream
 from concurrent.futures import ThreadPoolExecutor
 from media.local_inventory import media_probe_pool, validate_cached_media
 
@@ -19,25 +20,16 @@ globals().update(import_backend_namespace())
 series_payload_missing_seasons = series_payload.series_payload_missing_seasons
 
 # --- Serienanbieter ----------------------------------------------------------
+def _sto_source_read(operation):
+    return read_serienstream(operation, health=state.provider_health, lock=state.sto_lock,
+                            scraper_factory=get_sto_scraper, on_blocked=_mark_serienstream_blocked)
+
+
 def _sto_get_series(value: str) -> Optional[FilmpalastSeries]:
-    if not state.provider_health.request_allowed("serienstream"):
-        raise RuntimeError("SerienStream befindet sich im Provider-Cooldown")
-    with state.sto_lock:
-        try:
-            return get_sto_scraper().get_series(value)
-        except ProviderBlockedError as exc:
-            _mark_serienstream_blocked(exc.reason, str(exc))
-            raise
+    return _sto_source_read(lambda scraper: scraper.get_series(value))
 
 def _sto_search_series(query: str) -> List[FilmpalastSeriesResult]:
-    if not state.provider_health.request_allowed("serienstream"):
-        raise RuntimeError("SerienStream befindet sich im Provider-Cooldown")
-    with state.sto_lock:
-        try:
-            return get_sto_scraper().search_series(query)
-        except ProviderBlockedError as exc:
-            _mark_serienstream_blocked(exc.reason, str(exc))
-            raise
+    return _sto_source_read(lambda scraper: scraper.search_series(query))
 
 def _search_series_for_provider(provider: str, query: str) -> List[FilmpalastSeriesResult]:
     if provider == "aniworld":
@@ -269,28 +261,22 @@ def _fetch_series_provider_page(
         return []
 
     if provider == "serienstream":
-        if not state.provider_health.request_allowed("serienstream"):
-            raise RuntimeError("SerienStream befindet sich im Provider-Cooldown")
-        with state.sto_lock:
-            scraper = get_sto_scraper()
-            try:
-                if mode == "alpha":
-                    return list(scraper.list_series_alpha(letter, source_page))
-                if mode == "discover":
-                    return list(scraper.list_series_catalog(source_page))
-                if source_page != 1:
-                    return []
-                if mode == "new":
-                    return list(scraper.list_new(1))
-                if mode == "trending":
-                    return list(scraper.list_trending(1))
-                return _interleave_series_lists(
-                    list(scraper.list_trending(1)),
-                    list(scraper.list_new(1)),
-                )
-            except ProviderBlockedError as exc:
-                _mark_serienstream_blocked(exc.reason, str(exc))
-                raise
+        def load(scraper):
+            if mode == "alpha":
+                return list(scraper.list_series_alpha(letter, source_page))
+            if mode == "discover":
+                return list(scraper.list_series_catalog(source_page))
+            if source_page != 1:
+                return []
+            if mode == "new":
+                return list(scraper.list_new(1))
+            if mode == "trending":
+                return list(scraper.list_trending(1))
+            return _interleave_series_lists(
+                list(scraper.list_trending(1)),
+                list(scraper.list_new(1)),
+            )
+        return _sto_source_read(load)
 
     if provider == "filmpalast":
         with state.fp_lock:
