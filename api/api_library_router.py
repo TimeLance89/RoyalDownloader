@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from features.subscription_languages import subscription_content_languages
+from features.smart_automation import automatic_movie_upgrade_decision
 
 import asyncio
 import ipaddress
@@ -550,6 +551,21 @@ def check_movie_subscriptions(entries: list[dict] | None = None) -> int:
                 with state.movie_subscriptions_lock:
                     entry["last_error"] = "Jellyfin konnte die vorhandene Filmqualität nicht ermitteln"
                 continue
+            has_existing_movie = bool(
+                jf_item or entry.get("existing_path") or entry.get("last_upgraded")
+                or int(entry.get("current_quality_rank") or 0) > 0
+            )
+            action = "Qualitäts-Upgrade" if has_existing_movie else "Erstdownload"
+            allowed, reason = automatic_movie_upgrade_decision(
+                state, initial_download=not has_existing_movie,
+            )
+            with state.movie_subscriptions_lock:
+                previous_reason = entry.get("deferred_reason", "")
+                entry["deferred_reason"] = reason if not allowed else ""
+            if not allowed:
+                if reason and reason != previous_reason:
+                    log(f"Film-Abo: «{entry['title']}» zurückgestellt: {reason}.")
+                continue
             try:
                 sources = _movie_subscription_sources(entry)
                 primary, fallbacks, rank, label = _prepare_movie_subscription_upgrade(entry, sources)
@@ -589,10 +605,10 @@ def check_movie_subscriptions(entries: list[dict] | None = None) -> int:
                     state.picked.discard(slug)
                 with state.movie_subscriptions_lock:
                     entry["pending_slug"] = ""
-                    entry["last_error"] = "Upgrade konnte nicht eingereiht werden"
+                    entry["last_error"] = f"{action} konnte nicht eingereiht werden"
             else:
                 log(
-                    f"Film-Abo: Qualitäts-Upgrade für «{entry['title']}» "
+                    f"Film-Abo: {action} für «{entry['title']}» "
                     f"auf {label or f'{rank}p'} eingereiht."
                 )
         with state.movie_subscriptions_lock:
