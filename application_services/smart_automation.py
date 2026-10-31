@@ -55,7 +55,7 @@ def _auto_download_new_episodes() -> None:
 
 
 def movie_subscription_auto_check_loop() -> None:
-    """Check quality subscriptions on their own optional nighttime schedule."""
+    """Check acquisitions regularly; apply upgrade-only rules per subscription."""
 
     while True:
         started = time.monotonic()
@@ -66,11 +66,7 @@ def movie_subscription_auto_check_loop() -> None:
             configured = 30
         interval_min = max(5, min(configured, 24 * 60))
         try:
-            allowed, reason = smart_policy.automatic_movie_upgrade_decision(state)
-            if allowed:
-                check_movie_subscriptions()
-            elif reason:
-                _log_deferred("Film-Upgrades", reason)
+            check_movie_subscriptions()
         except Exception as exc:
             retry_after_failure = True
             log(f"Automatische Film-Abo-Prüfung fehlgeschlagen: {exc}", "warn")

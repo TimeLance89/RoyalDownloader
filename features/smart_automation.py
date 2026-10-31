@@ -546,11 +546,12 @@ def automatic_series_decision(
 
 
 def automatic_movie_upgrade_decision(
-    state: Any, *, now: time.struct_time | None = None,
+    state: Any, *, now: time.struct_time | None = None, initial_download: bool = False,
 ) -> tuple[bool, str]:
+    """The upgrade-only window never delays acquiring a missing movie."""
     policy = dict(getattr(state, "automation", {}) or current_policy())
     local = now or time.localtime()
-    if not movie_upgrade_window_is_open(policy, local.tm_hour):
+    if not initial_download and not movie_upgrade_window_is_open(policy, local.tm_hour):
         return False, "Film-Upgrades warten auf das konfigurierte Nachtfenster"
     disk = storage_status(state, "movie")
     if not disk["ok"]:
