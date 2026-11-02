@@ -28,12 +28,12 @@ jobs:
           persist-credentials: false
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@3306ba4df796b6b5059316f3af8bdea1e2138c9b
+        uses: github/codeql-action/init@52cf1852265d99e9bea071b03366fc777a602909
         with:
           languages: python
           queries: security-extended
 
       - name: Analyze
-        uses: github/codeql-action/analyze@3306ba4df796b6b5059316f3af8bdea1e2138c9b
+        uses: github/codeql-action/analyze@52cf1852265d99e9bea071b03366fc777a602909
         with:
           category: "/language:python"
