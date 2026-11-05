@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## v2.0.4 – 2026-11-05
+
+### Royal Charts and film discovery
+
+- Add daily and historical Royal Charts, with persistent ranking snapshots,
+  source transparency and dedicated Top 30 filters.
+- Add Film Worlds, expanded movie filters and more complete Disney Classics.
+- Add optional seasonal Home decorations with a settings toggle.
+
+### Source and download reliability
+
+- Refresh stale series source information and retry expired SerienStream
+  cooldowns. Distinguish incomplete inventory from confirmed missing episodes.
+- Use SerienStream as a fallback for missing episodes, recheck language evidence
+  and accept confirmed Filmpalast releases when TMDB dates are out of sync.
+- Allow movie subscriptions to acquire missing titles outside upgrade-only windows.
+- Preserve inherited UGREEN UGOS ACLs when publishing completed media and
+  enforce the Debian APT security floor in container builds.
+
 ### Shared Jellyfin inventory reads
 
 - Coalesce overlapping live-monitor and forced inventory reads per server,
