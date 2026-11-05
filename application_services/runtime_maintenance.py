@@ -3,6 +3,8 @@
 import asyncio
 import logging
 
+from core.config import is_initialized
+
 
 logger = logging.getLogger(__name__)
 
@@ -22,9 +24,15 @@ def stop_storage_services():
 
 
 async def maintain_runtime(state):
+    from application_services.daily_top import collect_scheduled_chart
+
+    def maintain_charts():
+        if is_initialized():
+            collect_scheduled_chart()
+
     while True:
         await asyncio.sleep(60)
-        for operation in (state.maintain_runtime_caches, state.module_manager.reconcile_all):
+        for operation in (state.maintain_runtime_caches, state.module_manager.reconcile_all, maintain_charts):
             try:
                 await asyncio.to_thread(operation)
             except Exception:

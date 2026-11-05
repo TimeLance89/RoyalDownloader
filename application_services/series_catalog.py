@@ -315,6 +315,8 @@ def _load_series_provider_pages(
     cold_wave_budget: Optional[List[int]] = None,
     deadline: Optional[float] = None,
     timed_out: Optional[List[bool]] = None,
+    *,
+    fresh_since: float = 0,
 ) -> Dict[tuple[str, int], List[FilmpalastSeriesResult]]:
     return series_catalog_cache.load_pages(
         mode,
@@ -325,6 +327,7 @@ def _load_series_provider_pages(
         deadline,
         timed_out,
         SeriesCatalogColdLoadLimit,
+        fresh_since=fresh_since,
     )
 
 

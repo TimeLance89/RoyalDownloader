@@ -9,7 +9,7 @@
 <script src="/boot.js?v=royal-20261021-1"></script>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Barlow+Condensed:wght@600;700;800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style-tokens.css?v=royal-20260801-1">
-<link rel="stylesheet" href="/style.css?v=royal-20261001-1">
+<link rel="stylesheet" href="/style.css?v=royal-charts-3">
 <link rel="stylesheet" href="/styles/source-sentinel.css">
 <link rel="stylesheet" href="/styles/people.css">
 </head>
@@ -456,8 +456,16 @@
         <section class="home-rail home-rail-top is-ranked" aria-labelledby="home-top-title">
           <header class="home-rail-head">
             <div>
-              <span class="home-rail-eyebrow">Heute neu</span>
+              <span class="home-rail-eyebrow" id="home-top-eyebrow">Heute über deine Quellen hinweg angesagt</span>
               <h2 id="home-top-title">Top 10</h2>
+            </div>
+            <div class="royal-charts-controls">
+              <div class="royal-chart-modes" role="group" aria-label="Chart-Zeitraum">
+                <button type="button" data-chart-mode="today" aria-pressed="true">Heute</button>
+                <button type="button" data-chart-mode="week" aria-pressed="false">Diese Woche</button>
+                <button type="button" data-chart-mode="breakouts" aria-pressed="false">Durchstarter</button>
+              </div>
+              <button type="button" class="royal-chart-link" data-chart-open>Alle Charts entdecken</button>
             </div>
             <div class="home-rail-controls">
               <button type="button" data-home-scroll="home-top-track" data-direction="-1" aria-label="Top 10 nach links scrollen">‹</button>
@@ -465,7 +473,45 @@
             </div>
           </header>
           <div id="home-top-track" class="home-track home-top-track" role="group" aria-label="Top 10 des Tages"></div>
+          <div id="home-top-status" class="royal-chart-status" role="status" hidden></div>
         </section>
+
+        <dialog id="royal-charts" class="royal-chart-dialog" aria-labelledby="royal-charts-title">
+          <header class="royal-chart-dialog-head">
+            <h2 id="royal-charts-title">Royal Charts <small>Top 30</small></h2>
+            <button type="button" class="royal-chart-link" data-chart-close aria-label="Royal Charts schließen">✕</button>
+          </header>
+          <div class="royal-charts-controls">
+            <div class="royal-chart-modes" role="group" aria-label="Rangliste">
+              <button type="button" data-chart-mode="today" aria-pressed="true">Heute</button>
+              <button type="button" data-chart-mode="week" aria-pressed="false">Diese Woche</button>
+              <button type="button" data-chart-mode="month" aria-pressed="false">30 Tage</button>
+              <button type="button" data-chart-mode="breakouts" aria-pressed="false">Durchstarter</button>
+              <button type="button" data-chart-mode="new" aria-pressed="false">Neueinsteiger</button>
+            </div>
+            <label>Medientyp
+              <select id="royal-chart-kind"><option value="mixed">Gemischt</option><option value="movie">Filme</option><option value="series">Serien</option></select>
+            </label>
+            <label>Genre
+              <select id="royal-chart-genre"><option value="">Alle Genres</option></select>
+            </label>
+          </div>
+          <details class="royal-chart-method">
+            <summary>Wie entstehen die Charts?</summary>
+            <p>Der Tagesscore kombiniert das stärkste Popularitätssignal (90 %) und die Bewertung mit Stimmgewicht (10 %). Top-Rubriken mit unklarer Sortierung zählen reduziert. Huhu und TMDB teilen sich eine Signalgruppe. Upload-Listen helfen, Titel in aktiven Quellen zu finden.</p>
+            <p>Wochen- und Monatswertungen gewichten hohe Plätze, Popularität und wiederholte Platzierungen der letzten 7 bzw. 30 Tage. Durchstarter brauchen einen messbaren Zuwachs gegenüber gestern. Der Chart-Tag beginnt um 00:00 UTC.</p>
+          </details>
+          <div id="royal-chart-status" class="royal-chart-status" role="status" hidden></div>
+          <div id="royal-chart-grid" class="home-track home-top-track royal-chart-grid" aria-label="Top 30"></div>
+        </dialog>
+        <dialog id="royal-chart-detail" class="royal-chart-dialog royal-chart-detail" aria-labelledby="royal-chart-detail-title">
+          <header class="royal-chart-dialog-head">
+            <h2 id="royal-chart-detail-title"></h2>
+            <button type="button" class="royal-chart-link" data-chart-close aria-label="Chart-Details schließen">✕</button>
+          </header>
+          <div id="royal-chart-explanation"></div>
+          <button type="button" class="royal-chart-link" data-chart-title-open>Titeldetails öffnen</button>
+        </dialog>
 
         <section class="home-rail home-rail-series" aria-labelledby="home-series-title">
           <header class="home-rail-head">

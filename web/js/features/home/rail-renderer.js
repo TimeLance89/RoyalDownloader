@@ -26,7 +26,7 @@ export function createRailRenderer(root, {
         ? (media.cover_url || media.backdrop_url || "")
         : (media.backdrop_url || media.cover_url || "");
     return JSON.stringify([
-      homeEntryKey(entry), rank, variant, artwork, wallpaperOnly,
+      homeEntryKey(entry), rank, variant, artwork, wallpaperOnly, Boolean(entry.item.daily_top),
     ]);
   }
 

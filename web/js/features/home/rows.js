@@ -1,9 +1,13 @@
-export function createHomeRows(root, { isLoading, onRendered = () => {}, reconcileHomeRail, homeRailCardSignature, createHomeCard, syncHomeCardContent }) {
-  return function renderHomeRail(trackId, entries, { ranked = false, layout = "rail", wallpaperOnly = false } = {}) {
+export function createHomeRows(root, { isLoading, onRendered = () => {}, reconcileHomeRail, homeRailCardSignature, createHomeCard, syncHomeCardContent, enhanceChart }) {
+  return function renderHomeRail(trackId, entries, { ranked = false, layout = "rail", wallpaperOnly = false, showEmpty = true } = {}) {
   const track = root.querySelector(`#${CSS.escape(trackId)}`);
   if (!track) return;
   track.classList.toggle("is-spotlight-track", layout === "spotlight");
   if (!entries.length) {
+    if (!showEmpty) {
+      reconcileHomeRail(track, [], { loop: false });
+      return;
+    }
     if (!isLoading()) {
       reconcileHomeRail(track, [{ signature: "empty", create: () => {
         const empty = document.createElement("span");
@@ -36,7 +40,10 @@ export function createHomeRows(root, { isLoading, onRendered = () => {}, reconci
       return {
         signature: homeRailCardSignature(entry, rank, variant, wallpaperOnly),
         create: (cycle = 0) => createHomeCard(entry, rank, cycle === 1 && index < eagerCount, variant, { wallpaperOnly }),
-        update: (card) => syncHomeCardContent(card, entry, rank),
+        update: (card) => {
+          syncHomeCardContent(card, entry, rank);
+          if (entry.item.daily_top) enhanceChart?.(card, entry, rank);
+        },
       };
   }), { loop: layout !== "spotlight" && !ranked });
   onRendered(trackId, visibleEntries, { ranked, layout, wallpaperOnly });
