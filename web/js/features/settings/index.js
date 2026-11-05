@@ -1,4 +1,5 @@
 import { createOperationSettings } from "./operation.js";
+import { createEventSettings } from "./seasonal-events.js";
 import { createLanguageSetup } from "./language-setup.js";
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
@@ -6,13 +7,14 @@ import { updateDeploymentModeHints, selectedDeploymentMode } from "./deployment.
 import { createAnnouncementSettings } from "../announcements/settings.js";
 
 export function createSettings(root, {
-  getFeatures, language, locale, changeLanguage, onSaved = async () => {}, onLanguageReady = onSaved, languageWizard, client = api,
+  getFeatures, language, locale, changeLanguage, onSaved = async () => {}, onLanguageReady = onSaved, languageWizard, events, client = api,
 }) {
   const byId = id => root.querySelector(`#${id}`);
   let owner = createScope(), scope, pending;
   let config, dirty = false, revision = 0, saving = false;
   const operation = createOperationSettings(root, { getConfig: () => config, client, applyMode: (mode, signal) => savePaths(mode, signal) });
   const announcementSettings = createAnnouncementSettings(root, client);
+  const eventSettings = createEventSettings(root, { events });
   const languageSetup = languageWizard || createLanguageSetup(root.ownerDocument.getElementById("language-setup-dialog"), {
     client, language, changeLanguage,
     providers: { apply: value => getFeatures().providers.apply(value) },
@@ -121,6 +123,7 @@ export function createSettings(root, {
       saving = false; byId("settings-save").disabled = false; render();
       current.listen(byId("settings-save"), "click", save);
       announcementSettings.mount(); operation.mount();
+      eventSettings.mount();
       if (byId("storage-base-save")) current.listen(byId("storage-base-save"), "click", async () => {
         const button = byId("storage-base-save"), status = byId("storage-base-status");
         button.disabled = true; status.textContent = "Ordner werden geprüft …";
@@ -141,8 +144,8 @@ export function createSettings(root, {
       });
     },
     refresh() { render(); },
-    unmount() { operation.unmount(); announcementSettings.unmount(); languageSetup.dispose(); scope?.dispose(); scope = null; saving = false; },
-    dispose() { operation.unmount(); announcementSettings.unmount(); languageSetup.dispose(); owner.dispose(); scope?.dispose(); scope = null; saving = false; pending = null; },
+    unmount() { eventSettings.unmount(); operation.unmount(); announcementSettings.unmount(); languageSetup.dispose(); scope?.dispose(); scope = null; saving = false; },
+    dispose() { eventSettings.unmount(); operation.unmount(); announcementSettings.unmount(); languageSetup.dispose(); owner.dispose(); scope?.dispose(); scope = null; saving = false; pending = null; },
     resume() { if (!owner.active) owner = createScope(); },
   };
 }

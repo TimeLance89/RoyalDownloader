@@ -56,12 +56,15 @@ export function createSeriesStatus(statusElement, badgeElement, { onLibraryStatu
     }
     const episodes = (series.seasons || []).flatMap((season) => season.episodes || []);
     const jellyfinCount = episodes.filter((episode) => episode.in_jellyfin).length;
+    const listedCounts = new Map((series.seasons || []).map(season => [Number(season.season), (season.episodes || []).length]));
+    const incomplete = Object.entries(series.season_episode_counts || {}).some(([season, count]) =>
+      Number(season) > 0 && Number(count) > (listedCounts.get(Number(season)) || 0));
     if (episodes.length && series.jellyfin_available === true
         && (jellyfinCount || !series.availability_pending)) {
       onLibraryStatus(series, jellyfinCount ? "owned" : "missing");
     }
     badge.classList.add(jellyfinCount ? "is-owned" : "is-missing");
-    label.textContent = jellyfinCount === episodes.length && episodes.length
+    label.textContent = !incomplete && jellyfinCount === episodes.length && episodes.length
       ? mediaCenterText("Vollständig in Jellyfin")
       : jellyfinCount
         ? mediaCenterText(`${jellyfinCount} Episoden in Jellyfin`)

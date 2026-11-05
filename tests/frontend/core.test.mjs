@@ -1852,45 +1852,52 @@ test("discovery exposure is personal, bounded by day and limits repeated identit
   assert.deepEqual(policy.loadDiscoveryExposureV2().days, {});
 });
 
-test("daily Top preserves same-day ranks, advances tomorrow and ignores late unmounted responses", async t => {
-  let day = "2026-09-25";
-  t.mock.timers.enable({ apis: ["Date"], now: new Date(`${day}T10:00:00`).getTime() });
-  let resolveRequest, requestSignal;
-  const stored = new Map();
-  const root = new EventTarget(); root.ownerDocument = new EventTarget(); root.querySelector = () => null;
+test("royal charts trust server order and movement, advance on UTC midnight and ignore unmounted responses", async t => {
+  t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-09-25T23:59:30Z") });
+  let resolveRequest, requestSignal, calls = 0;
+  const root = new EventTarget();
+  root.ownerDocument = new EventTarget();
+  const track = { setAttribute() {}, closest: () => null };
+  const dialog = new EventTarget();
+  root.querySelector = selector => selector === "#home-top-track" ? track : selector === "#royal-charts" ? dialog : null;
   let renders = 0;
   const daily = createDailyTop(root, {
-    localDateKey: date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`, homeEntryKey: entry => `movie:${entry.item.slug}`,
-    discoveryV2LogicalKey: entry => entry.item.slug, loadDiscoveryProfile: () => ({}),
-    fallbackEntries: () => [{ kind: "movie", item: { slug: "fallback" } }], renderHome: () => renders++,
-    storage: { getItem: key => stored.get(key), setItem: (key, value) => stored.set(key, value) },
-    client: { get: (_url, { signal }) => { requestSignal = signal; return new Promise(resolve => { resolveRequest = resolve; }); } },
+    homeEntryKey: entry => "movie:" + entry.item.slug,
+    discoveryV2LogicalKey: entry => entry.item.slug, loadDiscoveryProfile: () => ({ blocked_items: ["hidden"] }),
+    renderTop: () => renders++,
+    client: { get: (url, { signal }) => {
+      assert.equal(url, "/api/v3/royal-charts?mode=today");
+      requestSignal = signal;
+      calls++;
+      return new Promise(resolve => { resolveRequest = resolve; });
+    } },
   });
-  const candidate = (slug, rank) => ({ kind: "movie", identity: slug, global_rank: rank,
-    item: { slug, title: `Movie ${slug}`, cover_url: "poster" } });
+  const candidate = (slug, rank, movement) => ({ kind: "movie", identity: slug, global_rank: rank, movement,
+    item: { slug, title: "Movie " + slug, cover_url: "poster" } });
   t.after(() => daily.unmount());
   daily.mount();
-  resolveRequest({ version: 2, period: day, candidates: [candidate("a", 1), candidate("b", 2)] });
-  await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(daily.entries().map(entry => entry.item.slug), ["a", "b"]);
-  assert.equal(renders, 0);
-  day = "2026-09-26";
-  t.mock.timers.setTime(new Date(`${day}T10:00:00`).getTime());
-  daily.refresh();
-  resolveRequest({ version: 2, period: day, candidates: [candidate("b", 1), candidate("a", 2)] });
+  assert.deepEqual(daily.entries(), []);
+  resolveRequest({ version: 3, scope: "scope", candidates: [candidate("hidden", 1), candidate("b", 2), candidate("a", 3)] });
   await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(daily.entries().map(entry => entry.item.slug), ["b", "a"]);
-  assert.equal(daily.entries()[0].item.daily_top.movement.label, "↑1");
-  assert.equal(renders, 1);
-  day = "2026-09-27";
-  t.mock.timers.setTime(new Date(`${day}T10:00:00`).getTime());
+  assert.equal(daily.entries()[0].item.daily_top.global_rank, 2);
   daily.refresh();
+  assert.equal(calls, 1);
+
+  t.mock.timers.setTime(new Date("2026-09-26T00:00:01Z").getTime());
+  daily.refresh();
+  resolveRequest({ version: 3, scope: "scope", candidates: [candidate("a", 1, { direction: "up", delta: 2 })] });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(daily.entries()[0].item.daily_top.movement, { direction: "up", delta: 2 });
+  t.mock.timers.setTime(new Date("2026-09-27T00:00:01Z").getTime());
+  daily.refresh();
+  const beforeUnmount = renders;
   daily.unmount();
   assert.equal(requestSignal.aborted, true);
-  resolveRequest({ version: 2, period: day, candidates: [candidate("late", 1)] });
+  resolveRequest({ version: 3, scope: "scope", candidates: [candidate("late", 1)] });
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal(daily.entries()[0].item.slug, "fallback");
-  assert.equal(renders, 1);
+  assert.deepEqual(daily.entries(), []);
+  assert.equal(renders, beforeUnmount);
 });
 
 

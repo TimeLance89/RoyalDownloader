@@ -34,7 +34,7 @@ def episode_language_state(languages, enabled):
 
 
 def fresh_episode_languages(record, now):
-    if not isinstance(record, dict):
+    if not isinstance(record, dict) or not isinstance(record.get("languages"), list):
         return None
     age = now - float(record.get("checked_at") or 0)
     if not 0 <= age < LANGUAGE_EVIDENCE_TTL:

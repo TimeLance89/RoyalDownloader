@@ -20,6 +20,7 @@ def subscription(monkeypatch):
                             watchlist_new_slugs={series.base_slug: {e.slug for e in episodes}},
                             content_languages={"de"})
     monkeypatch.setattr(library, "state", state)
+    monkeypatch.setattr("application_services.movie_catalog.provider_priority", lambda kind: ["serienstream"] if kind == "series" else [])
     return entry, series, state
 
 
@@ -46,14 +47,16 @@ def test_probe_failure_is_pending_and_retry_can_recover(monkeypatch, subscriptio
     monkeypatch.setattr(library, "episode_languages_for_slug", unavailable)
     languages, checks = library._watchlist_episode_language_evidence(entry, series, entry["episode_states"])
     assert all(values is None for values in languages.values())
-    assert checks == {}
+    assert len(checks) == 20 and all(record["languages"] is None for record in checks.values())
+    entry["episode_language_checks"] = checks
     monkeypatch.setattr(library, "episode_languages_for_slug", lambda *_: ["de"])
     languages, _ = library._watchlist_episode_language_evidence(entry, series, entry["episode_states"])
-    assert languages[series.all_episodes[0].slug] == ["de"]
+    assert languages[series.all_episodes[-1].slug] == ["de"]
 
 
 def test_local_and_future_episodes_are_not_probed(monkeypatch, subscription):
     entry, series, _ = subscription
+    series.all_episodes[1].release_at = "2099-01-01"
     entry["episode_states"] = {series.all_episodes[1].slug: "upcoming"}
     monkeypatch.setattr(library, "episode_languages_for_slug", lambda *_: pytest.fail("Unexpected probe"))
     assert library._watchlist_episode_language_evidence(entry, series, entry["episode_states"])[0] == {}
@@ -77,6 +80,28 @@ def test_detail_probe_updates_inbox_and_clears_stale_language_failure(monkeypatc
     library.record_watchlist_episode_languages({slug: ["de"]})
     assert entry["episode_states"][slug] == "available"
     assert slug in state.watchlist_new_slugs[series.base_slug]
+
+
+def test_incomplete_detail_check_wakes_subscription_retry_once(monkeypatch, subscription):
+    entry, series, state = subscription
+    failed, confirmed = (episode.slug for episode in series.all_episodes[:2])
+    entry["episode_language_checks"] = {
+        confirmed: {"languages": ["de"], "checked_at": library.time.time()},
+    }
+    wakes = []
+    monkeypatch.setattr(automation, "wake_watchlist_auto_check", lambda: wakes.append(True))
+    monkeypatch.setattr(library, "_persist_watchlist_background", lambda: None)
+    monkeypatch.setattr(library, "watchlist_payload", lambda: {})
+    monkeypatch.setattr(library, "broadcast", lambda _: None)
+
+    library.record_watchlist_episode_language_pending([failed, confirmed])
+    library.record_watchlist_episode_language_pending([failed, confirmed])
+
+    assert wakes == [True]
+    assert entry["episode_states"][failed] == "language_pending"
+    assert entry["episode_language_checks"][failed]["languages"] is None
+    assert failed not in state.watchlist_new_slugs[series.base_slug]
+    assert entry["episode_states"][confirmed] == "available"
 
 
 def test_new_detail_evidence_survives_an_older_subscription_snapshot(subscription):
@@ -139,7 +164,7 @@ def test_switched_subscription_on_monolingual_source_checks_alternatives(monkeyp
     from providers.models import FilmpalastMovie, HosterInfo
     entry, series, state = subscription
     state.content_languages = {"en"}
-    monkeypatch.setattr(library, "provider_supports_languages", lambda *_: False, raising=False)
+    monkeypatch.setattr("application_services.movie_catalog.provider_priority", lambda kind: ["serienstream", "vidrift"] if kind == "series" else [])
     # A DE-only source may remain the identity of a subscription after switching.
     from providers import catalog
     monkeypatch.setattr(catalog, "provider_supports_languages", lambda key, langs: key != "serienstream")
@@ -154,5 +179,5 @@ def test_switched_subscription_on_monolingual_source_checks_alternatives(monkeyp
     monkeypatch.setattr(download_lifecycle, "find_episode_fallbacks", fallback)
     languages, checks = library._watchlist_episode_language_evidence(entry, series, entry["episode_states"])
     slug = series.all_episodes[0].slug
-    assert languages[slug] == (["de", "en"] if available else None)
-    assert bool(checks) is available
+    assert languages[slug] == (["en"] if available else None)
+    assert checks[slug]["languages"] == languages[slug]

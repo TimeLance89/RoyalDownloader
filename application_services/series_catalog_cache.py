@@ -23,12 +23,12 @@ _PREFETCH_INFLIGHT = set()
 _PREFETCH_LOCK = threading.Lock()
 
 
-def cache_state(cache_key: tuple) -> tuple[Optional[list], str]:
+def cache_state(cache_key: tuple, fresh_since: float = 0) -> tuple[Optional[list], str]:
     with state.series_list_cache_lock:
         cached = state.series_list_cache.get(cache_key)
         ttl = cached[2] if cached and len(cached) > 2 else SERIES_LIST_CACHE_TTL
         age = time.time() - cached[0] if cached else 0.0
-        if cached and age < ttl:
+        if cached and age < ttl and cached[0] >= fresh_since:
             if len(cached) > 3 and cached[3]:
                 return list(cached[1]), "failed"
             return list(cached[1]), "fresh"
@@ -92,6 +92,8 @@ def load_pages(
     deadline: Optional[float] = None,
     timed_out: Optional[List[bool]] = None,
     cold_load_error: type[RuntimeError] = RuntimeError,
+    *,
+    fresh_since: float = 0,
 ) -> Dict[tuple[str, int], list]:
     loaded = {}
     missing = []
@@ -104,16 +106,17 @@ def load_pages(
             else mode
         )
         cache_key = ("series-provider", cache_mode, letter_key, provider, int(source_page))
-        cached, freshness = cache_state(cache_key)
+        cached, freshness = cache_state(cache_key, fresh_since)
         if freshness == "failed":
             if timed_out is not None:
                 timed_out[0] = True
-            if cached:
+            if cached and not fresh_since:
                 loaded[(provider, source_page)] = list(cached)
         elif freshness == "missing":
             missing.append((provider, source_page, cache_key))
         else:
-            loaded[(provider, source_page)] = list(cached or [])
+            if freshness != "stale" or not fresh_since:
+                loaded[(provider, source_page)] = list(cached or [])
             if freshness == "stale":
                 stale.append((provider, source_page, cache_key, list(cached or [])))
 
@@ -150,7 +153,7 @@ def load_pages(
         (provider, source_page, cache_key, None, True)
         for provider, source_page, cache_key in missing
     ] + [
-        (provider, source_page, cache_key, fallback, False)
+        (provider, source_page, cache_key, fallback, bool(fresh_since))
         for provider, source_page, cache_key, fallback in stale
     ]
     for provider, source_page, cache_key, stale_fallback, should_wait in work:

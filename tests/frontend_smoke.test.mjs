@@ -253,7 +253,7 @@ test("series calendar always leaves loading and restores a validated snapshot", 
   assert.doesNotMatch(html, /screens\/series-calendar\.js/);
   assert.doesNotMatch(seriesCalendar, /setInterval|window\.__royalCalendarSafetyTimer/);
   assert.match(stylesheet, /series-calendar\.css\?v=royal-20260912-1/);
-  assert.match(html, /style\.css\?v=royal-20261001-1/);
+  assert.match(html, /<link rel="stylesheet" href="\/style\.css\?v=[\w.-]+">/);
   const calendarStyles = readFileSync(
     new URL("../web/styles/series-calendar.css", import.meta.url),
     "utf8",
@@ -583,14 +583,14 @@ test("movie details keep catalog artwork while full metadata loads directly", ()
   assert.match(app, /detail\.metadataState = "failed"/);
 });
 
-test("Top 10 rotates daily instead of weekly", () => {
-  assert.match(html, /Heute neu/);
-  assert.match(html, /Top 10 des Tages/);
-  assert.match(app, /DAILY_TOP_STORAGE_KEY = "royal-home-daily-top-v3"/);
-  assert.match(app, /function reconcileSnapshot/);
-  assert.match(app, /stored.period === period/);
-  assert.match(app, /Same-day ranks are immutable/);
-  assert.doesNotMatch(home, /weekly|WeekKey|WEEKLY/i);
+test("Top 10 offers daily and historical server charts", () => {
+  requiresIds("home-top-track", "royal-charts", "royal-chart-detail");
+  for (const mode of ["today", "week", "breakouts"]) {
+    assert.ok(html.includes('data-chart-mode="' + mode + '"'));
+  }
+  assert.ok(app.includes('client.get("/api/v3/royal-charts?'));
+  const dailyTop = readFileSync(new URL("../web/js/features/home/daily-top.js", import.meta.url), "utf8");
+  assert.ok(!dailyTop.includes("localStorage"));
 });
 
 test("changing the updater channel persists immediately", () => {
@@ -1012,6 +1012,7 @@ test("the stylesheet manifest preserves every ordered CSS module", () => {
     "styles/taste-feedback.css",
     "styles/daily-top.css",
     "styles/language-studio.css",
+    "styles/seasonal-events.css",
     "styles/mobile.css",
   ]);
   for (const path of imports) {
@@ -1113,7 +1114,7 @@ test("Royal archive behaves like a searchable media center", () => {
   assert.match(app, /entry\.backdrop_url/);
   assert.match(app, /library-card-progress/);
   assert.match(stylesheet, /library\.css\?v=royal-20260825-1/);
-  assert.match(html, /style\.css\?v=royal-20261001-1/);
+  assert.match(html, /<link rel="stylesheet" href="\/style\.css\?v=[\w.-]+">/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {

@@ -1,4 +1,5 @@
 const { fixture, swipe } = require("./performance-fixture.cjs");
+const { observeTasks } = require("./performance-observation.cjs");
 const { mkdirSync, writeFileSync } = require("node:fs");
 const { resolve, dirname } = require("node:path");
 const { platform, arch } = require('node:os');
@@ -22,6 +23,7 @@ const profiles = [
       cdp.on("Tracing.dataCollected", ({ value }) => trace.push(...value));
       await cdp.send("Tracing.start", { categories: "devtools.timeline,disabled-by-default-devtools.timeline", transferMode: "ReportEvents" });
       const before = Object.fromEntries((await cdp.send("Performance.getMetrics")).metrics.map(m => [m.name, m.value]));
+      const measurementStart = await page.evaluate(() => performance.now());
       const initialRenderMs = await page.evaluate(() => renderFixture());
       await page.waitForTimeout(800);
       const counts = await page.evaluate(() => ({
@@ -43,16 +45,20 @@ const profiles = [
       await page.screenshot({ path: resolve(output, `${profile.name}.png`) });
       const after = Object.fromEntries((await cdp.send("Performance.getMetrics")).metrics.map(m => [m.name, m.value]));
       const observation = await page.evaluate(() => ({
-        longTasks: perfSample.longTasks.length,
-        tbtMs: perfSample.longTasks.reduce((n, e) => n + Math.max(0, e.duration - 50), 0),
+        tasks: perfSample.longTasks,
+        measurementEnd: performance.now(),
         lcpMs: perfSample.lcp,
         interactionEventMaxMs: Math.max(0, ...perfSample.events.map(e => e.duration)),
       }));
+      const { tasks, measurementEnd, ...timings } = observation;
       const complete = new Promise(resolve => cdp.once("Tracing.tracingComplete", resolve));
       await cdp.send("Tracing.end"); await complete;
       const traceMs = pattern => trace.filter(e => e.ph === "X" && pattern.test(e.name)).reduce((n, e) => n + (e.dur || 0) / 1000, 0);
       const result = { ...profile, repetition, viewport: profile.viewport || { width: 1440, height: 1000 },
-        browser: f.browser.version(), ...counts, initialRenderMs, ...observation,
+        browser: f.browser.version(), ...counts, initialRenderMs, ...timings,
+        ...observeTasks(tasks, measurementStart, measurementEnd),
+        startupTbtMs: observeTasks(tasks, 0, measurementStart).tbtMs,
+        measurementWindow: { start: measurementStart, end: measurementEnd },
         swipeStart: start, swipeEnd: afterSwipe, gestureWallMs: responseMs,
         layoutCount: after.LayoutCount - before.LayoutCount,
         styleRecalculationCount: after.RecalcStyleCount - before.RecalcStyleCount,

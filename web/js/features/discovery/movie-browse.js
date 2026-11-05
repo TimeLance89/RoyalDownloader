@@ -11,6 +11,49 @@ export function createMovieBrowse(root, {
   let scope = null, request = null, cancelRequest = null;
   const current = id => scope?.active && request?.scope.active
     && request.id === id && movieState.requestSeq === id;
+  function worldParams(page = 1) {
+    const value = key => byId(`movie-filter-${key}`)?.value || "all";
+    return { mode: "world", world: movieState.world, page,
+      language: root.ownerDocument.documentElement.lang.startsWith("en") ? "en" : "de",
+      genre: movieState.activeGenre === "Alle Genres" ? "" : movieState.activeGenre,
+      period: value("period"), rating: value("rating"), sort: value("sort") };
+  }
+  function clearWorld() {
+    movieState.world = "";
+    const select = byId("movie-filter-world");
+    if (select) select.value = "";
+  }
+  async function showWorld(world) {
+    if (!scope?.active) return;
+    movieState.world = world;
+    if (!world) { await fpShowList("new"); return; }
+    clearFpSearchContext();
+    movieState.category = "world";
+    movieState.lastPageFull = false;
+    movieState.loadingMore = true;
+    movieState.loadError = "";
+    // Never show an old world's cards under the newly selected label.
+    movieState.results = [];
+    movieState.totalResults = null;
+    renderFpResults();
+    updateFpInfiniteState();
+    refreshMovieFeatureCandidates();
+    const english = root.ownerDocument.documentElement.lang.startsWith("en");
+    byId("fp-status").textContent = english ? "Loading movie world …" : "Filmwelt wird geladen …";
+    const requestId = ++movieState.requestSeq;
+    try {
+      const data = await load(worldParams(), requestId);
+      if (!current(requestId)) return;
+      applyFpResults(data);
+      movieState.previewFromHome = false;
+    } catch (error) {
+      if (!current(requestId)) return;
+      movieState.loadingMore = false;
+      movieState.loadError = error.message;
+      updateFpInfiniteState();
+      byId("fp-status").textContent = error.message;
+    }
+  }
   function load(params, id) {
     cancelRequest?.();
     cancelMetadata();
@@ -41,6 +84,8 @@ export function createMovieBrowse(root, {
       activeGenre: movieState.activeGenre,
       selectedSlug: movieState.selectedSlug,
       sources: movieState.sources.slice(),
+      world: movieState.world,
+      totalResults: movieState.totalResults,
     };
   }
 
@@ -63,7 +108,10 @@ export function createMovieBrowse(root, {
       page: saved.page,
       has_more: saved.lastPageFull,
       sources: saved.sources,
+      total_results: saved.totalResults,
     });
+    movieState.world = saved.world || "";
+    if (byId("movie-filter-world")) byId("movie-filter-world").value = movieState.world;
     setActiveGenreFilter(saved.activeGenre);
     movieState.selectedSlug = saved.selectedSlug;
     renderFpResults();
@@ -79,6 +127,7 @@ export function createMovieBrowse(root, {
     rememberSearch(q, "movie");
     closeSearchSuggestions("fp-search-suggestions", "fp-search");
     rememberFpSearchContext();
+    clearWorld();
     movieState.searchActive = true;
     movieState.category = null;
     movieState.lastPageFull = false;
@@ -106,6 +155,7 @@ export function createMovieBrowse(root, {
 
   async function fpShowList(category) {
     if (!scope?.active) return;
+    clearWorld();
     clearFpSearchContext();
     movieState.category = category;
     movieState.lastPageFull = false;
@@ -143,11 +193,17 @@ export function createMovieBrowse(root, {
       return;
     }
     if (movieState.loadingMore) return;
+    if (movieState.world) { void showWorld(movieState.world); return; }
     fpShowList("new");
   }
 
   async function fpGenreChange(genre) {
     if (!scope?.active) return;
+    if (movieState.world) {
+      setActiveGenreFilter(genre);
+      await showWorld(movieState.world);
+      return;
+    }
     clearFpSearchContext();
     if (genre === "Alle Genres") {
       await fpShowList("new");
@@ -185,7 +241,7 @@ export function createMovieBrowse(root, {
       || !movieState.lastPageFull
     ) return;
     const newPage = movieState.page + 1;
-    const params = movieState.category === "genre"
+    const params = movieState.category === "world" ? worldParams(newPage) : movieState.category === "genre"
       ? { mode: "genre", genre: movieState.activeGenre, page: newPage }
       : { mode: movieState.category, page: newPage };
     const requestId = ++movieState.requestSeq;
@@ -241,16 +297,33 @@ export function createMovieBrowse(root, {
       });
       scope.listen(byId("fp-new-btn"), "click", () => fpShowList("new"));
       scope.listen(byId("fp-top-btn"), "click", () => fpShowList("top"));
+      scope.listen(byId("movie-filter-world"), "change", (event) => showWorld(event.currentTarget.value));
+      const Observer = root.ownerDocument?.defaultView?.MutationObserver;
+      if (Observer) {
+        const observer = new Observer(() => {
+          if (movieState.world) void showWorld(movieState.world);
+          else applyFpSmartFilters();
+        });
+        observer.observe(root.ownerDocument.documentElement, { attributes: true, attributeFilter: ["lang"] });
+        scope.add(() => observer.disconnect());
+      }
       scope.listen(byId("movie-filter-genre"), "change", (event) => {
         fpGenreChange(event.currentTarget.value);
       });
       for (const id of ["period", "rating", "availability", "language", "sort"]) {
         scope.listen(byId(`movie-filter-${id}`), "change", (event) => {
           setFilter(id, event.currentTarget.value);
-          applyFpSmartFilters();
+          if (movieState.world && ["period", "rating", "sort"].includes(id)) void showWorld(movieState.world);
+          else applyFpSmartFilters();
         });
       }
-      scope.listen(byId("movie-filter-reset"), "click", resetFpSmartFilters);
+      scope.listen(byId("movie-filter-reset"), "click", () => {
+        const wasWorld = Boolean(movieState.world);
+        const wasGenre = movieState.activeGenre !== "Alle Genres";
+        clearWorld();
+        resetFpSmartFilters();
+        if (wasWorld && !wasGenre) void fpShowList("new");
+      });
       scope.listen(byId("genre-random"), "click", () => {
         const genres = getGenres()
           .filter((genre) => genre !== "Alle Genres" && genre !== movieState.activeGenre);
@@ -264,5 +337,6 @@ export function createMovieBrowse(root, {
     },
     clear: clearFpSearchContext, remember: rememberFpSearchContext, restore: restoreFpSearchContext,
     search: fpSearch, list: fpShowList, ensure: ensureFpResults, genre: fpGenreChange, next: loadNextFpPage,
+    world: showWorld,
   };
 }

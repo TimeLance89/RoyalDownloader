@@ -412,11 +412,24 @@ async def api_movie_collection(collection_id: int):
 
 @router.get("/api/v1/movies")
 @router.get("/api/movies")
-async def api_movies(mode: str = "search", query: str = "", genre: str = "", page: int = 1):
+async def api_movies(mode: str = "search", query: str = "", genre: str = "", page: int = 1,
+                     world: str = "", language: str = "de", period: str = "all",
+                     rating: str = "all", sort: str = "default"):
     if page < 1 or page > MOVIE_MAX_GLOBAL_PAGE:
         raise HTTPException(400, f"Seite muss zwischen 1 und {MOVIE_MAX_GLOBAL_PAGE} liegen.")
 
     def _work():
+        if mode == "world":
+            client = get_tmdb_client()
+            if not client.configured:
+                raise HTTPException(503, "TMDB für Filmwelten in den Einstellungen konfigurieren. / Configure TMDB in settings.")
+            try:
+                return client.movie_world(world, page, language=language, period=period,
+                                         rating=rating, sort=sort, genre=genre)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            except RuntimeError as exc:
+                raise HTTPException(502, "Filmwelt nicht verfügbar. / Movie world unavailable.") from exc
         if mode == "search":
             q = query.strip()
             if not q:
@@ -465,6 +478,7 @@ async def api_movies(mode: str = "search", query: str = "", genre: str = "", pag
         # korrekt: Eine weitere globale Seite ist tatsächlich vorhanden.
         "last_page_full": data["has_more"],
         "sources": data["sources"],
+        "total_results": data.get("total_results"),
     }
 
 
@@ -1327,6 +1341,19 @@ async def api_monster_tmdb_series_load(body: MonsterSeriesLoadBody):
 async def api_series_load(body: SeriesLoadBody):
     def _work():
         series = state.series_cache.get(body.base_slug) if body.base_slug else None
+        source_refresh_failed = False
+        if series is not None and getattr(state.series_cache, "needs_refresh", lambda _key: False)(series.base_slug):
+            try:
+                fresh = get_series_for_value(body.sample_slug or series.url)
+                if fresh is None or not fresh.all_episodes:
+                    raise RuntimeError("Leerer Quellenstand")
+            except Exception as exc:
+                source_refresh_failed = True
+                state.series_cache.refresh_failed(series.base_slug)
+                log(f"Serienquelle für «{series.title}» nicht aktualisiert: {exc}", "warn")
+            else:
+                series = merge_series_snapshots(series, fresh)
+                state.series_cache[series.base_slug] = series
         if series is None:
             series = get_series_for_value(body.sample_slug)
         if series is None:
@@ -1336,7 +1363,7 @@ async def api_series_load(body: SeriesLoadBody):
             refresh_jellyfin=body.refresh_jellyfin,
             defer_checks=body.defer_checks,
         )
-        missing_seasons = set() if body.defer_checks else series_payload_missing_seasons(payload)
+        missing_seasons = set() if body.defer_checks or source_refresh_failed else series_payload_missing_seasons(payload)
         if missing_seasons:
             log(
                 f"Serienstruktur für «{series.title}» unvollständig "
@@ -1373,6 +1400,12 @@ async def api_series_load(body: SeriesLoadBody):
     return payload
 
 
+def _check_serienstream_episode_cooldown() -> None:
+    health = getattr(state, "provider_health", None)
+    if health is not None and not health.routing_allowed("serienstream"):
+        raise RuntimeError("SerienStream befindet sich im Provider-Cooldown")
+
+
 def episode_languages_for_slug(provider: str, slug: str) -> list[str]:
     if provider == "huhu":
         with state.huhu_lock:
@@ -1380,10 +1413,8 @@ def episode_languages_for_slug(provider: str, slug: str) -> list[str]:
         return sorted({normalize_content_language(value) for value in values
                        if normalize_content_language(value)})
     if provider == "serienstream":
-        with state.sto_lock:
-            movie = get_sto_scraper().get_movie(slug)
-    else:
-        movie = load_movie_for_slug(slug)
+        _check_serienstream_episode_cooldown()
+    movie = load_movie_for_slug(slug)
     if movie is None or not getattr(movie, "hosters", None):
         raise RuntimeError("Episodenquellen konnten nicht geladen werden.")
     return sorted({normalize_content_language(getattr(hoster, "audio_language", "")
@@ -1408,7 +1439,9 @@ async def api_series_episode_probe_progress(probe_id: str):
 @router.post("/api/series/episode-languages")
 async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
     provider = body.provider.strip().casefold()
-    if provider not in (await run_in_threadpool(provider_priority, 'series')):
+    active_series = await run_in_threadpool(provider_priority, "series")
+    enabled_series = getattr(state, "provider_enabled", {}).get("series", active_series)
+    if provider not in active_series and provider not in enabled_series:
         raise HTTPException(409, f"{provider} ist in den Serienquellen deaktiviert.")
     slugs = list(dict.fromkeys(body.slugs))
     if body.content_languages is not None and any(
@@ -1422,13 +1455,16 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
         raise HTTPException(400, "Episoden passen nicht zur gewählten Quelle.")
 
     def _work():
-        from api.api_library_router import record_watchlist_episode_languages
+        from api.api_library_router import (
+            record_watchlist_episode_language_pending,
+            record_watchlist_episode_languages,
+        )
         from application_services.content_language_policy import _source_languages
         from application_services.download_lifecycle import find_episode_fallbacks
         from application_services.media_identity import _norm_title
         from features.episode_language_probe import language_probes
         from features.episode_probe_progress import probe_progress
-        from features.episode_source_probe import episode_source_probes, episode_source_providers
+        from features.episode_source_probe import episode_source_providers, episode_source_probes
         from providers.catalog import PROVIDER_CATALOG
         from providers.models import FilmpalastMovie
 
@@ -1442,96 +1478,128 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
         enabled = {normalize_content_language(value) for value in desired}
         enabled.discard("")
         active = episode_source_providers(provider_priority("series"), provider_priority("anime"))
+        if "serienstream" in enabled_series and "serienstream" not in active:
+            active = (*active, "serienstream")
         alternatives = tuple(key for key in active if key != provider and provider_supports_languages(key, enabled))
         # The catalog already loaded the real title; client context also covers
         # TMDB previews. Every fallback still requires an exact title/ID match.
         series = getattr(state, "series_cache", {}).get(first_base)
         title = str(getattr(series, "title", "") or body.title).strip()
         deadline = time.monotonic() + EPISODE_PROBE_BUDGET_SECONDS
-        primary = {}
-        for slug in slugs:
+        def submit_primary(slug):
             future = language_probes.submit((provider, slug, tuple(sorted(enabled))),
-                lambda slug=slug: episode_languages_for_slug(provider, slug),
+                lambda: episode_languages_for_slug(provider, slug),
                 retry_unmatched=(lambda values: bool(set(values) & enabled)) if body.attempt else None, provider=provider)
-            primary[slug] = future
             probe_progress.update(body.probe_id, slug, provider, "checking" if future is not None else "waiting", future=future)
-        wait([future for future in primary.values() if future is not None], timeout=min(EPISODE_PRIMARY_WAIT_SECONDS, max(0, deadline - time.monotonic())))
-        for slug in slugs:
-            values = None
-            future = primary[slug]
+            return future
+
+        def read_primary(slug, future):
             if future is not None and future.done():
                 try:
                     values = future.result()
                     probe_progress.update(body.probe_id, slug, provider,
                         "found" if set(values) & enabled else "no_match" if values else "retry")
+                    return values
                 except Exception:
                     probe_progress.update(body.probe_id, slug, provider, "retry")
-            if title and alternatives and not set(values or []) & enabled:
+            return None
+
+        def search_alternates(slug, alternatives, timeout):
+            if not title or not alternatives:
+                return [], False
+            _, season, episode = parse_episode_slug(slug)
+            key = (slug, title, tuple(body.aliases), body.tmdb_id, alternatives, tuple(sorted(enabled)))
+            def lookup(source):
+                if source == "serienstream":
+                    _check_serienstream_episode_cooldown()
+                if body.attempt:
+                    # Recheck short-lived catalog misses, preserving hits and
+                    # provider cooldowns rather than repeating cached absence.
+                    lock = getattr(state, "fallback_series_cache_lock", None)
+                    cache = getattr(state, "fallback_series_cache", None)
+                    if lock is not None and cache is not None:
+                        with lock:
+                            keys = {f"{source}:{_norm_title(value)}" for value in (title, *body.aliases)}
+                            if source == "huhu" and body.tmdb_id:
+                                keys.add(f"{source}:tmdb:{body.tmdb_id}")
+                            for cache_key in keys:
+                                cached = cache.get(cache_key)
+                                if cached and cached[1] is None:
+                                    cache.pop(cache_key, None)
+                found = find_episode_fallbacks(title, season, episode, aliases=tuple(body.aliases),
+                    source_slug=slug, excluded_providers=set(PROVIDER_CATALOG) - {source}, limit=1,
+                    tmdb_id=str(body.tmdb_id or ""), raise_on_error=True, content_languages=enabled)
+                error = getattr(state, "fallback_provider_errors", {}).get(source)
+                if error and error[0] > time.time():
+                    raise RuntimeError("Serienquelle vorübergehend nicht erreichbar")
+                return found
+            def on_jobs(jobs):
+                for source, future in jobs.items():
+                    probe_progress.update(body.probe_id, slug, source, "waiting", future=future)
+            sources, still_searching = episode_source_probes.search(key, alternatives, lookup,
+                timeout=max(0, timeout), on_jobs=on_jobs,
+                retry_unmatched=(lambda found: any(_source_languages(movie) & enabled for movie in found)) if body.attempt else None)
+
+            return sources, still_searching
+
+        ordinary = tuple(key for key in alternatives if key != "serienstream")
+        reserve = tuple(key for key in alternatives if key == "serienstream")
+        primary = {slug: submit_primary(slug) for slug in slugs} if provider != "serienstream" else {}
+        if primary:
+            wait([future for future in primary.values() if future is not None],
+                 timeout=min(EPISODE_PRIMARY_WAIT_SECONDS, max(0, deadline - time.monotonic())))
+        evidence = {slug: read_primary(slug, primary.get(slug)) for slug in slugs}
+        unresolved = [slug for slug in slugs if not set(evidence[slug] or []) & enabled]
+        for slug in unresolved:
+            search_alternates(slug, ordinary, 0)
+        matched, searching = {}, {}
+        ordinary_deadline = deadline - (min(2, EPISODE_PROBE_BUDGET_SECONDS / 2)
+                                        if provider == "serienstream" or reserve else 0)
+        for slug in unresolved:
+            sources, searching[slug] = search_alternates(slug, ordinary, ordinary_deadline - time.monotonic())
+            if provider != "serienstream" and evidence[slug] is None:
+                evidence[slug] = read_primary(slug, primary.get(slug))
+            matched[slug] = [source for source in sources if source.hosters and _source_languages(source) & enabled]
+        unresolved = [slug for slug in unresolved if not matched[slug] and not set(evidence[slug] or []) & enabled]
+        if provider == "serienstream":
+            primary = {slug: submit_primary(slug) for slug in unresolved}
+            wait([future for future in primary.values() if future is not None],
+                 timeout=min(EPISODE_PRIMARY_WAIT_SECONDS, max(0, deadline - time.monotonic())))
+            for slug in unresolved:
+                evidence[slug] = read_primary(slug, primary[slug])
+        elif reserve:
+            for slug in unresolved:
+                search_alternates(slug, reserve, 0)
+            for slug in unresolved:
+                sources, reserve_pending = search_alternates(slug, reserve, deadline - time.monotonic())
+                searching[slug] |= reserve_pending
+                matched[slug] = [source for source in sources if source.hosters and _source_languages(source) & enabled]
+
+        for slug in slugs:
+            values = evidence[slug]
+            matching = matched.get(slug, [])
+            if matching:
+                for source in matching:
+                    probe_progress.update(body.probe_id, slug, source.provider, "found")
+                values = sorted(set(values or []) | {language for source in matching for language in _source_languages(source)})
+                source_providers[slug] = list(dict.fromkeys(source.provider for source in matching if source.provider))
                 _, season, episode = parse_episode_slug(slug)
-                key = (slug, title, tuple(body.aliases), body.tmdb_id, alternatives, tuple(sorted(enabled)))
-                def lookup(source, season=season, episode=episode, slug=slug):
-                    if body.attempt:
-                        # Recheck short-lived catalog misses, preserving hits and
-                        # provider cooldowns rather than repeating cached absence.
-                        lock = getattr(state, "fallback_series_cache_lock", None)
-                        cache = getattr(state, "fallback_series_cache", None)
-                        if lock is not None and cache is not None:
-                            with lock:
-                                keys = {f"{source}:{_norm_title(value)}" for value in (title, *body.aliases)}
-                                if source == "huhu" and body.tmdb_id:
-                                    keys.add(f"{source}:tmdb:{body.tmdb_id}")
-                                for cache_key in keys:
-                                    cached = cache.get(cache_key)
-                                    if cached and cached[1] is None:
-                                        cache.pop(cache_key, None)
-                    found = find_episode_fallbacks(title, season, episode, aliases=tuple(body.aliases),
-                        source_slug=slug, excluded_providers=set(PROVIDER_CATALOG) - {source}, limit=1,
-                        tmdb_id=str(body.tmdb_id or ""), raise_on_error=True, content_languages=enabled)
-                    error = getattr(state, "fallback_provider_errors", {}).get(source)
-                    if error and error[0] > time.time():
-                        raise RuntimeError("Serienquelle vorübergehend nicht erreichbar")
-                    return found
-                def on_jobs(jobs, slug=slug):
-                    for source, future in jobs.items():
-                        probe_progress.update(body.probe_id, slug, source, "waiting", future=future)
-                sources, still_searching = episode_source_probes.search(key, alternatives, lookup,
-                    timeout=min(6, max(0, deadline - time.monotonic())), on_jobs=on_jobs,
-                    retry_unmatched=(lambda found: any(_source_languages(movie) & enabled for movie in found)) if body.attempt else None)
-                if values is None and future is not None and future.done():
-                    try:
-                        values = future.result()
-                        probe_progress.update(body.probe_id, slug, provider,
-                            "found" if set(values) & enabled else "no_match" if values else "retry")
-                    except Exception:
-                        pass
-                matching = [source for source in sources if source.hosters and _source_languages(source) & enabled]
-                if matching:
-                    for source in matching:
-                        probe_progress.update(body.probe_id, slug, source.provider, "found")
-                    values = sorted(set(values or []) | {language for source in matching for language in _source_languages(source)})
-                    source_providers[slug] = list(dict.fromkeys(source.provider for source in matching if source.provider))
-                    cache = getattr(state, "movie_source_cache", None)
-                    cache_lock = getattr(state, "movie_source_cache_lock", None)
-                    if cache is not None and cache_lock is not None:
-                        # Preserve the logical episode identity. Queue preparation
-                        # consumes these alternate sources through its existing path.
-                        placeholder = FilmpalastMovie(title=f"{title} S{season:02d}E{episode:02d}", url=slug, provider=provider)
-                        with cache_lock:
-                            cache[slug] = [placeholder, *matching]
-                elif still_searching and not set(values or []) & enabled:
-                    pending.append(slug)
-                    if values:
-                        languages[slug] = values
-                    # A negative primary result is not final while other sources
-                    # are still searching or temporarily unreachable.
-                    continue
-            if values is None:
+                cache = getattr(state, "movie_source_cache", None)
+                cache_lock = getattr(state, "movie_source_cache_lock", None)
+                if cache is not None and cache_lock is not None:
+                    # Preserve the logical episode identity. Queue preparation
+                    # consumes these alternate sources through its existing path.
+                    placeholder = FilmpalastMovie(title=f"{title} S{season:02d}E{episode:02d}", url=slug, provider=provider)
+                    with cache_lock:
+                        cache[slug] = [placeholder, *matching]
+            if values is not None:
+                languages[slug] = values
+            if not values or (searching.get(slug) and not set(values) & enabled):
                 pending.append(slug)
-                continue
-            languages[slug] = values
-            if not values:
-                pending.append(slug)
+            elif series is not None and parse_episode_slug(slug)[0] == first_base and set(values) & enabled:
+                language_probes.record_release(slug, values)
         record_watchlist_episode_languages({slug: values for slug, values in languages.items() if values and slug not in pending})
+        record_watchlist_episode_language_pending(pending)
         payload = {"available": {slug: bool(set(values) & enabled) for slug, values in languages.items()},
                    "languages": languages, "selected_content_languages": sorted(enabled)}
         if pending:

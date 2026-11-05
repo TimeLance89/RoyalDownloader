@@ -83,7 +83,7 @@ export function createMoviePresentation(catalogRoot, detailRoot, {
     if (!sentinel) return;
     const label = byId("fp-infinite-label");
     const retry = byId("fp-infinite-retry");
-    const browsable = Boolean(movieState.category && !movieState.searchActive && movieState.results.length);
+    const browsable = Boolean(movieState.category && !movieState.searchActive && (movieState.results.length || movieState.loadError));
     sentinel.classList.toggle("hidden", !browsable);
     if (!browsable) return;
 
@@ -369,6 +369,7 @@ export function createMoviePresentation(catalogRoot, detailRoot, {
       : responsePage;
     movieState.category = data.category ?? movieState.category;
     movieState.lastPageFull = Boolean(data.has_more ?? data.last_page_full);
+    movieState.totalResults = data.total_results ?? null;
     movieState.sources = mergeCatalogSources(movieState.sources, data.sources, append);
     movieState.loadingMore = false;
     movieState.loadError = "";

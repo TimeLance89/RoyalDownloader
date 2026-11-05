@@ -20,6 +20,9 @@ from core import egress_requests as requests
 from integrations.jellyfin_auth import jellyfin_auth_headers
 from application_services.runtime import backend_value, publish_service
 from application_services.saved_media import saved_media_sync
+from application_services.jellyfin_inventory import read_inventory, publish_inventory
+from integrations.jellyfin_reads import inventory_reads, scope_key, is_background_read
+from integrations.jellyfin_reads import movie_identities as _movie_identities_from_library
 
 logger = logging.getLogger(__name__)
 state = backend_value("state")
@@ -141,17 +144,6 @@ def _mark_cached_snapshots_verified(now: float) -> None:
     _live_ready_event.set()
 
 
-def _movie_identities_from_library(items: list[dict]) -> list[dict]:
-    return [{
-        "id": str(item.get("id") or ""),
-        "name": str(item.get("name") or ""),
-        "original_title": str(item.get("original_title") or ""),
-        "sort_name": str(item.get("sort_name") or ""),
-        "year": item.get("year"),
-        "tmdb_id": str(item.get("tmdb_id") or ""),
-    } for item in items]
-
-
 def _probe_library_revision(client) -> str | None:
     """Fetch one tiny page whose count/recent IDs fingerprint library membership."""
     if not client.configured:
@@ -202,92 +194,41 @@ def _probe_library_revision(client) -> str | None:
     return hashlib.sha256(material).hexdigest()
 
 
-def _refresh_snapshot(client) -> bool:
+def _refresh_snapshot(client, *, generation=None) -> bool:
     """Rebuild ownership data in parallel and publish one coherent generation."""
     with state.jellyfin_cache_lock:
-        generation = state.jellyfin_config_generation
+        generation = state.jellyfin_config_generation if generation is None else generation
         user_id = str(state.jellyfin_cfg.get("user_id") or "").strip()
 
-    loaders = {
-        "movies": client.list_movies,
-        "series": client.list_series,
-        "episodes": client.list_episodes,
-    }
+    if generation != state.jellyfin_config_generation:
+        return False
+    datasets = ['movies', 'series', 'episodes']
     if user_id:
-        loaders["user_episodes"] = lambda: client.list_episodes_with_user_data(user_id)
-
-    results: dict[str, list[dict] | None] = {}
-    with ThreadPoolExecutor(max_workers=len(loaders), thread_name_prefix="jellyfin-live-snapshot") as pool:
-        futures = {name: pool.submit(loader) for name, loader in loaders.items()}
+        datasets.append('user_episodes')
+    reader = inventory_reads(state)
+    requested = reader.clock()
+    with ThreadPoolExecutor(max_workers=len(datasets), thread_name_prefix='jellyfin-live-snapshot') as pool:
+        futures = {name: pool.submit(read_inventory, state, client, name, generation,
+                    user=user_id if name == 'user_episodes' else '', requested=requested, background=True)
+                   for name in datasets}
+        results = {}
         for name, future in futures.items():
             try:
                 results[name] = future.result()
-            except Exception as exc:
-                logger.warning("Jellyfin-Livesnapshot %s fehlgeschlagen: %s", name, exc)
+            except Exception:
+                logger.warning('Jellyfin inventory read failed kind=%s', name)
                 results[name] = None
-
-    now = time.time()
+    movies = results.get('movies')
+    identities = _movie_identities_from_library(movies.value) if movies is not None and movies.value is not None else None
     with state.jellyfin_cache_lock:
         if generation != state.jellyfin_config_generation:
             return False
-
-        movies = results.get("movies")
-        series = results.get("series")
-        episodes = results.get("episodes")
-        user_episodes = results.get("user_episodes") if user_id else []
-
-        if movies is not None:
-            state.jellyfin_movie_data_generation += 1
-            state.jellyfin_library = movies
-            state.jellyfin_library_time = now
-            state.jellyfin_library_available = True
-            state.jellyfin_library_retry_after = 0.0
-            state.jellyfin_movie_identities = _movie_identities_from_library(movies)
-            state.jellyfin_movie_identities_time = now
-            state.jellyfin_movie_identities_available = True
-            state.jellyfin_movie_identities_retry_after = 0.0
-        else:
-            state.jellyfin_library_available = False
-            if state.jellyfin_movie_identities is None:
-                state.jellyfin_movie_identities_available = False
-
-        if series is not None:
-            state.jellyfin_series = series
-            state.jellyfin_series_time = now
-            state.jellyfin_series_available = True
-            state.jellyfin_series_retry_after = 0.0
-        elif state.jellyfin_series is None:
-            state.jellyfin_series_available = False
-
-        if episodes is not None:
-            state.jellyfin_episode_data_generation += 1
-            state.jellyfin_episodes = episodes
-            state.jellyfin_episodes_time = now
-            state.jellyfin_episodes_available = True
-            state.jellyfin_episodes_retry_after = 0.0
-            state.jellyfin_targeted_episodes.clear()
-        else:
-            state.jellyfin_episodes_available = False
-
-        if user_id:
-            if user_episodes is not None:
-                state.jellyfin_user_episodes = user_episodes
-                state.jellyfin_user_episodes_time = now
-                state.jellyfin_user_episodes_available = True
-                state.jellyfin_user_episodes_retry_after = 0.0
-            else:
-                state.jellyfin_user_episodes_available = False
-        else:
-            state.jellyfin_user_episodes = None
-            state.jellyfin_user_episodes_time = 0.0
-            state.jellyfin_user_episodes_available = False
-            state.jellyfin_user_episodes_retry_after = 0.0
-
-        complete = movies is not None and series is not None and episodes is not None
-        if user_id:
-            complete = complete and user_episodes is not None
+        for name, result in results.items():
+            if result is not None:
+                publish_inventory(state, name, generation, result, identities=identities)
+        complete = all(result is not None and result.value is not None for result in results.values())
         state.jellyfin_live_stale = not complete
-        state.jellyfin_live_checked_at = now
+        state.jellyfin_live_checked_at = time.time()
     if complete:
         _live_ready_event.set()
     else:
@@ -307,14 +248,25 @@ def _broadcast_live_update() -> None:
 
 def _monitor_cycle(*, force_full: bool = False) -> str:
     global _last_revision, _failure_count
-    client = backend_value("get_jellyfin_client")()
+    with state.jellyfin_cache_lock:
+        client = backend_value("get_jellyfin_client")()
+        generation = state.jellyfin_config_generation
     if not client.configured:
         _last_revision = ""
         _failure_count = 0
         _set_live_state(stale=False, checked_at=time.time())
         return "unconfigured"
 
-    revision = _probe_library_revision(client)
+    revision = inventory_reads(state).read(
+        scope_key(client, generation, 'probe'), lambda: _probe_library_revision(client),
+        background=True, retry_seconds=min(
+            _LIVE_MAX_FAILURE_BACKOFF_SECONDS,
+            _poll_interval_seconds() * (2 ** min(_failure_count + 1, 4)),
+        ),
+    ).value
+    with state.jellyfin_cache_lock:
+        if generation != state.jellyfin_config_generation:
+            return "stale"
     if revision is None:
         _failure_count += 1
         _mark_probe_unavailable()
@@ -323,7 +275,7 @@ def _monitor_cycle(*, force_full: bool = False) -> str:
     previous_stale = _live_stale()
     changed = bool(_last_revision and revision != _last_revision)
     if force_full or not _last_revision or changed:
-        complete = _refresh_snapshot(client)
+        complete = _refresh_snapshot(client, generation=generation)
         if complete:
             _last_revision = revision
             _failure_count = 0
@@ -455,6 +407,8 @@ def _cached_snapshot(value_attr: str, force: bool, legacy):
     if not client.configured:
         return None
     if force:
+        if not is_background_read():
+            inventory_reads(state).forget("probe")
         value = legacy(force=True)
         request_jellyfin_live_refresh()
         return value

@@ -22,6 +22,7 @@ def test_cinema_dock_and_premium_card_finish_precede_mobile_override():
         '@import url("/styles/taste-feedback.css");',
         '@import url("/styles/daily-top.css");',
         '@import url("/styles/language-studio.css");',
+        '@import url("/styles/seasonal-events.css");',
         '@import url("/styles/mobile.css");',
     ]
     positions = [imports.index(layer) for layer in ordered_layers]

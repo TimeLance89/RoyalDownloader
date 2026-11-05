@@ -228,7 +228,7 @@ def test_background_change_coalesces_into_one_snapshot_push_and_automation_wake(
     snapshots = []
     pushes = []
     wakes = []
-    monkeypatch.setattr(live, "_refresh_snapshot", lambda _client: snapshots.append(True) or True)
+    monkeypatch.setattr(live, "_refresh_snapshot", lambda _client, **_kwargs: snapshots.append(True) or True)
     monkeypatch.setattr(live, "_broadcast_live_update", lambda: pushes.append(True))
     client = SimpleNamespace(configured=True)
 

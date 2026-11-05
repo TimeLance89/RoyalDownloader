@@ -129,7 +129,7 @@ export function createHomeLanes(root, {
   }
 
   function homeGemEntries() {
-    const topKeys = new Set(homeTopEntries().map(homeEntryKey));
+    const topKeys = new Set(homeTopEntries("today").map(homeEntryKey));
     const tasteOrder = new Map(homePersonalizedEntries()
       .map((entry, index) => [homeEntryKey(entry), index]));
     const candidates = homeSafeEntries()
@@ -173,7 +173,7 @@ export function createHomeLanes(root, {
   function homeDiscoveryLanes() {
     const top = homeTopEntries();
     const heroKeys = new Set(homeHeroCandidates().map(homeEntryKey));
-    const seen = new Set([...heroKeys, ...top.map(homeEntryKey)]);
+    const seen = new Set([...heroKeys, ...homeTopEntries("today").map(homeEntryKey)]);
     return {
       personal: takeDistinctHomeLane(homePersonalWallpaperEntries(), seen, 7, 0),
       discovered: takeDistinctHomeLane(activePersonalDiscoveries(), seen, 24, 0),

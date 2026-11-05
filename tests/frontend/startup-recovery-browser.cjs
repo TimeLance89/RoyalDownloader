@@ -88,8 +88,11 @@ const server = createServer(async (req, res) => {
       counts.push(seen.filter(path => path.startsWith("/styles/")).length);
     }
     assert.equal(Buffer.compare(screenshots[0], screenshots[1]), 0, "bundling cannot alter visible UI pixels");
-    assert.equal(counts[0] - counts[1], 45);
-    console.log(JSON.stringify({ engine: process.env.ROYAL_BROWSER || "chromium", recovery: "import + entry", identicalPixels: true, eliminatedStylesheetRequests: 45 }));
+    const manifest = await readFile(resolve(web, "style.css"), "utf8");
+    const importCount = [...manifest.matchAll(/@import\s+url\(['"]([^'"]+)['"]\);/g)].length;
+    assert.ok(importCount > 0, "the cascade must contain CSS modules");
+    assert.equal(counts[0] - counts[1], importCount, "bundling must eliminate every manifest import");
+    console.log(JSON.stringify({ engine: process.env.ROYAL_BROWSER || "chromium", recovery: "import + entry", identicalPixels: true, eliminatedStylesheetRequests: importCount }));
     await context.close();
   } finally { await browser.close(); await new Promise(done => server.close(done)); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

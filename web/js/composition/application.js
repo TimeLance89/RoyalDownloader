@@ -37,6 +37,7 @@ export function mountApplication({ state, downloadsDomain, coreDomain, discovery
       root: document.getElementById("tab-home"), shuffle: ((...args) => homeDomain.actions.shuffleHomeDiscovery(...args)), updateRailNavigation: ((...args) => homeDomain.actions.updateHomeRailNavigation(...args)),
       railRenderer: homeDomain.railRenderer,
       exposureVisibility: homeDomain.exposureVisibility,
+      seasonalEvents: homeDomain.seasonalEvents,
       layout: homeDomain.homeLayout,
       tasteRanking: homeDomain.tasteRanking,
       dailyTop: homeDomain.dailyTop,

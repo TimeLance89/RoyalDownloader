@@ -63,6 +63,10 @@ const baselineRef = process.env.ROYAL_CSS_BASELINE || "7d93908";
       });
       await page.evaluate(({ css, withLegacyStyles }) => {
         if (withLegacyStyles) { const style = document.createElement("style"); style.textContent = css; document.head.append(style); }
+        // Remove only the new chart UI from both frozen fixtures so the new mobile
+        // header row cannot shift the shell geometry. royal-charts-browser covers it.
+        document.querySelectorAll(".royal-charts-controls, #home-top-status, #royal-charts, #royal-chart-detail")
+          .forEach(element => element.remove());
         const track = document.getElementById("home-top-track");
         const card = document.createElement("article"); card.className = "home-card is-ranked";
         card.innerHTML = '<span class="home-card-art"><button class="taste-v2-dismiss" type="button">⊘</button><span class="home-card-overlay"><strong>Ranking fixture</strong><span class="daily-top-movement is-up">↑2</span></span></span>';
@@ -85,6 +89,14 @@ const baselineRef = process.env.ROYAL_CSS_BASELINE || "7d93908";
           ?.split("/* End inbox removal presentation. */")[0];
         assert.ok(block, "Missing explicitly scoped Inbox presentation rules");
         await page.addStyleTag({ content: block });
+        // New movie-world controls have no frozen counterpart. Apply only their
+        // marked styles to both sides; movie-worlds-browser covers the new UI.
+        // Keep every existing shell and filter style in the baseline comparison.
+        const moviePolish = readFileSync(resolve(root, "web/styles/catalog-polish.css"), "utf8");
+        const movieWorlds = moviePolish.split("/* Movie worlds filter presentation. */")[1]
+          ?.split("/* End movie worlds filter presentation. */")[0];
+        assert.ok(movieWorlds, "Missing explicitly scoped movie worlds presentation rules");
+        await page.addStyleTag({ content: movieWorlds });
       }
     }
     const snapshot = () => page.evaluate(() => [...document.querySelectorAll("body, body *")]
