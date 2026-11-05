@@ -8,6 +8,8 @@ from application_services.runtime import (
     publish_service,
 )
 from integrations.media_center import media_client
+from application_services.jellyfin_inventory import cached_inventory
+from integrations.jellyfin_reads import inventory_reads
 
 globals().update(import_backend_namespace())
 
@@ -155,6 +157,7 @@ def _set_runtime_jellyfin_config(cfg: dict) -> None:
     with state.jellyfin_cache_lock:
         state.jellyfin_cfg = normalized_cfg
         state.jellyfin_config_generation += 1
+        inventory_reads(state).clear()
         state.jellyfin_movie_data_generation += 1
         state.jellyfin_episode_data_generation += 1
         state.jellyfin_library = None
@@ -253,150 +256,19 @@ JELLYFIN_TARGETED_ERROR_RETRY_SECONDS = 15
 
 
 def get_jellyfin_library(force: bool = False) -> Optional[List[dict]]:
-    """Liefert alle Filme aus Jellyfin (gecacht), damit auch Neu/Top/Genre-Listen
-    ohne einen Live-Request pro Aufruf auf Duplikate geprüft werden können."""
-    with state.jellyfin_library_fetch_lock:
-        with state.jellyfin_cache_lock:
-            jf_client = get_jellyfin_client()
-            generation = state.jellyfin_config_generation
-            now = time.time()
-            needs_fetch = (
-                force
-                or state.jellyfin_library is None
-                or (now - state.jellyfin_library_time) > JELLYFIN_CACHE_TTL
-            )
-            if not jf_client.configured:
-                return None
-            if not force and now < state.jellyfin_library_retry_after:
-                return state.jellyfin_library
-            needs_fetch = needs_fetch or not state.jellyfin_library_available
-            if not needs_fetch:
-                return state.jellyfin_library
-            state.jellyfin_movie_data_generation += 1
-        fresh = jf_client.list_movies()
-        with state.jellyfin_cache_lock:
-            if generation != state.jellyfin_config_generation:
-                return state.jellyfin_library
-            state.jellyfin_movie_data_generation += 1
-            if fresh is not None:
-                state.jellyfin_library = fresh
-                state.jellyfin_library_time = time.time()
-                state.jellyfin_library_available = True
-                state.jellyfin_library_retry_after = 0.0
-            else:
-                state.jellyfin_library_available = False
-                state.jellyfin_library_retry_after = time.time() + JELLYFIN_ERROR_RETRY_SECONDS
-            return state.jellyfin_library
+    return cached_inventory(state, get_jellyfin_client, "movies", force=force)
 
 
 def get_jellyfin_movie_identities(force: bool = False) -> Optional[List[dict]]:
-    """Kleiner, unabhängiger Index für interaktive Film-Badges."""
-    with state.jellyfin_movie_identities_fetch_lock:
-        with state.jellyfin_cache_lock:
-            client = get_jellyfin_client()
-            generation = state.jellyfin_config_generation
-            now = time.time()
-            if not client.configured:
-                return None
-            if not force and now < state.jellyfin_movie_identities_retry_after:
-                return state.jellyfin_movie_identities
-            needs_fetch = (
-                force
-                or state.jellyfin_movie_identities is None
-                or not state.jellyfin_movie_identities_available
-                or (now - state.jellyfin_movie_identities_time) > JELLYFIN_CACHE_TTL
-            )
-            if not needs_fetch:
-                return state.jellyfin_movie_identities
-        fresh = client.list_movie_identities()
-        with state.jellyfin_cache_lock:
-            if generation != state.jellyfin_config_generation:
-                return state.jellyfin_movie_identities
-            if fresh is not None:
-                state.jellyfin_movie_identities = fresh
-                state.jellyfin_movie_identities_time = time.time()
-                state.jellyfin_movie_identities_available = True
-                state.jellyfin_movie_identities_retry_after = 0.0
-            else:
-                state.jellyfin_movie_identities_available = False
-                state.jellyfin_movie_identities_retry_after = (
-                    time.time() + JELLYFIN_ERROR_RETRY_SECONDS
-                )
-            return state.jellyfin_movie_identities
+    return cached_inventory(state, get_jellyfin_client, "identities", force=force)
 
 
 def get_jellyfin_episodes(force: bool = False) -> Optional[List[dict]]:
-    """Liefert alle Serien-Episoden aus Jellyfin (gecacht) – damit die
-    Watchlist-Prüfung weiß, ob eine neu gescrapete Episode tatsächlich
-    noch fehlt oder bereits in der Bibliothek liegt."""
-    with state.jellyfin_episodes_fetch_lock:
-        with state.jellyfin_cache_lock:
-            jf_client = get_jellyfin_client()
-            generation = state.jellyfin_config_generation
-            now = time.time()
-            needs_fetch = (
-                force
-                or state.jellyfin_episodes is None
-                or (now - state.jellyfin_episodes_time) > JELLYFIN_CACHE_TTL
-            )
-            if not jf_client.configured:
-                return None
-            if not force and now < state.jellyfin_episodes_retry_after:
-                return state.jellyfin_episodes
-            needs_fetch = needs_fetch or not state.jellyfin_episodes_available
-            if not needs_fetch:
-                return state.jellyfin_episodes
-            state.jellyfin_episode_data_generation += 1
-        fresh = jf_client.list_episodes()
-        with state.jellyfin_cache_lock:
-            if generation != state.jellyfin_config_generation:
-                return state.jellyfin_episodes
-            state.jellyfin_episode_data_generation += 1
-            if fresh is not None:
-                state.jellyfin_episodes = fresh
-                state.jellyfin_episodes_time = time.time()
-                state.jellyfin_episodes_available = True
-                state.jellyfin_episodes_retry_after = 0.0
-            else:
-                state.jellyfin_episodes_available = False
-                state.jellyfin_episodes_retry_after = time.time() + JELLYFIN_ERROR_RETRY_SECONDS
-            return state.jellyfin_episodes
+    return cached_inventory(state, get_jellyfin_client, "episodes", force=force)
 
 
 def get_jellyfin_series(force: bool = False) -> Optional[List[dict]]:
-    """Liefert Jellyfin-Serien inklusive Provider-IDs für stabiles Matching."""
-    with state.jellyfin_series_fetch_lock:
-        with state.jellyfin_cache_lock:
-            jf_client = get_jellyfin_client()
-            generation = state.jellyfin_config_generation
-            now = time.time()
-            needs_fetch = (
-                force
-                or state.jellyfin_series is None
-                or (now - state.jellyfin_series_time) > JELLYFIN_CACHE_TTL
-            )
-            if not jf_client.configured:
-                return None
-            if not force and now < state.jellyfin_series_retry_after:
-                return state.jellyfin_series
-            needs_fetch = needs_fetch or not state.jellyfin_series_available
-            if not needs_fetch:
-                return state.jellyfin_series
-            state.jellyfin_episode_data_generation += 1
-        fresh = jf_client.list_series()
-        with state.jellyfin_cache_lock:
-            if generation != state.jellyfin_config_generation:
-                return state.jellyfin_series
-            state.jellyfin_episode_data_generation += 1
-            if fresh is not None:
-                state.jellyfin_series = fresh
-                state.jellyfin_series_time = time.time()
-                state.jellyfin_series_available = True
-                state.jellyfin_series_retry_after = 0.0
-            else:
-                state.jellyfin_series_available = False
-                state.jellyfin_series_retry_after = time.time() + JELLYFIN_ERROR_RETRY_SECONDS
-            return state.jellyfin_series
+    return cached_inventory(state, get_jellyfin_client, "series", force=force)
 
 
 def get_jellyfin_targeted_episodes(
@@ -534,42 +406,7 @@ def _series_jellyfin_status(
 
 
 def get_jellyfin_user_episodes(force: bool = False) -> Optional[List[dict]]:
-    """Liefert Episoden mit Gesehen-Status des konfigurierten Benutzers."""
-    with state.jellyfin_user_fetch_lock:
-        with state.jellyfin_cache_lock:
-            jf_client = get_jellyfin_client()
-            generation = state.jellyfin_config_generation
-            user_id = state.jellyfin_cfg.get("user_id", "").strip()
-            now = time.time()
-            needs_fetch = (
-                force
-                or state.jellyfin_user_episodes is None
-                or (now - state.jellyfin_user_episodes_time) > JELLYFIN_CACHE_TTL
-            )
-            if not jf_client.configured or not user_id:
-                return None
-            if not force and now < state.jellyfin_user_episodes_retry_after:
-                return state.jellyfin_user_episodes
-            needs_fetch = needs_fetch or not state.jellyfin_user_episodes_available
-            if not needs_fetch:
-                return state.jellyfin_user_episodes
-            state.jellyfin_episode_data_generation += 1
-        items = jf_client.list_episodes_with_user_data(user_id)
-        with state.jellyfin_cache_lock:
-            if generation != state.jellyfin_config_generation:
-                return state.jellyfin_user_episodes
-            state.jellyfin_episode_data_generation += 1
-            if items is None:
-                state.jellyfin_user_episodes_available = False
-                state.jellyfin_user_episodes_retry_after = (
-                    time.time() + JELLYFIN_ERROR_RETRY_SECONDS
-                )
-                return state.jellyfin_user_episodes
-            state.jellyfin_user_episodes = items
-            state.jellyfin_user_episodes_time = time.time()
-            state.jellyfin_user_episodes_available = True
-            state.jellyfin_user_episodes_retry_after = 0.0
-            return state.jellyfin_user_episodes
+    return cached_inventory(state, get_jellyfin_client, "user_episodes", force=force)
 
 
 _SERVICE_EXPORTS = (

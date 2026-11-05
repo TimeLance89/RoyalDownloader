@@ -1,6 +1,27 @@
 const assert = require("node:assert/strict");
 const { fixture } = require("./performance-fixture.cjs");
 
+// IntersectionObserver replaces card contents asynchronously. Compare settled
+// layout on both sides, not an intermediate frame between observer batches.
+async function settledCatalogHeight(page, id) {
+  return page.evaluate(async id => {
+    await document.fonts.ready;
+    const shelf = document.getElementById(id);
+    return new Promise((resolve, reject) => {
+      let previous = null, stable = 0, frames = 0;
+      function measure() {
+        const height = shelf.getBoundingClientRect().height;
+        stable = height === previous ? stable + 1 : 0;
+        previous = height;
+        if (stable >= 3) { resolve(height); return; }
+        if (++frames >= 120) { reject(new Error(`Catalog height did not settle: ${id}`)); return; }
+        requestAnimationFrame(measure);
+      }
+      requestAnimationFrame(measure);
+    });
+  }, id);
+}
+
 (async () => {
   for (const mobile of [false, true]) {
     const run = await fixture({ mobile, viewport: mobile ? { width: 390, height: 844 } : { width: 1440, height: 1000 } });
@@ -28,9 +49,9 @@ const { fixture } = require("./performance-fixture.cjs");
         assert.equal(await cards.count(), 640);
         await cards.first().scrollIntoViewIfNeeded();
         await page.waitForFunction(id => document.querySelector(`#${id} .result-card-title`), id);
-        const initialHeight = await page.locator(`#${id}`).evaluate(node => node.getBoundingClientRect().height);
         let maxLive = 0;
         await page.waitForFunction(id => document.querySelector(`#${id} .result-card-poster:not(.is-pending-poster)`)?.complete, id);
+        const initialHeight = await settledCatalogHeight(page, id);
         await page.evaluate(id => {
           window.windowTestPoster = document.querySelector(`#${id} .result-card-poster:not(.is-pending-poster)`);
         }, id);
@@ -46,7 +67,7 @@ const { fixture } = require("./performance-fixture.cjs");
           const posters = await page.locator(`#${id} .result-card-poster`).count();
           assert.ok(live < 72 && posters < 72, `Unbounded card/poster retention: ${live}/${posters}`);
           assert.match(await cards.nth(index).locator(".result-card-title").textContent(), new RegExp(`${index}$`));
-          const height = await page.locator(`#${id}`).evaluate(node => node.getBoundingClientRect().height);
+          const height = await settledCatalogHeight(page, id);
           assert.ok(Math.abs(height - initialHeight) < 3, `Scroll height changed: ${initialHeight} -> ${height}`);
           if (index !== 0) assert.equal(await page.evaluate(() => !windowTestPoster.isConnected && !windowTestPoster.getAttribute("src")), true);
         }

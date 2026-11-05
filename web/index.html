@@ -9,7 +9,7 @@
 <script src="/boot.js?v=royal-20261021-1"></script>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Barlow+Condensed:wght@600;700;800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style-tokens.css?v=royal-20260801-1">
-<link rel="stylesheet" href="/style.css?v=royal-20261001-1">
+<link rel="stylesheet" href="/style.css?v=royal-charts-3">
 <link rel="stylesheet" href="/styles/source-sentinel.css">
 <link rel="stylesheet" href="/styles/people.css">
 </head>
@@ -456,8 +456,16 @@
         <section class="home-rail home-rail-top is-ranked" aria-labelledby="home-top-title">
           <header class="home-rail-head">
             <div>
-              <span class="home-rail-eyebrow">Heute neu</span>
+              <span class="home-rail-eyebrow" id="home-top-eyebrow">Heute über deine Quellen hinweg angesagt</span>
               <h2 id="home-top-title">Top 10</h2>
+            </div>
+            <div class="royal-charts-controls">
+              <div class="royal-chart-modes" role="group" aria-label="Chart-Zeitraum">
+                <button type="button" data-chart-mode="today" aria-pressed="true">Heute</button>
+                <button type="button" data-chart-mode="week" aria-pressed="false">Diese Woche</button>
+                <button type="button" data-chart-mode="breakouts" aria-pressed="false">Durchstarter</button>
+              </div>
+              <button type="button" class="royal-chart-link" data-chart-open>Alle Charts entdecken</button>
             </div>
             <div class="home-rail-controls">
               <button type="button" data-home-scroll="home-top-track" data-direction="-1" aria-label="Top 10 nach links scrollen">‹</button>
@@ -465,7 +473,45 @@
             </div>
           </header>
           <div id="home-top-track" class="home-track home-top-track" role="group" aria-label="Top 10 des Tages"></div>
+          <div id="home-top-status" class="royal-chart-status" role="status" hidden></div>
         </section>
+
+        <dialog id="royal-charts" class="royal-chart-dialog" aria-labelledby="royal-charts-title">
+          <header class="royal-chart-dialog-head">
+            <h2 id="royal-charts-title">Royal Charts <small>Top 30</small></h2>
+            <button type="button" class="royal-chart-link" data-chart-close aria-label="Royal Charts schließen">✕</button>
+          </header>
+          <div class="royal-charts-controls">
+            <div class="royal-chart-modes" role="group" aria-label="Rangliste">
+              <button type="button" data-chart-mode="today" aria-pressed="true">Heute</button>
+              <button type="button" data-chart-mode="week" aria-pressed="false">Diese Woche</button>
+              <button type="button" data-chart-mode="month" aria-pressed="false">30 Tage</button>
+              <button type="button" data-chart-mode="breakouts" aria-pressed="false">Durchstarter</button>
+              <button type="button" data-chart-mode="new" aria-pressed="false">Neueinsteiger</button>
+            </div>
+            <label>Medientyp
+              <select id="royal-chart-kind"><option value="mixed">Gemischt</option><option value="movie">Filme</option><option value="series">Serien</option></select>
+            </label>
+            <label>Genre
+              <select id="royal-chart-genre"><option value="">Alle Genres</option></select>
+            </label>
+          </div>
+          <details class="royal-chart-method">
+            <summary>Wie entstehen die Charts?</summary>
+            <p>Der Tagesscore kombiniert das stärkste Popularitätssignal (90 %) und die Bewertung mit Stimmgewicht (10 %). Top-Rubriken mit unklarer Sortierung zählen reduziert. Huhu und TMDB teilen sich eine Signalgruppe. Upload-Listen helfen, Titel in aktiven Quellen zu finden.</p>
+            <p>Wochen- und Monatswertungen gewichten hohe Plätze, Popularität und wiederholte Platzierungen der letzten 7 bzw. 30 Tage. Durchstarter brauchen einen messbaren Zuwachs gegenüber gestern. Der Chart-Tag beginnt um 00:00 UTC.</p>
+          </details>
+          <div id="royal-chart-status" class="royal-chart-status" role="status" hidden></div>
+          <div id="royal-chart-grid" class="home-track home-top-track royal-chart-grid" aria-label="Top 30"></div>
+        </dialog>
+        <dialog id="royal-chart-detail" class="royal-chart-dialog royal-chart-detail" aria-labelledby="royal-chart-detail-title">
+          <header class="royal-chart-dialog-head">
+            <h2 id="royal-chart-detail-title"></h2>
+            <button type="button" class="royal-chart-link" data-chart-close aria-label="Chart-Details schließen">✕</button>
+          </header>
+          <div id="royal-chart-explanation"></div>
+          <button type="button" class="royal-chart-link" data-chart-title-open>Titeldetails öffnen</button>
+        </dialog>
 
         <section class="home-rail home-rail-series" aria-labelledby="home-series-title">
           <header class="home-rail-head">
@@ -660,13 +706,34 @@
           <div>
             <span class="movie-filter-kicker">FILMREGIE</span>
             <h2 id="movie-filter-title">Was soll heute laufen?</h2>
-            <p>Mehrere Kriterien kombinieren – Royal grenzt das Programm sofort ein.</p>
+            <p>Filmwelten entdecken und mit passenden Filtern eingrenzen.</p>
           </div>
           <div class="movie-filter-result" aria-live="polite">
             <span id="genre-active">Alle Filme</span>
             <strong id="genre-count">Filter werden geladen …</strong>
           </div>
         </header>
+        <div class="movie-world-picker">
+          <label class="movie-filter-field">
+            <span>Filmwelten & Studios</span>
+            <select id="movie-filter-world" aria-label="Filmwelt auswählen" aria-describedby="movie-world-description">
+              <option value="">Alle Filmwelten</option>
+              <optgroup label="Disney & Animation">
+                <option value="disney">Disney Filme</option>
+                <option value="disney-classics">Disney Classics</option>
+                <option value="pixar">Pixar</option>
+                <option value="dreamworks">DreamWorks Animation</option>
+                <option value="ghibli">Studio Ghibli</option>
+              </optgroup>
+              <optgroup label="Helden & Universen">
+                <option value="marvel">Marvel</option>
+                <option value="dc">DC Universe</option>
+                <option value="star-wars">Star Wars · Skywalker-Saga</option>
+              </optgroup>
+            </select>
+          </label>
+          <p id="movie-world-description">Filmwelten laden einen eigenen Katalog. Weitere Filme erscheinen beim Scrollen. Disney Classics umfasst Disney-Animationslangfilme einschließlich älterer Produktionen und Fortsetzungen, ohne Pixar. Tonsprachen werden erst bei der Quellenprüfung bestätigt.</p>
+        </div>
         <div class="movie-filter-controls">
           <label class="movie-filter-field">
             <span>Genre</span>
@@ -681,6 +748,8 @@
               <option value="2020s">Seit 2020</option>
               <option value="2010s">2010–2019</option>
               <option value="2000s">2000–2009</option>
+              <option value="1990s">1990–1999</option>
+              <option value="1980s">1980–1989</option>
               <option value="classic">Vor 2000</option>
             </select>
           </label>
@@ -715,6 +784,7 @@
             <select id="movie-filter-sort" aria-label="Filme sortieren">
               <option value="default">Royal-Reihenfolge</option>
               <option value="newest">Neueste zuerst</option>
+              <option value="oldest">Älteste zuerst</option>
               <option value="rating">Beste Bewertung</option>
               <option value="title">Titel A–Z</option>
             </select>
@@ -729,6 +799,7 @@
             <button id="movie-filter-reset" type="button" disabled>Zurücksetzen</button>
           </div>
         </footer>
+        <p id="movie-filter-empty" class="movie-filter-empty" role="status" hidden>Keine passenden Filme unter den geladenen Titeln. Filter lockern oder weitere Filme laden.</p>
       </section>
 
       <section class="movie-subscriptions" aria-labelledby="movie-subscriptions-title">
@@ -751,7 +822,7 @@
       <div class="split">
         <div class="panel results-panel" aria-label="Filme">
           <div class="panel-head">
-            <span class="panel-title">Beliebt auf Royal</span>
+            <span id="fp-results-title" class="panel-title">Beliebt auf Royal</span>
             <span id="fp-status" class="dim">Bereit zum Suchen …</span>
           </div>
           <div class="list-head movie-row">
@@ -1685,6 +1756,12 @@
           <div id="ui-language-status" class="dim small-status" role="status" aria-live="polite">Deutsch · Ausgangssprache</div>
         </div>
 
+        <section class="settings-group settings-card seasonal-event-settings" aria-labelledby="seasonal-settings-title">
+          <h3 id="seasonal-settings-title">Events auf der Startseite</h3>
+          <p class="dim settings-hint">Saisonale Kulissen, passend zur Jahreszeit. Dein Programm und deine Empfehlungen bleiben unverändert.</p>
+          <label class="seasonal-event-toggle" for="seasonal-events-enabled"><span><strong>Saisonale Events</strong><small>Halloween: 28.–31. Oktober, jeden Tag ein wenig mehr Atmosphäre.</small></span><input id="seasonal-events-enabled" type="checkbox" role="switch" disabled aria-describedby="seasonal-events-status"><i aria-hidden="true"></i></label>
+          <p id="seasonal-events-status" class="dim small-status" role="status" aria-live="polite"></p>
+        </section>
         <section id="settings-storage-card" class="operation-destinations" hidden aria-labelledby="operation-destinations-title">
           <div class="operation-destination-heading"><div><span class="operation-policy-label" id="operation-policy-label">Verteilung wird geprüft</span><h3 id="operation-destinations-title">Downloadziele</h3><p id="operation-policy-description">Die aktuelle Speicherstrategie wird geladen.</p></div><span class="operation-volume-count" id="operation-volume-count">—</span></div>
           <div class="operation-placement-flow" aria-label="So wählt Royal das Ziel"><span>Film oder Serie</span><i aria-hidden="true">›</i><strong id="operation-placement-choice">Speicherstrategie</strong><i aria-hidden="true">›</i><span id="operation-placement-result">Passendes Ziel</span></div>

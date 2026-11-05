@@ -25,9 +25,28 @@ class JellyfinSavedMixin:
             "ExcludeLocationTypes": "Virtual,Offline", "IsMissing": "false",
             "IsPlaceHolder": "false", "Fields": "ProviderIds,MediaSources,Path",
         }
-        items = self._list_endpoint_items(endpoint, params, 500, "Persönliche Jellyfin-Merkliste")
+        # Keep visibility/ambiguity fresh; hydrate playback fields only for wishes.
+        index_params = {**params, "Fields": "ProviderIds"} if wishes else params
+        items = self._list_endpoint_items(endpoint, index_params, 500, "Persönliche Jellyfin-Merkliste")
         if items is None:
             return None
+        if wishes:
+            wanted_keys = {("Movie" if item["media_type"] == "movie" else "Series", str(item["tmdb_id"]))
+                           for item in wishes}
+            items = [item for item in items if (item.get("Type"), str(
+                (item.get("ProviderIds") or {}).get("Tmdb") or
+                (item.get("ProviderIds") or {}).get("TheMovieDb") or "")) in wanted_keys]
+            movie_ids = sorted({jellyfin_id(item["Id"]) for item in items if item.get("Type") == "Movie"})
+            movies = []
+            for start in range(0, len(movie_ids), 100):
+                batch = movie_ids[start:start + 100]
+                rows = self._list_endpoint_items(endpoint, {
+                    **params, "IncludeItemTypes": "Movie", "Ids": ",".join(batch),
+                }, 500, "Persönliche Jellyfin-Filmmerkliste")
+                if rows is None:
+                    return None
+                movies.extend(item for item in rows if jellyfin_id(item["Id"]) in batch)
+            items = [item for item in items if item.get("Type") == "Series"] + movies
         wanted = {str(item["tmdb_id"]) for item in wishes if item["media_type"] == "tv"}
         for identity in sorted(wanted):
             matches = [item for item in items if item.get("Type") == "Series"

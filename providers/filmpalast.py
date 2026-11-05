@@ -474,6 +474,7 @@ class FilmpalastScraper:
                 seasons.setdefault(season, []).append(SeriesEpisode(
                     season=season, episode=episode, slug=ep_slug,
                     url=self._abs_url(href), release_name=release_name,
+                    content_languages=self._episode_release_languages(release_name, season, episode),
                 ))
 
         if not seasons:
@@ -497,6 +498,24 @@ class FilmpalastScraper:
             cover_url=cover_url, description=description, genres=genres,
             seasons=seasons,
         )
+
+    @staticmethod
+    def _episode_release_languages(release_name: str, season: int, episode: int) -> tuple[str, ...]:
+        """An actual episode release supplies audio evidence, unlike a bare listing."""
+        match = re.search(
+            rf"(?<![a-z0-9])s0*{season}e0*{episode}(?!\d)(.+)", release_name, re.I,
+        )
+        if not match:
+            return ()
+        tags = match.group(1)
+        if not re.search(r"(?<![a-z0-9])(?:\d{3,4}p|web(?:rip|dl)?|hdtv|bluray|bdrip|dvdrip)(?![a-z0-9])", tags, re.I):
+            return ()
+        return tuple(language for language, marker in (
+            ("de", r"german|deutsch"), ("en", r"english|englisch"),
+        ) if re.search(
+            rf"(?<![a-z0-9])(?:{marker})(?![a-z0-9])"
+            r"(?![._\s-]+(?:subbed|subs?|subtitles?|ut)(?![a-z0-9]))", tags, re.I,
+        ))
 
     @staticmethod
     def _group_episode_results(results: List[FilmpalastSearchResult]) -> List[FilmpalastSeriesResult]:

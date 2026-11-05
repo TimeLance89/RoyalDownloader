@@ -1000,6 +1000,15 @@ def _scheduled_episode_reason(slug: str) -> str:
     episode = next((item for item in series.all_episodes if item.slug == slug), None)
     if episode is None or episode.is_released:
         return ""
+    from features.episode_language_probe import language_probes
+    from features.subscription_languages import subscription_content_languages
+
+    desired = subscription_content_languages(
+        {"base_slug": parsed[0]}, state.content_languages,
+        getattr(state, "subscription_content_languages", {}),
+    )
+    if language_probes.confirmed_languages(slug).intersection(desired):
+        return ""
     return (
         f"noch nicht veröffentlicht (ab {episode.release_label})"
         if episode.release_label and episode.release_label != "Demnächst"

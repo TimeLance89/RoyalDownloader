@@ -5,6 +5,7 @@ import threading
 from application_services.runtime import backend_value
 from core.runtime_paths import data_dir
 from integrations.jellyfin_scans import ScanManager, interval
+from integrations.jellyfin_reads import inventory_reads
 
 _lock = threading.Lock()
 _manager = None
@@ -87,7 +88,8 @@ def request_media_scan(source, path, *, evidence=None, slug=""):
 
 def media_scan_diagnostics():
     try:
-        return media_scan_manager().snapshot()
+        return {**media_scan_manager().snapshot(),
+                "inventory_reads": inventory_reads(backend_value("state")).snapshot()}
     except Exception:
         return {"phase": "storage_unavailable"}
 

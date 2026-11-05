@@ -1,0 +1,103 @@
+/* A licensed photograph, behind the entire Home view at every scroll position. */
+#tab-home[data-seasonal-event="halloween"] {
+  position: relative;
+  isolation: isolate;
+  /* The tab entrance retains transform/blur(0), which otherwise traps fixed children. */
+  animation: none;
+  transform: none;
+  filter: none;
+  background: #03050b;
+  --event-darkness: .80;
+}
+#tab-home[data-event-stage="2"] { --event-darkness: .82; }
+#tab-home[data-event-stage="3"] { --event-darkness: .85; }
+#tab-home[data-event-stage="4"] { --event-darkness: .87; }
+#tab-home .home-event-backdrop,
+#tab-home .home-event-flash {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  contain: paint;
+}
+#tab-home .home-event-backdrop { background: #03050b; }
+#tab-home .home-event-backdrop img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  opacity: calc(1 - var(--event-darkness));
+}
+/* Existing content stays above the weather; no overlay can wash out text or posters. */
+#tab-home[data-seasonal-event="halloween"] .home-hero { background: transparent; }
+#tab-home[data-seasonal-event="halloween"] .home-hero-art { opacity: .55; }
+#tab-home[data-seasonal-event="halloween"] .home-hero::before { box-shadow: none; }
+#tab-home[data-seasonal-event="halloween"] .home-hero::after {
+  background: linear-gradient(90deg, #03050b99, #03050b30 60%, transparent),
+    linear-gradient(0deg, #03050b55, transparent 45%);
+}
+#tab-home[data-seasonal-event="halloween"] .home-program {
+  background: linear-gradient(90deg, #03050bb3, #03050b40);
+}
+#tab-home .event-lightning-flash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(ellipse at 65% 15%, #d4dff4, #8f9bb9 80%);
+}
+#tab-home[data-event-lightning] .event-lightning-flash {
+  animation: event-lightning-flash 280ms ease-out both;
+}
+@keyframes event-lightning-flash {
+  0% { opacity: 0; }
+  8% { opacity: .48; }
+  32% { opacity: .12; }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #tab-home .event-lightning-flash { display: none; animation: none; }
+}
+
+/* All motifs are existing transparent PNGs. CSS only anchors/sizes the images. */
+#tab-home .home-event-decoration {
+  position: absolute;
+  z-index: 5;
+  display: block;
+  height: auto;
+  pointer-events: none;
+  user-select: none;
+}
+#tab-home .event-decor-web { width: 180px; opacity: .24; filter: invert(1); }
+#tab-home .event-decor-bats { width: 150px; opacity: .45; filter: invert(.65); }
+#tab-home .event-decor-pumpkin { width: 112px; z-index: 6; }
+#tab-home .event-decor-top-left { top: 0; left: 0; }
+#tab-home .event-decor-web.event-decor-top-right { top: 0; right: 0; width: 140px; transform: scaleX(-1); }
+#tab-home .event-decor-bats.event-decor-top-right { top: 48px; right: 110px; }
+#tab-home .event-decor-hero-right { bottom: 140px; right: var(--home-gutter); }
+#tab-home .event-decor-hero-pair { bottom: 132px; right: calc(var(--home-gutter) + 88px); width: 76px; transform: scaleX(-1); }
+#tab-home .event-decor-web.event-decor-rail-left { top: -12px; left: 0; width: var(--home-gutter); }
+#tab-home .event-decor-bats.event-decor-rail-right { top: -22px; right: var(--home-gutter); width: 95px; }
+#tab-home .event-decor-pumpkin.event-decor-rail-left { top: -14px; left: 5px; width: 34px; }
+@media (max-width: 820px) {
+  #tab-home .event-decor-web { width: 86px; }
+  #tab-home .event-decor-web.event-decor-top-right { width: 68px; }
+  #tab-home .event-decor-bats.event-decor-top-right { top: 8px; right: 87px; width: 100px; }
+  #tab-home .event-decor-hero-right { top: 8px; bottom: auto; right: 8px; width: 64px; }
+  #tab-home .event-decor-hero-pair { top: 29px; bottom: auto; right: 62px; width: 46px; }
+  #tab-home .event-decor-bats.event-decor-rail-right { width: 65px; top: -20px; }
+  #tab-home .event-decor-pumpkin.event-decor-rail-left { left: auto; right: 14px; top: -28px; width: 46px; }
+}
+
+.seasonal-event-toggle { display: flex; align-items: center; gap: 18px; margin-top: 16px; cursor: pointer; }
+.seasonal-event-toggle > span { flex: 1; }
+.seasonal-event-toggle strong, .seasonal-event-toggle small { display: block; }
+.seasonal-event-toggle small { margin-top: 7px; color: #a9a4ae; font-size: 12px; line-height: 1.5; }
+.seasonal-event-toggle input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.seasonal-event-toggle > i { flex: 0 0 46px; height: 26px; padding: 4px; border-radius: 20px; background: #414049; border: 1px solid #ffffff20; }
+.seasonal-event-toggle > i::after { content: ""; display: block; width: 16px; height: 16px; border-radius: 50%; background: #ccc6cd; }
+.seasonal-event-toggle input:checked + i { background: #795334; border-color: #d5ad74; }
+.seasonal-event-toggle input:checked + i::after { transform: translateX(19px); background: #f6dfb2; }
+.seasonal-event-toggle input:focus-visible + i { outline: 2px solid #edc69a; outline-offset: 4px; }
+.seasonal-event-toggle input:disabled + i { opacity: .45; }

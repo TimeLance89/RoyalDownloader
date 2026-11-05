@@ -313,12 +313,9 @@ def test_shared_episode_language_endpoint_rejects_serienstream_english_only_for_
     monkeypatch.setattr(discovery, "provider_priority", lambda _kind: ["serienstream"])
     monkeypatch.setattr(discovery, "provider_for_value", lambda _slug: "serienstream")
     monkeypatch.setattr(discovery, "state", SimpleNamespace(
-        content_languages={"de"}, sto_lock=threading.RLock(),
+        content_languages={"de"},
     ))
-    monkeypatch.setattr(
-        discovery, "get_sto_scraper",
-        lambda: SimpleNamespace(get_movie=movie_for),
-    )
+    monkeypatch.setattr(discovery, "load_movie_for_slug", movie_for)
 
     body = discovery.SeriesEpisodeLanguagesBody(
         provider="serienstream", slugs=[de_slug, en_slug],
@@ -393,8 +390,8 @@ def test_shared_language_probe_missing_episode_is_retryable_and_preserves_other_
             "VOE", "https://example.test/video", "Englisch" if slug == english else "Deutsch")])
     monkeypatch.setattr(discovery, "provider_priority", lambda _kind: ["serienstream"])
     monkeypatch.setattr(discovery, "provider_for_value", lambda _slug: "serienstream")
-    monkeypatch.setattr(discovery, "state", SimpleNamespace(content_languages={"de"}, sto_lock=threading.RLock()))
-    monkeypatch.setattr(discovery, "get_sto_scraper", lambda: SimpleNamespace(get_movie=movie_for))
+    monkeypatch.setattr(discovery, "state", SimpleNamespace(content_languages={"de"}))
+    monkeypatch.setattr(discovery, "load_movie_for_slug", movie_for)
     recorded = []
     monkeypatch.setattr(library, "record_watchlist_episode_languages", lambda languages: recorded.append(languages))
     body = discovery.SeriesEpisodeLanguagesBody(provider="serienstream", slugs=[missing, german, english])

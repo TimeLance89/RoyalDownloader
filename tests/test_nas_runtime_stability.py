@@ -273,7 +273,11 @@ def test_watchdog_thread_exits_with_lifespan():
 
 
 def test_maintenance_failure_does_not_disable_reconciliation_or_next_cycle(monkeypatch):
+    from application_services import daily_top
+
     calls = []
+    monkeypatch.setattr(daily_top, "collect_scheduled_chart", lambda: calls.append("charts"))
+    monkeypatch.setattr(runtime_maintenance, "is_initialized", lambda: True)
     cycles = []
     loop_thread = threading.get_ident()
 
@@ -295,4 +299,4 @@ def test_maintenance_failure_does_not_disable_reconciliation_or_next_cycle(monke
                             module_manager=SimpleNamespace(reconcile_all=lambda: calls.append("modules")))
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(runtime_maintenance.maintain_runtime(state))
-    assert calls == ["cache", "modules", "cache", "modules"]
+    assert calls == ["cache", "modules", "charts", "cache", "modules", "charts"]

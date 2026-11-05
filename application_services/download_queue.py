@@ -236,6 +236,69 @@ def _content_already_available(movie: FilmpalastMovie, slug: str) -> tuple[bool,
     return False, ""
 
 
+def _episode_candidates(movie, slug, episode, known, refresh, cancelled, gate_seen):
+    """Resolve providers one at a time, including after a failed transfer."""
+    from features.episode_source_probe import episode_source_providers
+
+    original_provider = provider_for_value(slug)
+    providers = list(episode_source_providers(provider_priority("series"), provider_priority("anime")))
+    # Keep the explicitly selected source usable, including anime-only catalogs.
+    if original_provider not in providers:
+        providers.insert(len(providers) - int("serienstream" in providers), original_provider)
+    providers.sort(key=lambda provider: provider == "serienstream")
+    known = [movie, *known]
+    title = strip_episode_suffix(movie.title) or movie.title
+    aliases = None
+    seen = set()
+    for provider in providers:
+        if (cancelled and cancelled()) or not _queue_slug_claimed(slug):
+            return
+        if provider == "serienstream" and not state.provider_health.routing_allowed(provider):
+            gate_seen[0] = gate_seen[0] or original_provider == provider
+            continue
+        candidates = [candidate for candidate in known if candidate.hosters
+                      and _movie_provider(candidate, slug) == provider
+                      and not (provider == original_provider and refresh)]
+        if not candidates:
+            if provider == original_provider:
+                try:
+                    fresh = load_movie_for_slug(slug)
+                except ProviderBlockedError as exc:
+                    if provider == "serienstream":
+                        _mark_serienstream_blocked(exc.reason, str(exc))
+                        gate_seen[0] = True
+                    fresh = None
+                except Exception as exc:  # noqa: BLE001 - isolate provider errors
+                    log(f"  Episodenseite noch nicht ladbar: {exc}", "warn")
+                    if provider == "serienstream":
+                        _mark_serienstream_blocked("provider_error", str(exc))
+                        gate_seen[0] = True
+                    fresh = None
+                if fresh and fresh.hosters:
+                    state.fp_movies[slug] = fresh
+                    candidates = [fresh]
+            else:
+                if aliases is None:
+                    aliases = _episode_fallback_aliases(slug, title)
+                candidates = find_episode_fallbacks(
+                    title, episode[1], episode[2], aliases=aliases, source_slug=slug,
+                    excluded_providers=set(PROVIDER_CATALOG) - {provider}, limit=1,
+                )
+        for candidate in candidates:
+            if candidate.url not in seen:
+                seen.add(candidate.url)
+                yield candidate
+
+
+def _film_candidates(sources, slug, fallbacks_loaded):
+    yield from sources
+    if not fallbacks_loaded[0]:
+        fallbacks_loaded[0] = True
+        alternatives = find_movie_source_fallbacks(sources[0], slug, {candidate.url for candidate in sources})
+        sources.extend(alternatives)
+        yield from alternatives
+
+
 def run_download_queue(
     jobs: List[tuple],
     out_root: Path,
@@ -281,43 +344,7 @@ def run_download_queue(
                     on_job_done(True, "bereits vorhanden", movie.title, existing_file, slug=movie_slug)
                 continue
 
-            # Konnte bereits die Episodenseite während der Vorbereitung nicht
-            # geladen werden, bleibt der logische Job trotzdem erhalten. Vor
-            # jedem Versuch die gewählte Quelle erneut laden; danach folgen die
-            # Katalog-Fallbacks und bei Serienstream gegebenenfalls Cooldowns.
-            primary_unavailable = False
-            language_job = _queue_job_for_slug(movie_slug) or {}
-            refresh_language_tracks = (
-                language_job.get("wait_reason") == "language_unavailable"
-                or (language_job.get("wait_reason") == "source_unavailable"
-                    and language_job.get("content_language")
-                    and not language_job.get("language_checked_at"))
-            )
-            if not movie.hosters or refresh_language_tracks:
-                refreshed_movie = None
-                is_sto = provider_for_value(movie_slug) == "serienstream"
-                if is_sto and not state.provider_health.request_allowed("serienstream"):
-                    log(
-                        f"SerienStream befindet sich im Cooldown – Episode "
-                        f"S{ep_info[1]:02d}E{ep_info[2]:02d} bleibt vorgemerkt."
-                    )
-                else:
-                    try:
-                        refreshed_movie = load_movie_for_slug(movie_slug)
-                    except ProviderBlockedError as exc:
-                        _mark_serienstream_blocked(exc.reason, str(exc))
-                        log(f"  Episodenseite blockiert: {exc}", "warn")
-                    except Exception as exc:
-                        log(f"  Episodenseite noch nicht ladbar: {exc}", "warn")
-                        if is_sto:
-                            _mark_serienstream_blocked("provider_error", str(exc))
-                if refreshed_movie and refreshed_movie.hosters:
-                    movie = refreshed_movie
-                    state.fp_movies[movie_slug] = refreshed_movie
-                elif movie_slug.startswith(SERIENSTREAM_PREFIX):
-                    primary_unavailable = True
         else:
-            primary_unavailable = False
             existing_movie = (
                 None
                 if bool(getattr(movie, "_allow_quality_upgrade", False))
@@ -328,187 +355,71 @@ def run_download_queue(
                     on_job_done(True, "bereits vorhanden", movie.title, existing_movie, slug=movie_slug)
                 continue
 
-        source_movies = [movie]
+        original_movie = movie
         required_language = _queue_requested_language(movie_slug)
-        if required_language:
-            movie._required_content_language = required_language
-        seen_source_urls = {movie.url}
-        known_fallbacks = (movie_fallbacks or {}).get(movie_slug, [])
-        for fallback_movie in known_fallbacks:
-            if fallback_movie.url in seen_source_urls:
-                continue
-            if required_language:
-                fallback_movie._required_content_language = required_language
-            source_movies.append(fallback_movie)
-            seen_source_urls.add(fallback_movie.url)
-        # Ein leerer, früher aufgebauter Episoden-Fallback-Eintrag beweist
-        # nicht, dass alle Anbieter im jetzigen Moment erfolglos sind. Gerade
-        # bei einer späteren SerienStream-Sperre muss die exakte Laufzeitsuche
-        # (Moflix/Huhu/weitere) noch einmal stattfinden dürfen. Erst dieser
-        # Lauf markiert die Suche für den aktuellen Versuch als vollständig.
-        source_fallbacks_loaded = [
-            movie_fallbacks is not None and movie_slug in movie_fallbacks
-            if not ep_info else False
-        ]
-        # Gilt für den kompletten Versuch dieses Slugs, quellenübergreifend:
-        # ein Embed ohne Stream-URL bleibt für diesen Lauf ausgeschlossen.
+        known = (movie_fallbacks or {}).get(movie_slug, [])
         barren_hoster_urls: set = set()
-        # Watchlist-Einträge behalten ihren ursprünglichen Katalog-Slug. Wurde
-        # später eine andere Primärquelle konfiguriert, laden wir deren Treffer
-        # vorab und sortieren die tatsächlich nutzbaren Quellen neu.
-        if (
-            ep_info
-            and provider_for_value(movie_slug) != provider_priority("series")[0]
-            and not source_fallbacks_loaded[0]
-        ):
-            source_fallbacks_loaded[0] = True
-            alternatives = find_episode_fallbacks(
-                orig_series_title,
-                ep_info[1],
-                ep_info[2],
-                aliases=_episode_fallback_aliases(movie_slug, orig_series_title),
-                source_slug=movie_slug,
-            )
-            for candidate in alternatives:
-                if candidate.url not in seen_source_urls:
-                    if required_language:
-                        candidate._required_content_language = required_language
-                    source_movies.append(candidate)
-                    seen_source_urls.add(candidate.url)
+        gate_seen = [False]
+        episode_candidates = None
         if ep_info:
-            source_movies = _ordered_episode_sources(source_movies)
-            movie = source_movies[0]
-        source_index = 0
-
-        with state.hoster_extract_lock:
-            result = _extract_from_movie(
-                movie, unsupported_domains, barren_hoster_urls=barren_hoster_urls,
+            language_job = _queue_job_for_slug(movie_slug) or {}
+            refresh = (
+                language_job.get("wait_reason") == "language_unavailable"
+                or (language_job.get("wait_reason") == "source_unavailable"
+                    and language_job.get("content_language")
+                    and not language_job.get("language_checked_at"))
             )
-        if primary_unavailable:
-            # Eine temporaer nicht lesbare s.to-Episodenseite wird wie das
-            # Redirect-Gate behandelt und nicht sofort terminal gezaehlt.
-            if state.provider_health.request_allowed("serienstream"):
-                _mark_serienstream_blocked(
-                    "provider_error", "SerienStream-Episodenseite nicht ladbar",
-                )
-            result.gated = True
-        gate_seen = [bool(result.gated)]
+            episode_candidates = _episode_candidates(
+                movie, movie_slug, ep_info, known, refresh, cancelled, gate_seen,
+            )
+            source_movies = []
+            source_fallbacks_loaded = [True]
+            candidates = episode_candidates
+        else:
+            source_by_url = {}
+            for candidate in [movie, *known]:
+                source_by_url.setdefault(candidate.url, candidate)
+            source_movies = list(source_by_url.values())
+            source_fallbacks_loaded = [movie_fallbacks is not None and movie_slug in movie_fallbacks]
+            candidates = _film_candidates(source_movies, movie_slug, source_fallbacks_loaded)
 
-        # Scheitert bereits die Extraktion/Probe, denselben Inhalt sofort beim
-        # ersten exakten Katalog-Fallback versuchen. Das gilt nicht nur bei Captcha.
-        if not result.stream_info:
-            if not source_fallbacks_loaded[0]:
-                if ep_info:
-                    alternatives = find_episode_fallbacks(
-                        orig_series_title,
-                        ep_info[1],
-                        ep_info[2],
-                        aliases=_episode_fallback_aliases(movie_slug, orig_series_title),
-                        source_slug=movie_slug,
-                        limit=1,
-                    )
-                    for candidate in alternatives:
-                        if candidate.url in {m.url for m in source_movies}:
-                            continue
-                        if required_language:
-                            candidate._required_content_language = required_language
-                        source_movies.append(candidate)
-                    # Ein erster exakter Treffer wird sofort versucht. Erst
-                    # wenn dessen Extraktion oder Download scheitert, werden
-                    # die übrigen Kataloge geladen.
-                    source_fallbacks_loaded[0] = not bool(alternatives)
-                else:
-                    source_fallbacks_loaded[0] = True
-                    source_movies.extend(find_movie_source_fallbacks(
-                        source_movies[0], movie_slug, {m.url for m in source_movies},
-                    ))
-            next_index = 1
-            while next_index < len(source_movies):
-                next_movie = source_movies[next_index]
-                log(f"  Wechsle Quelle: {strip_source_suffix(next_movie.title)}", "warn")
-                with state.hoster_extract_lock:
-                    source_result = _extract_from_movie(
-                        next_movie,
-                        unsupported_domains,
-                        barren_hoster_urls=barren_hoster_urls,
-                    )
-                gate_seen[0] = gate_seen[0] or bool(source_result.gated)
-                next_index += 1
-                if not source_result.stream_info:
-                    continue
-                movie = next_movie
-                result = source_result
-                source_index = next_index - 1
+        result = _HosterResult()
+        source_index = 0
+        for source_index, candidate in enumerate(candidates):
+            if ep_info:
+                source_movies.append(candidate)
+            if required_language:
+                candidate._required_content_language = required_language
+            with state.hoster_extract_lock:
+                result = _extract_from_movie(
+                    candidate, unsupported_domains, barren_hoster_urls=barren_hoster_urls,
+                )
+            gate_seen[0] = gate_seen[0] or bool(result.gated)
+            if result.stream_info:
+                movie = candidate
                 break
-
-            # Der schnellste Katalogtreffer hatte zwar Hoster, ließ sich aber
-            # nicht extrahieren. Jetzt erst die restlichen Provider laden und
-            # in derselben Vorbereitung weiterprobieren.
-            if ep_info and not result.stream_info and not source_fallbacks_loaded[0]:
-                source_fallbacks_loaded[0] = True
-                tried_providers = {
-                    _movie_provider(candidate, movie_slug)
-                    for candidate in source_movies
-                }
-                tried_providers.discard("")
-                alternatives = find_episode_fallbacks(
-                    orig_series_title,
-                    ep_info[1],
-                    ep_info[2],
-                    aliases=_episode_fallback_aliases(movie_slug, orig_series_title),
-                    source_slug=movie_slug,
-                    excluded_providers=tried_providers,
-                )
-                known_urls = {candidate.url for candidate in source_movies}
-                for candidate in alternatives:
-                    if candidate.url in known_urls:
-                        continue
-                    if required_language:
-                        candidate._required_content_language = required_language
-                    source_movies.append(candidate)
-                    known_urls.add(candidate.url)
-                while next_index < len(source_movies):
-                    next_movie = source_movies[next_index]
-                    log(
-                        f"  Wechsle Quelle: {strip_source_suffix(next_movie.title)}",
-                        "warn",
-                    )
-                    with state.hoster_extract_lock:
-                        source_result = _extract_from_movie(
-                            next_movie,
-                            unsupported_domains,
-                            barren_hoster_urls=barren_hoster_urls,
-                        )
-                    gate_seen[0] = gate_seen[0] or bool(source_result.gated)
-                    next_index += 1
-                    if not source_result.stream_info:
-                        continue
-                    movie = next_movie
-                    result = source_result
-                    source_index = next_index - 1
-                    break
 
         if required_language:
             _update_queue_job(movie_slug, persist=False, language_checked_at=time.time())
 
         if not result.stream_info:
-            if gate_seen[0]:
+            if ep_info and gate_seen[0] and provider_for_value(movie_slug) == "serienstream":
                 # s.to-Gate aktiv UND kein Fallback nutzbar – bis zur nächsten
                 # Provider-Probe zurückstellen (NICHT als erledigt zählen).
-                gated_jobs.append((source_movies[0], movie_slug))
+                gated_jobs.append((original_movie, movie_slug))
                 log("  Zurückgestellt – serienstream Captcha-Gate aktiv (Fallback erfolglos)", "warn")
             elif ep_info and not (cancelled and cancelled()) and _queue_slug_claimed(movie_slug):
                 # Eine heute nicht extrahierbare Episode ist nicht automatisch
                 # dauerhaft verloren. Der logische Job bleibt offen und wird mit
                 # begrenztem Backoff erneut über alle Quellen geprüft.
                 if _defer_provider_episode(
-                    source_movies[0],
+                    original_movie,
                     movie_slug,
                     out_root,
                     movie_fallbacks,
                     reason=(
                         "language_unavailable"
-                        if required_language and all(
+                        if required_language and source_movies and all(
                             _source_languages(source)
                             and required_language not in _source_languages(source)
                             for source in source_movies
@@ -557,7 +468,8 @@ def run_download_queue(
             barren_hoster_urls=barren_hoster_urls,
             cancelled=cancelled,
             gate_seen=gate_seen,
-            gate_retry=lambda reason="provider_gate", primary=source_movies[0], slug=movie_slug: _defer_provider_episode(
+            episode_candidates=episode_candidates,
+            gate_retry=lambda reason="provider_gate", primary=original_movie, slug=movie_slug: _defer_provider_episode(
                 primary, slug, out_root, movie_fallbacks, reason=reason,
             ),
         )

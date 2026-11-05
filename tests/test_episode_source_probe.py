@@ -57,7 +57,8 @@ def test_primary_audio_evidence_and_fallback_progress_are_independent(monkeypatc
     monkeypatch.setattr(discovery, "state", runtime)
     monkeypatch.setattr(discovery, "provider_priority", lambda kind: ["serienstream", "hdfilme_family"])
     monkeypatch.setattr(discovery, "provider_for_value", lambda value: "serienstream")
-    monkeypatch.setattr(discovery, "episode_languages_for_slug", lambda *args: ["en"])
+    sto_calls = []
+    monkeypatch.setattr(discovery, "episode_languages_for_slug", lambda *args: sto_calls.append(args) or ["en"])
     recorded = []
     monkeypatch.setattr(library, "record_watchlist_episode_languages", recorded.append)
 
@@ -75,7 +76,8 @@ def test_primary_audio_evidence_and_fallback_progress_are_independent(monkeypatc
         result = asyncio.run(discovery.api_series_episode_languages(discovery.SeriesEpisodeLanguagesBody(
             provider="serienstream", slugs=[slug], title="Chicago P.D.")))
         assert result["available"][slug] is (fallback_language == "de")
-        assert result["languages"][slug] == (["de", "en"] if fallback_language == "de" else ["en"])
+        assert result["languages"][slug] == (["de"] if fallback_language == "de" else ["en"])
+        assert bool(sto_calls) is (fallback_language != "de")
         assert (slug in result.get("pending", [])) is (fallback_language is None)
         if fallback_language is None:
             assert recorded == [{}], "unfinished alternatives cannot publish a final subscription denial"
@@ -127,10 +129,13 @@ def test_missing_german_episode_searches_every_enabled_matching_source_and_prese
     runtime = SimpleNamespace(content_languages={"de"}, sto_lock=threading.RLock(),
         movie_source_cache={}, movie_source_cache_lock=threading.Lock(), series_cache={}, fallback_provider_errors={})
     monkeypatch.setattr(discovery, "state", runtime)
-    monkeypatch.setattr(discovery, "provider_priority", lambda kind: active)
+    # A cooling-down SerienStream is absent from runtime routing, but its
+    # logical episode can still be resolved from an enabled alternative.
+    runtime.provider_enabled = {"series": active}
+    monkeypatch.setattr(discovery, "provider_priority", lambda kind: active[1:] if kind == "series" else [])
     monkeypatch.setattr(discovery, "provider_for_value", lambda value: "serienstream")
     monkeypatch.setattr(discovery, "provider_supports_languages", lambda provider, languages: provider != "sflix")
-    monkeypatch.setattr(discovery, "get_sto_scraper", lambda: SimpleNamespace(get_movie=lambda value: None))
+    monkeypatch.setattr(discovery, "load_movie_for_slug", lambda _: pytest.fail("SerienStream must stay unused"))
     monkeypatch.setattr(library, "record_watchlist_episode_languages", lambda values: None)
     calls = []
     def fallback(title, season, episode, **options):

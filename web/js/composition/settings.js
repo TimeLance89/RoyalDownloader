@@ -30,6 +30,7 @@ export function composeSettings({ i18n, movieState, seriesState, intelligence, s
   deploymentHints: (context, mode) => deploymentHints(document.getElementById(context === "setup" ? "setup-wizard" : "tab-einstellungen"), context, mode),
   deploymentMode: name => deploymentMode(document.getElementById(name === "setup-deployment-mode" ? "setup-wizard" : "tab-einstellungen"), name),
   settings: createSettings(document.getElementById("tab-einstellungen"), {
+        events: () => getHome().seasonalEvents,
         getFeatures: () => ({ jellyfin: getIntegrations().jellyfin, intelligence, automation: services.automation, providers: services.providers, updater: services.updater, integrations: getIntegrations().integrations }), language: () => i18n.language, locale: () => i18n.locale(),
         changeLanguage: language => i18n.changeLanguage(language, { userInitiated: true, requireReady: true }),
         async onLanguageReady({ signal }) {

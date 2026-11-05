@@ -456,6 +456,14 @@ def ui_language_configured() -> bool:
     return bool(_read_all().get("ui_language", "").strip())
 
 
+def load_seasonal_events_enabled() -> bool:
+    return str(_read_all().get("seasonal_events_enabled", "1")).strip().casefold() not in {"0", "false", "off", "no"}
+
+
+def save_seasonal_events_enabled(enabled: bool) -> bool:
+    return _update_all({"seasonal_events_enabled": "1" if enabled else "0"})
+
+
 def tmdb_language_for_ui(language: str) -> str:
     """TMDB liefert für deutsche Oberflächen Deutsch, sonst Englisch."""
     return "de-DE" if normalize_ui_language(language) == "de" else "en-US"

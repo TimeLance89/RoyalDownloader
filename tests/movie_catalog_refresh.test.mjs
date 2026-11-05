@@ -315,7 +315,7 @@ test("SerienStream language truth auto-checks after hydration without an episode
           { slug: "serienstream:american-horror-story-s13e01", season: 13, episode: 1, in_jellyfin: true },
           { slug: "serienstream:american-horror-story-s13e03", season: 13, episode: 3 },
           { slug: "serienstream:american-horror-story-s13e04", season: 13, episode: 4 },
-          { slug: "serienstream:american-horror-story-s13e07", season: 13, episode: 7, unreleased: true },
+          { slug: "serienstream:american-horror-story-s13e07", season: 13, episode: 7, unreleased: true, provider_unreleased: true },
         ],
       },
     ],
@@ -381,6 +381,7 @@ test("SerienStream language truth auto-checks after hydration without an episode
   assert.deepEqual(language.body.slugs, [
     "serienstream:american-horror-story-s13e03",
     "serienstream:american-horror-story-s13e04",
+    "serienstream:american-horror-story-s13e07",
   ]);
   const gap = requests.filter(request => request.url === "/api/series/episode-languages")[1];
   assert.deepEqual(gap.body.slugs, ["serienstream:american-horror-story-s12e09"]);
@@ -391,11 +392,13 @@ test("SerienStream language truth auto-checks after hydration without an episode
     available: {
       "serienstream:american-horror-story-s13e03": false,
       "serienstream:american-horror-story-s13e04": true,
+      "serienstream:american-horror-story-s13e07": true,
       "serienstream:american-horror-story-s12e09": true,
     },
     languages: {
       "serienstream:american-horror-story-s13e03": ["en"],
       "serienstream:american-horror-story-s13e04": ["de", "en"],
+      "serienstream:american-horror-story-s13e07": ["de"],
       "serienstream:american-horror-story-s12e09": ["de"],
     },
   });
@@ -421,7 +424,8 @@ test("SerienStream language truth auto-checks after hydration without an episode
   assert.equal(e04.language_checked, true);
   assert.equal(e04.language_available, true);
   assert.deepEqual(e04.content_languages, ["de", "en"]);
-  assert.equal(e07.language_checked, undefined, "unreleased episodes must not be probed");
+  assert.equal(e07.language_checked, true);
+  assert.equal(e07.unreleased, false, "confirmed audio releases the scheduled episode");
   checks.unmount();
 });
 

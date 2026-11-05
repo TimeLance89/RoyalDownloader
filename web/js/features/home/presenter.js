@@ -3,10 +3,15 @@ import { withHomeRender } from "./render-pass.js";
 export function createHomePresenter(root, {
   getData, rememberAllHomeRailScroll, localDateKey, loadDiscoveryProfile, favoriteDiscoveryGenre,
   applyHomeLayout, currentHomeLayout, renderHomeHero, homeDiscoveryLanes, homeRailDefinition,
-  renderHomeRail, scheduleHomeHeroRotation, homeAllEntries, beforeShuffle, animateShuffle, resetHero,
+  renderHomeRail, scheduleHomeHeroRotation, homeAllEntries, beforeShuffle, animateShuffle, resetHero, homeTopEntries,
 }) {
   const data = { discoveryDay: "", discoveryShuffle: 0, rendered: false };
   const byId = id => root.querySelector(`#${id}`);
+  function renderTop(entries = homeTopEntries()) {
+    if (currentHomeLayout().hidden_rails.includes("top")) return;
+    const definition = homeRailDefinition("top");
+    renderHomeRail(definition.trackId, entries, { ranked: true, showEmpty: false });
+  }
   function shuffleHomeDiscovery() {
     beforeShuffle();
     data.discoveryShuffle = Number(data.discoveryShuffle || 0) + 1;
@@ -61,6 +66,7 @@ export function createHomePresenter(root, {
         section?.setAttribute("aria-hidden", "true");
       }
       if (hidden.has(railId) || disabledDiscovery) return;
+      if (railId === "top") return renderTop(lanes.top);
       const definition = homeRailDefinition(railId);
       if (!definition) return;
       renderHomeRail(definition.trackId, lanes[railId] || [], {
@@ -71,5 +77,5 @@ export function createHomePresenter(root, {
     if (currentHomeLayout().hero_visible) scheduleHomeHeroRotation();
     if (!getData().loading && homeAllEntries().length) data.rendered = true;
   }
-  return { get: () => data, render: renderHome, shuffle: shuffleHomeDiscovery, invalidate() { data.rendered = false; } };
+  return { get: () => data, render: renderHome, renderTop, shuffle: shuffleHomeDiscovery, invalidate() { data.rendered = false; } };
 }

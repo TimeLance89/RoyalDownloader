@@ -126,7 +126,7 @@ test('language changes ignore a delayed response from the previous profile', asy
   assert.equal(f.model.isEpisodeSelectable(f.episodes[0]), false);
   assert.equal(f.episodes[0].language_checked, undefined);
 });
-function fixture(count = 12, languageConcurrency = 1) {
+function fixture(count = 12, languageConcurrency = 1, backgroundRetryDelays) {
   const episodes = Array.from({length: count}, (_, i) => ({slug: `sto:show-s01e${i+1}`, season: 1, episode: i+1}));
   const series = {base_slug: 'sto:show', provider: 'serienstream', seasons: [{season: 1, episodes}]};
   const state = {current: series, cache: {}, viewGeneration: 1, epPicked: new Set()};
@@ -140,7 +140,7 @@ function fixture(count = 12, languageConcurrency = 1) {
   const requests = [], queueRequests = [], queued = new Set(), status = {textContent: ''};
   let model;
   const merger = createSeriesDetailsLoader(root, status, {seriesState: state});
-  const checks = createSeriesChecks(status, {seriesState: state, isVisible: () => true, retryDelays: [0, 0], languageConcurrency,
+  const checks = createSeriesChecks(status, {seriesState: state, isVisible: () => true, retryDelays: [0, 0], languageConcurrency, backgroundRetryDelays,
     firstEpisodeSlug: current => current.seasons[0]?.episodes[0]?.slug,
     syncSeriesQueueFlags() {}, seriesStructureFingerprint: () => '', mergeSeriesDetailPayload: merger.merge,
     updateSeriesOverview() {}, updateWatchBtn() {}, updateSeriesStatus() {},
@@ -255,28 +255,30 @@ test('an unavailable live inventory and cached enrichment retain previously conf
     'an authoritative later removal still updates the inventory');
 });
 
-test('confirmed fallback releases a TMDB-scheduled episode and survives enrichment', async () => {
+test('confirmed provider releases a scheduled episode and survives enrichment', async () => {
   const f = fixture(2);
-  Object.assign(f.episodes[0], {unreleased: true, provider_unreleased: false});
-  Object.assign(f.episodes[1], {unreleased: true, provider_unreleased: true, release_label: 'Demnächst'});
+  const [released, scheduled] = f.episodes;
+  for (const episode of f.episodes) {
+    Object.assign(episode, {unreleased: true, provider_unreleased: true, release_label: 'Demnächst'});
+  }
   const checking = f.checks.verifyLanguages(f.episodes, f.series);
   const request = await requestAt(f, 0);
-  assert.deepEqual(request.body.slugs, [f.episodes[0].slug]);
-  request.resolve({available: {[f.episodes[0].slug]: true}, languages: {[f.episodes[0].slug]: ['de']},
-    source_providers: {[f.episodes[0].slug]: ['hdfilme_family']}});
+  assert.deepEqual(request.body.slugs, [released.slug, scheduled.slug]);
+  for (let i = 0; i < 2; i++) {
+    (await requestAt(f, i)).resolve({
+      available: {[released.slug]: true, [scheduled.slug]: false},
+      languages: {[released.slug]: ['de'], [scheduled.slug]: ['en']},
+    });
+  }
   await checking;
-  assert.equal(f.model.isEpisodeSelectable(f.episodes[0]), true);
-  assert.equal(f.model.isEpisodeSelectable(f.episodes[1]), false);
+  assert.equal(f.model.isEpisodeSelectable(released), true);
+  assert.equal(f.model.isEpisodeSelectable(scheduled), false);
   const loader = createSeriesDetailsLoader(f.root, f.status, {seriesState: f.state});
   const fresh = structuredClone(f.series);
   Object.assign(fresh.seasons[0].episodes[0], {unreleased: true, content_languages: ['en'],
-    language_checked: false, huhu_language_checked: false});
+    language_checked: false, huhu_language_checked: false, source_release_verified: undefined});
   f.state.current = loader.merge(f.series, fresh);
   assert.equal(f.model.isEpisodeSelectable(f.state.current.seasons[0].episodes[0]), true);
-  const upcoming = structuredClone(fresh);
-  upcoming.seasons[0].episodes[0].provider_unreleased = true;
-  f.state.current = loader.merge(f.state.current, upcoming);
-  assert.equal(f.model.isEpisodeSelectable(f.state.current.seasons[0].episodes[0]), false);
 });
 
 test('an unverified season cannot enter the queue; confirmed batches become downloadable', async () => {
@@ -499,6 +501,17 @@ test('unknown responses remain retryable after three attempts and a new click ca
   const retry = f.model.toggleEpisodeTile(missing);
   f.respond(await requestAt(f, 3)); await retry;
   assert.equal(f.state.epPicked.size, 1);
+});
+
+test('three incomplete responses schedule another background check without a click', async () => {
+  const f = fixture(1, 1, [1]), missing = f.episodes[0].slug;
+  const work = f.checks.verifyLanguages(f.episodes, f.series, {background: true}).catch(() => {});
+  for (let i = 0; i < 3; i++) (await requestAt(f, i)).resolve({languages: {}, available: {}, pending: [missing]});
+  await work;
+  f.respond(await requestAt(f, 3));
+  await tick();
+  assert.equal(f.model.isEpisodeSelectable(f.episodes[0]), true);
+  f.checks.unmount();
 });
 
 test('closing a view during backoff cancels automatic retry', async () => {

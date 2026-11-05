@@ -148,12 +148,17 @@ def _auto_download_new_episodes():
                         continue
                     state.picked.add(slug)
                     claimed.append(slug)
-            try:
-                movie = load_movie_for_slug(slug)
-            except Exception as exc:
-                log(f"Auto-Download: «{slug}» nicht ladbar: {exc}", "warn")
-                movie = None
-            movie = _playable_episode_source(slug, movie)
+            if provider_for_value(slug) == "serienstream":
+                # The subscription has already checked availability. Keep the
+                # logical identity and let the queue choose the provider.
+                movie = _episode_placeholder(slug)
+            else:
+                try:
+                    movie = load_movie_for_slug(slug)
+                except Exception as exc:
+                    log(f"Auto-Download: «{slug}» nicht ladbar: {exc}", "warn")
+                    movie = None
+                movie = _playable_episode_source(slug, movie)
             if movie is None:
                 with state.queue_claim_lock:
                     state.picked.discard(slug)
@@ -336,7 +341,13 @@ def _watchlist_auto_check_delay(checked: int, total: int, interval_min: int) -> 
         configured = int(interval_min)
     except (TypeError, ValueError, OverflowError):
         configured = 30
-    return max(5, min(configured, 24 * 60)) * 60
+    delay = max(5, min(configured, 24 * 60)) * 60
+    if delay > 300:
+        with state.watchlist_lock:
+            if any("language_pending" in (entry.get("episode_states") or {}).values()
+                   for entry in state.watchlist):
+                return 300
+    return delay
 
 
 def watchlist_auto_check_loop():
