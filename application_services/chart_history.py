@@ -142,16 +142,11 @@ class ChartHistory:
             current = snapshots[-1]["candidates"] if snapshots and snapshots[-1]["period"] == day.isoformat() else []
             identities = {value for item in current for value in [item["identity"], *item.get("aliases", [])]}
             identities.add("")
-            seen = {}
-            keys = sorted(identities)
-            for offset in range(0, len(keys), 500):
-                batch = keys[offset:offset + 500]
-                params = ", ".join("?" for _ in batch)
-                seen.update(db.execute(
-                    f"""SELECT identity, first_day FROM chart_seen WHERE algorithm = ? AND scope = ?
-                        AND identity IN ({params}) AND first_day <= ?""",
-                    (ALGORITHM, scope, *batch, day.isoformat()),
-                ))
+            seen = dict(db.execute(
+                """SELECT identity, first_day FROM chart_seen WHERE algorithm = ? AND scope = ?
+                   AND identity IN (SELECT value FROM json_each(?)) AND first_day <= ?""",
+                (ALGORITHM, scope, json.dumps(sorted(identities)), day.isoformat()),
+            ))
         return snapshots, baseline[0] if baseline else None, seen
 
 

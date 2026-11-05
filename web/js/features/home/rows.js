@@ -42,7 +42,7 @@ export function createHomeRows(root, { isLoading, onRendered = () => {}, reconci
         create: (cycle = 0) => createHomeCard(entry, rank, cycle === 1 && index < eagerCount, variant, { wallpaperOnly }),
         update: (card) => {
           syncHomeCardContent(card, entry, rank);
-          if (entry.item.daily_top) enhanceChart?.(card, entry, rank);
+          if (entry.item?.daily_top) enhanceChart?.(card, entry, rank);
         },
       };
   }), { loop: layout !== "spotlight" && !ranked });
