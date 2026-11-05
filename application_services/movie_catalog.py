@@ -215,14 +215,6 @@ def _movie_content_language(
     return provider_content_language(_movie_provider(movie, fallback))
 
 
-def _ordered_episode_sources(movies: List[FilmpalastMovie]) -> List[FilmpalastMovie]:
-    positions = {provider: index for index, provider in enumerate(provider_priority("series"))}
-    return sorted(
-        movies,
-        key=lambda movie: positions.get(provider_for_value(movie.url), len(positions)),
-    )
-
-
 def clean_genre(value: str) -> str:
     return " ".join(str(value or "").split())
 
@@ -293,14 +285,11 @@ def load_movie_for_slug(slug: str) -> Optional[FilmpalastMovie]:
     elif slug.startswith(FILMO_PREFIX):
         movie = FilmoScraper(progress_cb=log).get_movie(slug)
     elif slug.startswith(SERIENSTREAM_PREFIX):
-        if not state.provider_health.request_allowed("serienstream"):
-            raise RuntimeError("SerienStream befindet sich im Provider-Cooldown")
-        with state.sto_lock:
-            try:
-                movie = get_sto_scraper().get_movie(slug)
-            except ProviderBlockedError as exc:
-                _mark_serienstream_blocked(exc.reason, str(exc))
-                raise
+        from application_services.serienstream_reads import read_serienstream
+        movie = read_serienstream(
+            lambda scraper: scraper.get_movie(slug), health=state.provider_health,
+            lock=state.sto_lock, scraper_factory=get_sto_scraper, on_blocked=_mark_serienstream_blocked,
+        )
     elif slug.startswith(MOFLIX_PREFIX):
         with state.moflix_lock:
             movie = get_moflix_scraper().get_movie(slug)
@@ -1216,7 +1205,6 @@ _SERVICE_EXPORTS = (
     "_apply_provider_metadata_many",
     "_movie_provider",
     "_movie_content_language",
-    "_ordered_episode_sources",
     "clean_genre",
     "canonical_movie_genre",
     "movie_genre_aliases",

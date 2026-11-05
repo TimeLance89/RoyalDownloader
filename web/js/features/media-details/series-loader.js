@@ -39,7 +39,7 @@ export function createSeriesDetailsLoader(root, status, {
               if (previousEpisode[field] !== undefined) merged[field] = previousEpisode[field];
             }
           }
-          if (merged.source_release_verified && merged.provider_unreleased === false) {
+          if (merged.source_release_verified) {
             merged.unreleased = false;
           }
           episodes.set(key, merged);

@@ -799,6 +799,7 @@ def _enqueue_hoster_attempt(
     slow_candidates: Optional[List[tuple]] = None,
     last_resort: bool = False,
     attempt_id: str = "",
+    episode_candidates=None,
 ):
     """Startet einen Downloadversuch und schaltet bei Laufzeitfehlern auf den
     nächsten Hoster um. Ein logischer Job wird erst nach Erfolg oder nach dem
@@ -957,7 +958,7 @@ def _enqueue_hoster_attempt(
                     source_fallbacks_loaded, refreshed_hoster_urls,
                     barren_hoster_urls, cancelled,
                     gate_seen, gate_retry, slow_candidates, last_resort,
-                    attempt_id=logical_attempt_id,
+                    attempt_id=logical_attempt_id, episode_candidates=episode_candidates,
                 ):
                     return
                 on_job_done(False, "Abgebrochen", label, out_path, slug=movie_slug, job_id=logical_job["job_id"], attempt_id=logical_attempt_id)
@@ -987,57 +988,34 @@ def _enqueue_hoster_attempt(
                 source_fallbacks_loaded, refreshed_hoster_urls,
                 barren_hoster_urls, cancelled,
                 gate_seen, gate_retry, slow_candidates, last_resort,
-                attempt_id=logical_attempt_id,
+                attempt_id=logical_attempt_id, episode_candidates=episode_candidates,
             ):
                 return
             on_job_done(False, "Abgebrochen", label, out_path, slug=movie_slug, job_id=logical_job["job_id"], attempt_id=logical_attempt_id)
             return
 
-        # Alle Hoster dieses Katalogtreffers sind verbraucht. Nun denselben Inhalt
-        # bei weiteren Katalogquellen testen – für Filme UND Episoden.
         ep_info = parse_episode_slug(movie_slug)
-        if not source_fallbacks_loaded[0]:
+        if not ep_info and not source_fallbacks_loaded[0]:
             source_fallbacks_loaded[0] = True
             on_job_progress(
                 -1, "Hoster erschöpft · suche alternative Quellen …", label,
                 slug=movie_slug, job_id=logical_job["job_id"], attempt_id=logical_attempt_id,
             )
-            if ep_info:
-                series_title = strip_episode_suffix(source_movies[0].title) or source_movies[0].title
-                tried_providers = {
-                    _movie_provider(candidate, movie_slug)
-                    for candidate in source_movies
-                }
-                tried_providers.discard("")
-                alternatives = find_episode_fallbacks(
-                    series_title,
-                    ep_info[1],
-                    ep_info[2],
-                    aliases=_episode_fallback_aliases(movie_slug, series_title),
-                    source_slug=movie_slug,
-                    excluded_providers=tried_providers,
-                )
-                seen = {m.url for m in source_movies}
-                for candidate in alternatives:
-                    if candidate.url in seen:
-                        continue
-                    if required_language:
-                        candidate._required_content_language = required_language
+            source_movies.extend(find_movie_source_fallbacks(
+                source_movies[0], movie_slug, {m.url for m in source_movies},
+            ))
+
+        def remaining_sources():
+            yield from source_movies[source_index + 1:]
+            if episode_candidates is not None:
+                for candidate in episode_candidates:
                     source_movies.append(candidate)
-                    seen.add(candidate.url)
-            else:
-                movie_alternatives = find_movie_source_fallbacks(
-                    source_movies[0], movie_slug, {m.url for m in source_movies},
-                )
-                for candidate in movie_alternatives:
-                    if required_language:
-                        candidate._required_content_language = required_language
-                    source_movies.append(candidate)
-        for next_index in range(source_index + 1, len(source_movies)):
-            next_movie = source_movies[next_index]
+                    yield candidate
+
+        for next_index, next_movie in enumerate(remaining_sources(), source_index + 1):
             if required_language:
                 next_movie._required_content_language = required_language
-            log(f"  Wechsle Filmquelle: {clean_movie_title(next_movie.title)}", "warn")
+            log(f"  Wechsle Quelle: {clean_movie_title(next_movie.title)}", "warn")
             with state.hoster_extract_lock:
                 source_result = _extract_from_movie(
                     next_movie,
@@ -1054,13 +1032,13 @@ def _enqueue_hoster_attempt(
                 source_fallbacks_loaded, refreshed_hoster_urls,
                 barren_hoster_urls, cancelled,
                 gate_seen, gate_retry, slow_candidates, last_resort,
-                attempt_id=logical_attempt_id,
+                attempt_id=logical_attempt_id, episode_candidates=episode_candidates,
             ):
                 return
             on_job_done(False, "Abgebrochen", label, out_path, slug=movie_slug, job_id=logical_job["job_id"], attempt_id=logical_attempt_id)
             return
 
-        if ep_info and gate_seen[0] and gate_retry and gate_retry():
+        if ep_info and gate_seen[0] and provider_for_value(movie_slug) == "serienstream" and gate_retry and gate_retry():
             log("  serienstream-Captcha aktiv – Episode nach Cooldown erneut versuchen.", "warn")
             on_job_progress(
                 -1, "Captcha-Cooldown · Wiederholung vorgemerkt …", label,
@@ -1105,7 +1083,7 @@ def _enqueue_hoster_attempt(
                 gate_retry,
                 [],
                 True,
-                attempt_id=logical_attempt_id,
+                attempt_id=logical_attempt_id, episode_candidates=episode_candidates,
             ):
                 return
             on_job_done(False, "Abgebrochen", label, out_path, slug=movie_slug, job_id=logical_job["job_id"], attempt_id=logical_attempt_id)

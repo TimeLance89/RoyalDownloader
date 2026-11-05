@@ -234,7 +234,7 @@ export function createSeriesEpisodes(root, {
     else if (providerNeedsExactEpisodeLanguage(series) && !episodeLanguageChecked(episode)
         && !episode.downloaded && !episode.in_jellyfin && !episode.unreleased) {
       tile.title = episode.language_check_error
-        ? "Sprachprüfung unvollständig · erneut auswählen, um nochmals zu prüfen"
+        ? "Sprachprüfung unvollständig · wird automatisch wiederholt"
         : `${languageText} · weitere Quellen werden geprüft · noch nicht zum Download freigegeben`;
     }
     else if (!episodeHasEnabledStreamLanguage(episode, series)
