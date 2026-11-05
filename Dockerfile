@@ -7,6 +7,7 @@ ARG CHROME_SECURITY_FLOOR="151.0.7922.169-1"
 ARG DEBIAN_CHROMIUM_SECURITY_FLOOR="151.0.7922.169-1~deb12u1"
 ARG DEBIAN_PERL_SECURITY_FLOOR="5.36.0-7+deb12u4"
 ARG DEBIAN_OPENSSL_SECURITY_FLOOR="3.0.22-1~deb12u2"
+ARG DEBIAN_APT_SECURITY_FLOOR="2.6.2"
 
 # System dependencies:
 #  - Chrome/Chromium:  real browser for CDP-assisted extraction and verification.
@@ -23,6 +24,8 @@ ARG DEBIAN_OPENSSL_SECURITY_FLOOR="3.0.22-1~deb12u2"
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
+        apt \
+        libapt-pkg6.0 \
         tini \
         xvfb \
         ffmpeg \
@@ -32,6 +35,12 @@ RUN set -eux; \
         libssl3 \
         libpcre2-8-0 \
         fonts-liberation; \
+    # CVE-2026-109518: the pinned Bookworm base contains APT 2.6.1.
+    # Upgrade both packages and fail the build if security mirrors lag behind.
+    for package in apt libapt-pkg6.0; do \
+        installed_version="$(dpkg-query -W -f='${Version}' "${package}")"; \
+        dpkg --compare-versions "${installed_version}" ge "${DEBIAN_APT_SECURITY_FLOOR}"; \
+    done; \
     # Explicitly upgrade inherited OpenSSL packages and reject unfixed mirrors.
     # Debian bookworm's CVE-2026-84782 fix ships in deb12u2.
     for package in openssl libssl3; do \

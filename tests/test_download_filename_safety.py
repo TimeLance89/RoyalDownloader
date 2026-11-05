@@ -100,3 +100,15 @@ def test_staging_is_isolated_per_attempt(tmp_path: Path):
     assert first.staging_dir != second.staging_dir
     assert first.staging_dir.name == "attempt-one"
     assert second.staging_dir.name == "attempt-two"
+
+
+def test_publication_keeps_ugos_inherited_acl_intact():
+    """UGOS reports ACL-protected files as mode 000; chmod would destroy the ACL."""
+    class UgosAclMedia:
+        def stat(self):
+            return type("Stat", (), {"st_mode": stat.S_IFREG})()
+
+        def chmod(self, _mode):
+            raise AssertionError("chmod must not be called on UGOS ACL media")
+
+    DownloadJob._make_published_media_readable(UgosAclMedia())
