@@ -61,6 +61,7 @@ export function composeHome({ discoveryPolicy, movieState, artworkUrls, recommen
         getData: () => services.homeData.get(),
       }),
   homePresenter: createHomePresenter(document.getElementById("tab-home"), {
+        homeTopEntries: () => services.dailyTop.entries(),
         getData: () => services.homeData.get(), rememberAllHomeRailScroll: (...args) => services.actions.rememberAllHomeRailScroll(...args), localDateKey: (...args) => services.actions.localDateKey(...args),
         loadDiscoveryProfile: (...args) => services.actions.loadDiscoveryProfile(...args), favoriteDiscoveryGenre: (...args) => services.actions.favoriteDiscoveryGenre(...args), applyHomeLayout: (...args) => services.actions.applyHomeLayout(...args), currentHomeLayout: (...args) => services.actions.currentHomeLayout(...args), renderHomeHero: (...args) => services.actions.renderHomeHero(...args),
         homeDiscoveryLanes: (...args) => services.actions.homeDiscoveryLanes(...args), homeRailDefinition: (...args) => services.actions.homeRailDefinition(...args), renderHomeRail: (...args) => services.actions.renderHomeRail(...args), scheduleHomeHeroRotation: (...args) => services.actions.scheduleHomeHeroRotation(...args), homeAllEntries: (...args) => services.actions.homeAllEntries(...args),
@@ -82,7 +83,8 @@ export function composeHome({ discoveryPolicy, movieState, artworkUrls, recommen
         discoveryV2SelectDiverse: (...args) => discoveryPolicy.discoveryV2SelectDiverse(...args),
         discoveryV2Noise: (...args) => discoveryPolicy.discoveryV2Noise(...args),
         getShuffle: () => services.homePresenter.get().discoveryShuffle,
-        applyServerTasteProfile: profile => services.actions.applyServerTasteProfile(profile), renderHome: () => services.actions.renderHome(),
+        applyServerTasteProfile: profile => services.actions.applyServerTasteProfile(profile),
+        renderHome: () => { services.actions.renderHome(); services.dailyTop.renderExpanded(); },
         onProfileChanged: () => services.homeData.refreshDiscovery(),
         hasSeen: key => services.exposureVisibility.hasSeen(key),
         getOwner: () => services.actions.discoveryProfileStorageKey(),
@@ -95,10 +97,13 @@ export function composeHome({ discoveryPolicy, movieState, artworkUrls, recommen
         localDateKey: () => services.actions.localDateKey(), stableDiscoveryHash: value => services.actions.stableDiscoveryHash(value),
       }),
   dailyTop: createDailyTop(document.getElementById("tab-home"), {
-        fallbackEntries: discoveryPolicy.discoveryV2TopEntries, localDateKey: (...args) => services.actions.localDateKey(...args), homeEntryKey: (...args) => services.actions.homeEntryKey(...args),
+        homeEntryKey: (...args) => services.actions.homeEntryKey(...args),
         discoveryV2LogicalKey: entry => discoveryPolicy.discoveryV2LogicalKey(entry), loadDiscoveryProfile: () => services.actions.loadDiscoveryProfile(),
         selectFpRow: (...args) => getDiscovery().movieActions.selectFpRow(...args), closeGlobalSearch: () => services.actions.closeGlobalSearch(),
-        loadSeries: item => getDiscovery().seriesActions.loadSeries(item), renderHome: () => services.actions.renderHome(),
+        loadSeries: item => getDiscovery().seriesActions.loadSeries(item),
+        renderTop: () => services.homePresenter.renderTop(),
+        renderRail: (...args) => services.actions.renderHomeRail(...args),
+        refreshStatuses: (...args) => services.actions.refreshCatalogJellyfinStatus(...args),
       }),
   recommendations,
   homeData: createHomeData({
@@ -203,6 +208,7 @@ export function initializeHome({ getHome, artworkUrls, discoveryPolicy, getCore,
         if (lane) getHome().exposureVisibility.syncRail(trackId, lane, entries);
       },
       reconcileHomeRail: (...args) => getHome().actions.reconcileHomeRail(...args), homeRailCardSignature: (...args) => getHome().actions.homeRailCardSignature(...args),
+      enhanceChart: (...args) => getHome().dailyTop.enhance(...args),
       createHomeCard: (...args) => getHome().actions.createHomeCard(...args), syncHomeCardContent: (...args) => getHome().actions.syncHomeCardContent(...args),
     });
 }

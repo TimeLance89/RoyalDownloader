@@ -136,13 +136,14 @@ class RidomoviesScraper:
         page: int = 1,
     ) -> List[FilmpalastSearchResult]:
         page = max(1, int(page or 1))
-        if category == "top":
+        if category in {"top", "chart-top"}:
             if page != 1:
                 return []
             soup = self._get_soup("/home-rd1")
-            cards = self._parse_cards(
-                soup.select_one(".highlights-slider") or soup
-            )
+            container = soup.select_one(".highlights-slider")
+            if container is None and category == "chart-top":
+                return []
+            cards = self._parse_cards(container or soup)
             return [
                 self._movie_result(card)
                 for card in cards

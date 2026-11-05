@@ -121,7 +121,7 @@ export function createHomeActions({
 
   function homeAllEntries(...args) { return getHomeLanes().homeAllEntries(...args); }
 
-  function homeTopEntries() { return getDailyTop().entries(); }
+  function homeTopEntries(mode) { return getDailyTop().entries(mode); }
 
   function homeNewEntries(...args) { return getHomeLanes().homeNewEntries(...args); }
 

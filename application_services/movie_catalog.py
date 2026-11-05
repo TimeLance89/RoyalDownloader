@@ -121,7 +121,7 @@ def provider_order(media_type: str) -> List[str]:
         return appconfig.normalize_provider_order(configured, defaults)
 
 
-def provider_priority(media_type: str) -> List[str]:
+def provider_priority(media_type: str, *, configured_only: bool = False) -> List[str]:
     """Aktive, sprachlich passende Quellen in Benutzer-Reihenfolge."""
     ordered = provider_order(media_type)
     with state.provider_priority_lock:
@@ -134,6 +134,8 @@ def provider_priority(media_type: str) -> List[str]:
         if provider_supports_languages(provider, languages)
     ]
     active = [provider for provider in matching if provider in enabled]
+    if configured_only:
+        return active
     if media_type == "series":
         retained = {language for entry in list(getattr(state, "watchlist", []))
                     for language in subscription_content_languages(entry, languages, getattr(state, "subscription_content_languages", {}))
@@ -650,13 +652,14 @@ class MovieCatalogColdLoadLimit(RuntimeError):
 
 def _movie_provider_page_cache_state(
     cache_key: tuple,
+    fresh_since: float = 0,
 ) -> tuple[Optional[List[FilmpalastSearchResult]], str]:
     """Liefert eine frische oder noch brauchbare veraltete Providerseite."""
     with state.movie_list_cache_lock:
         cached = state.movie_list_cache.get(cache_key)
         ttl = cached[2] if cached and len(cached) > 2 else MOVIE_LIST_CACHE_TTL
         age = time.time() - cached[0] if cached else 0.0
-        if cached and age < ttl:
+        if cached and age < ttl and cached[0] >= fresh_since:
             return list(cached[1]), "fresh"
         if cached and age < MOVIE_LIST_STALE_TTL:
             return list(cached[1]), "stale"
@@ -754,6 +757,8 @@ def _load_movie_provider_pages(
     cold_wave_budget: Optional[List[int]] = None,
     deadline: Optional[float] = None,
     timed_out: Optional[List[bool]] = None,
+    *,
+    fresh_since: float = 0,
 ) -> Dict[tuple[str, int], List[FilmpalastSearchResult]]:
     """Lädt mehrere Quellseiten parallel und cached sie unabhängig voneinander."""
     loaded: Dict[tuple[str, int], List[FilmpalastSearchResult]] = {}
@@ -762,12 +767,15 @@ def _load_movie_provider_pages(
     genre_key = clean_genre(genre).casefold()
 
     for provider, source_page in dict.fromkeys(requests_to_load):
-        cache_key = ("provider", mode, genre_key, provider, int(source_page))
-        cached, freshness = _movie_provider_page_cache_state(cache_key)
+        # Only the two strict chart adapters need separate provider pages.
+        cache_mode = "top" if mode == "chart-top" and provider not in {"sflix", "ridomovies"} else mode
+        cache_key = ("provider", cache_mode, genre_key, provider, int(source_page))
+        cached, freshness = _movie_provider_page_cache_state(cache_key, fresh_since)
         if freshness == "missing":
             missing.append((provider, source_page, cache_key))
         else:
-            loaded[(provider, source_page)] = list(cached or [])
+            if freshness != "stale" or not fresh_since:
+                loaded[(provider, source_page)] = list(cached or [])
             if freshness == "stale":
                 stale.append((provider, source_page, cache_key, list(cached or [])))
 
@@ -810,7 +818,7 @@ def _load_movie_provider_pages(
         (provider, source_page, cache_key, None, True)
         for provider, source_page, cache_key in missing
     ] + [
-        (provider, source_page, cache_key, fallback, False)
+        (provider, source_page, cache_key, fallback, bool(fresh_since))
         for provider, source_page, cache_key, fallback in stale
     ]
     for provider, source_page, cache_key, stale_fallback, should_wait in work:
@@ -823,7 +831,7 @@ def _load_movie_provider_pages(
                         timed_out[0] = True
                     continue
                 future = _MOVIE_PROVIDER_LOAD_POOL.submit(
-                    _fetch_movie_provider_page, provider, mode, genre, source_page,
+                    _fetch_movie_provider_page, provider, cache_key[1], genre, source_page,
                 )
                 _MOVIE_PROVIDER_INFLIGHT[cache_key] = future
                 created = True

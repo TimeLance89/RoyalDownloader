@@ -195,6 +195,10 @@ jobs:
           name: mobile-download-center-chromium
           path: artifacts/mobile-download-center/
 
+      - name: Royal Charts desktop and touch interactions
+        if: ${{ !cancelled() && matrix.suite == 'catalog' }}
+        run: node tests/frontend/royal-charts-browser.cjs
+
       - name: Frozen desktop and mobile CSS equivalence
         if: ${{ !cancelled() && matrix.suite == 'catalog' }}
         run: node tests/frontend/css-equivalence.cjs

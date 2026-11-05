@@ -1,7 +1,11 @@
-"""Server-side popularity signals for the Royal Daily Top 10 v2."""
+"""Collect and score the signals used by Royal Charts."""
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import json
+import logging
 import math
 import re
 import threading
@@ -9,682 +13,527 @@ import time
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, is_dataclass
-from datetime import date, datetime
-from typing import Any
+from datetime import date, datetime, time as day_time, timezone
 
+from fastapi import Query, Response
 from starlette.concurrency import run_in_threadpool
 
-from application_services.runtime import backend_value
 from api.api_discovery_router import router as discovery_router
+from application_services.chart_history import ALGORITHM, ChartHistory, chart_view
+from application_services.runtime import backend_value
+from core.config import config_path
 
-
-DAILY_TOP_PROVIDER_LIMIT = 30
-DAILY_TOP_TMDB_LIMIT = 40
-DAILY_TOP_ENRICH_LIMIT_PER_KIND = 18
-DAILY_TOP_RESULT_LIMIT = 30
-DAILY_TOP_CACHE_TTL = 2 * 60 * 60
-DAILY_TOP_MAX_SAME_KIND = 7
-
-_cache_lock = threading.RLock()
-_cache: dict[str, tuple[float, dict[str, Any]]] = {}
-
-_TITLE_QUALIFIER_RE = re.compile(
+logger = logging.getLogger(__name__)
+PROVIDER_LIMIT = 30
+TMDB_LIMIT = 40
+ENRICH_LIMIT_PER_KIND = 16
+WEIGHTS = {"popularity": 0.90, "quality": 0.10}
+POPULARITY_STRENGTH = {
+    "views_rank": 1.0, "trending_rank": 1.0,
+    "popularity_rank": 0.80, "editorial_top": 0.55,
+}
+MOVIE_SIGNALS = {
+    "megakino": "views_rank", "sflix": "trending_rank",
+    "kinoking": "editorial_top", "filmpalast": "editorial_top",
+    "ridomovies": "editorial_top", "huhu": "popularity_rank",
+    "filmo": "rating_rank", "filmfrei24": "rating_rank", "xcine": "rating_rank",
+    "kinoger": "recent_uploads", "kinox": "recent_uploads", "einschalten": "recent_uploads",
+}
+SERIES_SIGNALS = {
+    "serienstream": "views_rank", "huhu": "popularity_rank",
+    "filmpalast": "recent_uploads", "megakino": "recent_uploads",
+    "ridomovies": "recent_uploads", "xcine": "recent_uploads",
+}
+_TITLE_QUALIFIER = re.compile(
     r"\s*(?:\[[^\]]{1,40}\]|\*(?:subbed|dubbed|ger(?:man)?(?:\s+dub)?|eng(?:lish)?)\*)\s*$",
     re.IGNORECASE,
 )
+_BUILD_LOCK = threading.Lock()
+_BUILD_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="royal-charts")
+_build = None
 
 
-def _display_title(value: str) -> str:
+def chart_day() -> date:
+    return datetime.now(timezone.utc).date()
+
+
+def _display_title(value):
     title = str(value or "").strip()
-    previous = None
-    while title and title != previous:
-        previous = title
-        title = _TITLE_QUALIFIER_RE.sub("", title).strip()
+    while _TITLE_QUALIFIER.search(title):
+        title = _TITLE_QUALIFIER.sub("", title).strip()
     return title
 
 
-def _normalise_title(value: str) -> str:
-    text = unicodedata.normalize("NFKD", _display_title(value))
-    ascii_text = text.encode("ascii", "ignore").decode("ascii").casefold()
-    return "".join(char for char in ascii_text if char.isalnum())
+def _normalise_title(value):
+    text = unicodedata.normalize("NFKD", _display_title(value)).casefold()
+    return "".join(char for char in text if char.isalnum())
 
 
-def _clean_year(value: Any) -> str:
-    text = str(value or "").strip()
-    return text[:4] if len(text) >= 4 and text[:4].isdigit() else ""
+def _clean_year(value):
+    value = str(value or "").strip()[:4]
+    return value if len(value) == 4 and value.isascii() and value.isdigit() else ""
 
 
-def _rank_signal(rank: int, slope: float = 0.18) -> float:
-    rank = max(1, int(rank or 1))
-    return 100.0 / (1.0 + slope * (rank - 1))
+def _id(value):
+    value = str(value or "")
+    return int(value) if len(value) <= 12 and value.isascii() and value.isdigit() and int(value) else None
 
 
-def _provider_momentum(provider_ranks: dict[str, int]) -> float:
-    values = sorted((_rank_signal(rank) for rank in provider_ranks.values()), reverse=True)
-    if not values:
-        return 0.0
-    if len(values) == 1:
-        return values[0]
-    return min(100.0, values[0] * 0.75 + values[1] * 0.25)
-
-
-def _provider_consensus(provider_ranks: dict[str, int]) -> float:
-    values = sorted((_rank_signal(rank) for rank in provider_ranks.values()), reverse=True)
-    if len(values) < 2:
-        return 0.0
-    supporting = sum(values[1:]) / len(values[1:])
-    return min(100.0, (len(values) - 1) * 28.0 + supporting * 0.45)
-
-
-def _tmdb_trend_score(rank: int | None, popularity: float = 0.0) -> float:
-    if not rank:
-        return 0.0
-    rank_component = _rank_signal(rank, slope=0.12)
-    popularity_component = min(
-        100.0,
-        max(0.0, math.log10(max(0.0, popularity) + 1.0) * 30.0),
-    )
-    return min(100.0, rank_component * 0.82 + popularity_component * 0.18)
-
-
-def _rating_confidence_score(rating: float, votes: int) -> float:
-    rating = min(10.0, max(0.0, float(rating or 0.0)))
-    votes = max(0, int(votes or 0))
-    if rating <= 0 or votes <= 0:
-        return 0.0
-    confidence = min(1.0, math.log10(votes + 1.0) / 4.5)
-    return (rating / 10.0) * 100.0 * confidence
-
-
-def _parse_date(value: str) -> date | None:
-    text = str(value or "").strip()
-    if not text:
-        return None
+def _number(value):
     try:
-        return datetime.strptime(text[:10], "%Y-%m-%d").date()
-    except ValueError:
-        return None
+        number = float(value)
+        return number if math.isfinite(number) else 0.0
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
 
 
-def _freshness_score(
-    release_date: str,
-    year: str,
-    *,
-    kind: str,
-    is_trending: bool,
-    today: date | None = None,
-) -> float:
-    today = today or date.today()
-    released = _parse_date(release_date)
-    if released is not None:
-        age = (today - released).days
-        if age < -45:
-            score = 0.0
-        elif age < 0:
-            score = max(35.0, 70.0 - abs(age) * 0.8)
-        elif age <= 14:
-            score = 100.0
-        elif age <= 30:
-            score = 85.0
-        elif age <= 90:
-            score = 60.0
-        elif age <= 180:
-            score = 35.0
-        elif age <= 365:
-            score = 15.0
-        else:
-            score = 4.0
-    else:
-        numeric_year = int(year) if str(year or "").isdigit() else 0
-        delta = today.year - numeric_year if numeric_year else 99
-        score = 55.0 if delta <= 0 else 30.0 if delta == 1 else 8.0 if delta == 2 else 0.0
-    # An older series can genuinely trend because a current season is hot even
-    # though first_air_date is years old. Do not punish that signal twice.
-    if kind == "series" and is_trending:
-        score = max(score, 55.0)
-    return min(100.0, max(0.0, score))
+def rank_signal(rank):
+    return 100.0 / (1.0 + 0.12 * (rank - 1))
 
 
-def _score_candidate(candidate: dict[str, Any], today: date | None = None) -> dict[str, Any]:
-    provider_score = _provider_momentum(candidate.get("provider_ranks") or {})
-    consensus_score = _provider_consensus(candidate.get("provider_ranks") or {})
-    tmdb_score = _tmdb_trend_score(
-        candidate.get("tmdb_trend_rank"),
-        float(candidate.get("tmdb_popularity") or 0.0),
-    )
-    rating_score = _rating_confidence_score(
-        float(candidate.get("rating") or 0.0),
-        int(candidate.get("vote_count") or 0),
-    )
-    freshness_score = _freshness_score(
-        str(candidate.get("release_date") or candidate.get("first_air_date") or ""),
-        str(candidate.get("year") or ""),
-        kind=str(candidate.get("kind") or "movie"),
-        is_trending=bool(candidate.get("tmdb_trend_rank")),
-        today=today,
-    )
-    total = (
-        provider_score * 0.45
-        + consensus_score * 0.20
-        + tmdb_score * 0.15
-        + rating_score * 0.10
-        + freshness_score * 0.10
-    )
-    candidate = dict(candidate)
-    candidate["score"] = round(total, 3)
-    candidate["components"] = {
-        "provider_momentum": round(provider_score, 2),
-        "provider_consensus": round(consensus_score, 2),
-        "tmdb_trending": round(tmdb_score, 2),
-        "rating_confidence": round(rating_score, 2),
-        "freshness": round(freshness_score, 2),
-    }
-    return candidate
+def _rating_confidence_score(rating, votes):
+    confidence = min(1.0, math.log10(max(0, votes) + 1.0) / 4.5)
+    return min(10.0, max(0.0, rating)) * 10.0 * confidence
 
 
-def _row_payload(item: Any, provider: str, kind: str) -> dict[str, Any]:
-    raw = asdict(item) if is_dataclass(item) else dict(item) if isinstance(item, dict) else {}
-    if kind == "movie":
-        return {
-            "title": _display_title(raw.get("title") or getattr(item, "title", "")),
-            "year": _clean_year(raw.get("year") or getattr(item, "year", "")),
-            "slug": str(raw.get("slug") or getattr(item, "slug", "") or ""),
-            "url": str(raw.get("url") or getattr(item, "url", "") or ""),
-            "cover_url": str(raw.get("cover_url") or getattr(item, "cover_url", "") or ""),
-            "provider": provider,
-            "content_language": str(
-                raw.get("content_language") or getattr(item, "content_language", "") or ""
-            ),
-        }
-    return {
-        "title": _display_title(raw.get("title") or getattr(item, "title", "")),
-        "year": _clean_year(raw.get("year") or getattr(item, "year", "")),
-        "base_slug": str(raw.get("base_slug") or getattr(item, "base_slug", "") or ""),
-        "sample_slug": str(raw.get("sample_slug") or getattr(item, "sample_slug", "") or ""),
-        "sample_url": str(raw.get("sample_url") or getattr(item, "sample_url", "") or ""),
-        "cover_url": str(raw.get("cover_url") or getattr(item, "cover_url", "") or ""),
-        "provider": provider,
-        "content_language": str(
-            raw.get("content_language") or getattr(item, "content_language", "") or ""
-        ),
-    }
-
-
-def _candidate_identity(kind: str, title: str, year: str, tmdb_id: Any = None) -> str:
-    tmdb_text = str(tmdb_id or "").strip()
-    if tmdb_text.isdigit():
-        return f"{kind}:tmdb:{int(tmdb_text)}"
+def _candidate_identity(kind, title, year, tmdb_id=None):
+    if _id(tmdb_id):
+        return f"{kind}:tmdb:{int(tmdb_id)}"
     return f"{kind}:title:{_normalise_title(title)}:{_clean_year(year)}"
 
 
-def _provider_group_key(kind: str, item: dict[str, Any]) -> tuple[str, str, str]:
-    return kind, _normalise_title(item.get("title") or ""), _clean_year(item.get("year"))
-
-
-def _add_provider_rows(
-    grouped: dict[tuple[str, str, str], dict[str, Any]],
-    *,
-    kind: str,
-    provider: str,
-    rows: list[Any],
-    ranked: bool,
-) -> None:
-    for index, row in enumerate(rows[:DAILY_TOP_PROVIDER_LIMIT], start=1):
-        item = _row_payload(row, provider, kind)
-        if not item["title"]:
+def _provider_rows(grouped, kind, provider, rows, signal):
+    ordered = []
+    for rank, row in enumerate((rows or [])[:PROVIDER_LIMIT], 1):
+        raw = asdict(row) if is_dataclass(row) else row
+        if not isinstance(raw, dict):
             continue
-        key = _provider_group_key(kind, item)
-        candidate = grouped.setdefault(
-            key,
-            {
-                "kind": kind,
-                "title": item["title"],
-                "year": item.get("year", ""),
-                "item": item,
-                "provider_ranks": {},
-                "availability_providers": [],
-            },
-        )
+        item = {key: raw[key] for key in (
+            "slug", "url", "base_slug", "sample_slug", "sample_url",
+            "cover_url", "content_language",
+        ) if raw.get(key)}
+        slug = item.get("slug") if kind == "movie" else item.get("base_slug")
+        title = _display_title(raw.get("title"))
+        name = _normalise_title(title)
+        if not name or not slug:
+            continue
+        year = _clean_year(raw.get("year"))
+        tmdb_id = _id(raw.get("tmdb_id"))
+        if not tmdb_id and provider == "huhu":
+            match = re.match(r"huhu(?:-movie)?:(\d+):", slug)
+            tmdb_id = _id(match[1]) if match else None
+        item.update(title=title, year=year, provider=provider)
+        if tmdb_id:
+            item["tmdb_id"] = tmdb_id
+        alias = _candidate_identity(kind, title, year)
+        locator = f"{kind}:source:{provider}:{slug}"
+        identity = _candidate_identity(kind, title, year, tmdb_id) if tmdb_id else alias if year else locator
+        # Keep exact title/year matches separate from explicit IDs until we know
+        # whether the title/year is shared by multiple productions.
+        candidate = grouped.setdefault(identity, {
+            "kind": kind, "item": item, "identity": identity, "aliases": [],
+            "availability_providers": [], "provider_signals": {},
+        })
+        if not candidate["item"].get("cover_url") and item.get("cover_url"):
+            candidate["item"]["cover_url"] = item["cover_url"]
+        candidate["aliases"].extend([locator, *([alias] if year else [])])
         if provider not in candidate["availability_providers"]:
             candidate["availability_providers"].append(provider)
-        if ranked:
-            candidate["provider_ranks"][provider] = min(
-                index,
-                int(candidate["provider_ranks"].get(provider) or index),
-            )
+        candidate["provider_signals"].setdefault(provider, {
+            "rank": rank, "type": signal,
+            "source": "tmdb" if provider == "huhu" else provider,
+        })
+        ordered.append((name, year))
+    return tuple(dict.fromkeys(ordered))
 
 
-def _tmdb_rows(client: Any, media_type: str) -> list[dict[str, Any]]:
-    if client is None or not getattr(client, "configured", False):
-        return []
-    rows: list[dict[str, Any]] = []
-    seen: set[int] = set()
+def _tmdb_request(client, path, **params):
+    try:
+        result = client._request(path, {"language": client.language, **params})
+        return result if isinstance(result, dict) else {}
+    except Exception:
+        logger.debug("Chart metadata unavailable for %s", path, exc_info=True)
+        return {}
+
+
+def _result_list(payload, key="results"):
+    values = payload.get(key)
+    return values if isinstance(values, list) else []
+
+
+def _tmdb_row(raw, media_type):
+    if not isinstance(raw, dict) or not _id(raw.get("id")):
+        return None
+    movie = media_type == "movie"
+    release = raw.get("release_date" if movie else "first_air_date")
+    return {
+        "tmdb_id": _id(raw["id"]),
+        "title": _display_title(raw.get("title" if movie else "name")),
+        "original_title": _display_title(raw.get("original_title" if movie else "original_name")),
+        "year": _clean_year(release),
+        "rating": round(_number(raw.get("vote_average")), 1),
+        "vote_count": int(_number(raw.get("vote_count"))),
+        "poster_path": raw.get("poster_path"),
+        "backdrop_path": raw.get("backdrop_path"),
+        "genre_ids": raw.get("genre_ids"),
+    }
+
+
+def _tmdb_rows(client, media_type):
+    rows = {}
     for page in (1, 2):
-        data = client._request(  # noqa: SLF001 - same application boundary
-            f"/trending/{media_type}/day",
-            {"language": client.language, "page": str(page)},
-        ) or {}
-        for raw in data.get("results") or []:
-            try:
-                tmdb_id = int(raw.get("id"))
-            except (TypeError, ValueError):
-                continue
-            if tmdb_id in seen:
-                continue
-            seen.add(tmdb_id)
-            is_movie = media_type == "movie"
-            release_date = str(
-                (raw.get("release_date") if is_movie else raw.get("first_air_date")) or ""
-            )
-            rows.append(
-                {
-                    "tmdb_id": tmdb_id,
-                    "title": str(
-                        (raw.get("title") if is_movie else raw.get("name")) or ""
-                    ).strip(),
-                    "original_title": str(
-                        (raw.get("original_title") if is_movie else raw.get("original_name")) or ""
-                    ).strip(),
-                    "year": _clean_year(release_date),
-                    "release_date": release_date,
-                    "rating": round(float(raw.get("vote_average") or 0.0), 1),
-                    "vote_count": int(raw.get("vote_count") or 0),
-                    "popularity": float(raw.get("popularity") or 0.0),
-                    "cover_url": client._poster_url(  # noqa: SLF001
-                        str(raw.get("poster_path") or "")
-                    ),
-                    "backdrop_url": client._backdrop_url(  # noqa: SLF001
-                        str(raw.get("backdrop_path") or "")
-                    ),
-                    "description": str(raw.get("overview") or ""),
-                }
-            )
-            if len(rows) >= DAILY_TOP_TMDB_LIMIT:
-                return rows
+        data = _tmdb_request(client, f"/trending/{media_type}/day", page=str(page))
+        results = _result_list(data)
+        for index, raw in enumerate(results, 1):
+            row = _tmdb_row(raw, media_type)
+            rank = (page - 1) * 20 + index
+            if row and rank <= TMDB_LIMIT:
+                rows.setdefault(row["tmdb_id"], (rank, row))
+        if not results:
+            break
     return rows
 
 
-def _match_tmdb(
-    candidate: dict[str, Any],
-    rows: list[dict[str, Any]],
-) -> tuple[int | None, dict[str, Any] | None]:
-    wanted = _normalise_title(candidate.get("title") or "")
-    year = _clean_year(candidate.get("year"))
-    best: tuple[tuple[int, int], int, dict[str, Any]] | None = None
-    for index, row in enumerate(rows, start=1):
-        names = {
-            _normalise_title(row.get("title") or ""),
-            _normalise_title(row.get("original_title") or ""),
+def _match_tmdb(item, rows, *, allow_yearless=False):
+    wanted_id = _id(item.get("tmdb_id"))
+    if wanted_id:
+        return next((row for row in rows if row["tmdb_id"] == wanted_id), None)
+    # A yearless provider listing cannot rule out remakes outside the trend list.
+    year = item.get("year")
+    if not year and not allow_yearless:
+        return None
+    title = _normalise_title(item["title"])
+    matches = {
+        row["tmdb_id"]: row for row in rows
+        if (not year or year == row["year"]) and title in {
+            _normalise_title(row["title"]), _normalise_title(row["original_title"]),
         }
-        if wanted not in names:
-            continue
-        row_year = _clean_year(row.get("year"))
-        year_match = bool(year and row_year and year == row_year)
-        if year and row_year and not year_match:
-            continue
-        quality = (1 if year_match else 0, -index)
-        if best is None or quality > best[0]:
-            best = (quality, index, row)
-    return (best[1], best[2]) if best else (None, None)
-
-
-def _merge_metadata(candidate: dict[str, Any], metadata: dict[str, Any] | None) -> None:
-    if not metadata:
-        return
-    for key in (
-        "tmdb_id",
-        "year",
-        "release_date",
-        "first_air_date",
-        "rating",
-        "vote_count",
-        "cover_url",
-        "backdrop_url",
-        "description",
-        "genres",
-        "original_title",
-    ):
-        value = metadata.get(key)
-        if value not in (None, "", [], 0, 0.0):
-            candidate[key] = value
-            if key in {
-                "cover_url",
-                "backdrop_url",
-                "description",
-                "genres",
-                "rating",
-                "vote_count",
-                "tmdb_id",
-                "year",
-            }:
-                candidate["item"][key] = value
-
-
-def _enrich_candidates(candidates: list[dict[str, Any]], client: Any) -> None:
-    if client is None or not getattr(client, "configured", False):
-        return
-    by_kind = {
-        "movie": [candidate for candidate in candidates if candidate["kind"] == "movie"],
-        "series": [candidate for candidate in candidates if candidate["kind"] == "series"],
     }
-    targets: list[dict[str, Any]] = []
-    for values in by_kind.values():
-        values.sort(
-            key=lambda candidate: (
-                _provider_momentum(candidate.get("provider_ranks") or {})
-                + _provider_consensus(candidate.get("provider_ranks") or {}) * 0.45
-                + _tmdb_trend_score(
-                    candidate.get("tmdb_trend_rank"),
-                    candidate.get("tmdb_popularity") or 0.0,
-                )
-                * 0.55
-            ),
-            reverse=True,
-        )
-        targets.extend(values[:DAILY_TOP_ENRICH_LIMIT_PER_KIND])
-
-    def load(candidate: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None]:
-        title = str(candidate.get("title") or "")
-        year = str(candidate.get("year") or "")
-        if candidate["kind"] == "movie":
-            return candidate, client.movie_summary(title, year)
-        return candidate, client.series_summary(title, year)
-
-    with ThreadPoolExecutor(max_workers=min(8, max(1, len(targets)))) as pool:
-        for candidate, metadata in pool.map(load, targets):
-            _merge_metadata(candidate, metadata)
+    return next(iter(matches.values())) if len(matches) == 1 else None
 
 
-def _merge_title_year_fallbacks(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Merge yearless provider rows only when one year is unambiguous."""
-    by_title: dict[tuple[str, str], list[dict[str, Any]]] = {}
+def _merge_metadata(item, row, client, genres):
+    item["tmdb_id"] = row["tmdb_id"]
+    for key in ("year", "rating", "vote_count", "original_title"):
+        if row.get(key):
+            item[key] = row[key]
+    if row.get("poster_path"):
+        item["cover_url"] = client._poster_url(row["poster_path"])
+    if row.get("backdrop_path"):
+        item["backdrop_url"] = client._backdrop_url(row["backdrop_path"])
+    item["genres"] = [
+        genres[str(key)] for key in row.get("genre_ids") or [] if str(key) in genres
+    ]
+
+
+def _merge_candidates(candidates):
+    merged = {}
+    alias_ids = {}
     for candidate in candidates:
-        key = (candidate["kind"], _normalise_title(candidate.get("title") or ""))
-        by_title.setdefault(key, []).append(candidate)
-
-    result: list[dict[str, Any]] = []
-    for values in by_title.values():
-        known_years = {
-            _clean_year(candidate.get("year"))
-            for candidate in values
-            if _clean_year(candidate.get("year"))
-        }
-        if len(known_years) != 1:
-            result.extend(values)
-            continue
-        wanted_year = next(iter(known_years))
-        target = next(
-            (
-                candidate
-                for candidate in values
-                if _clean_year(candidate.get("year")) == wanted_year
-            ),
-            None,
-        )
-        if target is None:
-            result.extend(values)
-            continue
-        for candidate in values:
-            if candidate is target:
-                continue
-            if _clean_year(candidate.get("year")):
-                result.append(candidate)
-                continue
-            for provider, rank in (candidate.get("provider_ranks") or {}).items():
-                current = target["provider_ranks"].get(provider)
-                target["provider_ranks"][provider] = (
-                    rank if current is None else min(current, rank)
-                )
-            for provider in candidate.get("availability_providers") or []:
-                if provider not in target["availability_providers"]:
-                    target["availability_providers"].append(provider)
-        result.append(target)
-    return result
-
-
-def _merge_candidates_by_identity(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    merged: dict[str, dict[str, Any]] = {}
+        item = candidate["item"]
+        if item.get("tmdb_id"):
+            identity = _candidate_identity(candidate["kind"], "", "", item["tmdb_id"])
+            for alias in candidate["aliases"]:
+                alias_ids.setdefault(alias, set()).add(identity)
     for candidate in candidates:
-        identity = _candidate_identity(
-            candidate["kind"],
-            candidate.get("title") or "",
-            candidate.get("year") or "",
-            candidate.get("tmdb_id"),
-        )
-        existing = merged.get(identity)
-        if existing is None:
-            candidate["identity"] = identity
-            merged[identity] = candidate
+        item = candidate["item"]
+        if item.get("tmdb_id"):
+            identity = _candidate_identity(candidate["kind"], "", "", item["tmdb_id"])
+        else:
+            matches = set().union(*(alias_ids.get(alias, set()) for alias in candidate["aliases"]))
+            identity = next(iter(matches)) if len(matches) == 1 else candidate["identity"]
+        candidate["identity"] = identity
+        target = merged.setdefault(identity, candidate)
+        if target is candidate:
             continue
-        for provider, rank in (candidate.get("provider_ranks") or {}).items():
-            current = existing["provider_ranks"].get(provider)
-            existing["provider_ranks"][provider] = rank if current is None else min(current, rank)
-        for provider in candidate.get("availability_providers") or []:
-            if provider not in existing["availability_providers"]:
-                existing["availability_providers"].append(provider)
-        if candidate.get("tmdb_trend_rank") and (
-            not existing.get("tmdb_trend_rank")
-            or candidate["tmdb_trend_rank"] < existing["tmdb_trend_rank"]
-        ):
-            existing["tmdb_trend_rank"] = candidate["tmdb_trend_rank"]
-            existing["tmdb_popularity"] = candidate.get("tmdb_popularity", 0.0)
-        _merge_metadata(existing, candidate)
+        for provider, signal in candidate["provider_signals"].items():
+            previous = target["provider_signals"].get(provider)
+            if previous is None or signal["rank"] < previous["rank"]:
+                target["provider_signals"][provider] = signal
+        target["availability_providers"].extend(candidate["availability_providers"])
+        target["aliases"].extend(candidate["aliases"])
+        if candidate.get("tmdb_trend_rank"):
+            target["tmdb_trend_rank"] = candidate["tmdb_trend_rank"]
+        for key in ("tmdb_id", "year", "rating", "vote_count", "cover_url", "backdrop_url", "genres"):
+            if not target["item"].get(key) and item.get(key):
+                target["item"][key] = item[key]
     return list(merged.values())
 
 
-def _presentable_candidate(candidate: dict[str, Any]) -> bool:
-    item = candidate.get("item") or {}
-    title = _display_title(candidate.get("title") or item.get("title") or "")
-    artwork = str(
-        candidate.get("cover_url")
-        or candidate.get("backdrop_url")
-        or item.get("cover_url")
-        or item.get("backdrop_url")
-        or ""
-    ).strip()
-    if len(title) < 2 or not artwork:
-        return False
-    candidate["title"] = title
-    item["title"] = title
-    return True
-
-
-def _apply_diversity(
-    candidates: list[dict[str, Any]],
-    limit: int = DAILY_TOP_RESULT_LIMIT,
-) -> list[dict[str, Any]]:
-    ordered = sorted(
-        candidates,
-        key=lambda candidate: (-float(candidate.get("score") or 0.0), candidate["identity"]),
-    )
-    if limit <= 0:
-        return []
-    preview = ordered[:10]
-    if not preview:
-        return []
-    counts = {
-        kind: sum(1 for candidate in preview if candidate["kind"] == kind)
-        for kind in ("movie", "series")
-    }
-    relevance_floor = max(22.0, float(preview[0].get("score") or 0.0) * 0.34)
-    enough_other = {
-        kind: sum(
-            1
-            for candidate in ordered
-            if candidate["kind"] == kind
-            and float(candidate.get("score") or 0.0) >= relevance_floor
-        )
-        >= 3
-        for kind in ("movie", "series")
-    }
-    dominant = (
-        "movie"
-        if counts["movie"] > DAILY_TOP_MAX_SAME_KIND
-        else "series"
-        if counts["series"] > DAILY_TOP_MAX_SAME_KIND
-        else ""
-    )
-    other = "series" if dominant == "movie" else "movie"
-    if dominant and enough_other[other]:
-        selected: list[dict[str, Any]] = []
-        dominant_count = 0
-        for candidate in ordered:
-            if len(selected) >= 10:
-                break
-            if candidate["kind"] == dominant and dominant_count >= DAILY_TOP_MAX_SAME_KIND:
-                continue
-            selected.append(candidate)
-            if candidate["kind"] == dominant:
-                dominant_count += 1
-        selected_ids = {candidate["identity"] for candidate in selected}
-        ordered = selected + [
-            candidate for candidate in ordered if candidate["identity"] not in selected_ids
-        ]
-    for index, candidate in enumerate(ordered, start=1):
-        candidate["global_rank"] = index
-    return ordered[:limit]
-
-
-def _build_daily_top(period: str) -> dict[str, Any]:
-    provider_priority = backend_value("provider_priority")
-    load_movie_pages = backend_value("_load_movie_provider_pages")
-    load_series_pages = backend_value("_load_series_provider_pages")
-    tmdb_client = backend_value("get_tmdb_client")()
-
-    grouped: dict[tuple[str, str, str], dict[str, Any]] = {}
-    movie_providers = list(provider_priority("movies"))
-    if movie_providers:
-        loaded = load_movie_pages(
-            "top",
-            "",
-            [(provider, 1) for provider in movie_providers],
-            None,
-        )
-        for provider in movie_providers:
-            _add_provider_rows(
-                grouped,
-                kind="movie",
-                provider=provider,
-                rows=list(loaded.get((provider, 1), [])),
-                ranked=True,
-            )
-
-    series_providers = list(provider_priority("series"))
-    seriesstream_active = "serienstream" in series_providers
-    seriesstream_rows: list[Any] = []
-    if seriesstream_active:
-        loaded = load_series_pages("trending", "", [("serienstream", 1)], None)
-        seriesstream_rows = list(loaded.get(("serienstream", 1), []))
-        _add_provider_rows(
-            grouped,
-            kind="series",
-            provider="serienstream",
-            rows=seriesstream_rows,
-            ranked=True,
-        )
-
-    # If the only true provider trend signal is unavailable, use other active
-    # series catalogs solely as an availability pool. They receive no provider
-    # popularity points; TMDB trending still has to prove relevance.
-    if not seriesstream_rows:
-        fallback = [provider for provider in series_providers if provider != "serienstream"]
-        if fallback:
-            loaded = load_series_pages(
-                "discover",
-                "",
-                [(provider, 1) for provider in fallback],
-                None,
-            )
-            for provider in fallback:
-                _add_provider_rows(
-                    grouped,
-                    kind="series",
-                    provider=provider,
-                    rows=list(loaded.get((provider, 1), []))[:12],
-                    ranked=False,
-                )
-
-    candidates = _merge_title_year_fallbacks(list(grouped.values()))
-    movie_trending = _tmdb_rows(tmdb_client, "movie")
-    series_trending = _tmdb_rows(tmdb_client, "tv")
-    for candidate in candidates:
-        rows = movie_trending if candidate["kind"] == "movie" else series_trending
-        rank, tmdb = _match_tmdb(candidate, rows)
-        if tmdb:
-            candidate["tmdb_trend_rank"] = rank
-            candidate["tmdb_popularity"] = float(tmdb.get("popularity") or 0.0)
-            _merge_metadata(candidate, tmdb)
-
-    _enrich_candidates(candidates, tmdb_client)
-    candidates = _merge_candidates_by_identity(candidates)
-    candidates = [candidate for candidate in candidates if _presentable_candidate(candidate)]
-    try:
-        scoring_day = datetime.strptime(period, "%Y-%m-%d").date()
-    except ValueError:
-        scoring_day = date.today()
-    scored = [_score_candidate(candidate, scoring_day) for candidate in candidates]
-    ranked = _apply_diversity(scored)
+def _score_candidate(candidate):
+    item = candidate["item"]
+    signals = candidate["provider_signals"]
+    observations = {}
+    for provider, signal in signals.items():
+        strength = POPULARITY_STRENGTH.get(signal["type"])
+        if strength is None:
+            continue
+        value = rank_signal(signal["rank"]) * strength
+        source = signal["source"]
+        if source not in observations or value > observations[source]["value"]:
+            observations[source] = {"provider": provider, "rank": signal["rank"], "value": value}
+    tmdb_rank = candidate.get("tmdb_trend_rank")
+    if tmdb_rank:
+        value = rank_signal(tmdb_rank)
+        if value >= observations.get("tmdb", {}).get("value", 0):
+            observations["tmdb"] = {"provider": "tmdb", "rank": tmdb_rank, "value": value}
+    popularity = max((value["value"] for value in observations.values()), default=0.0)
+    rating = _rating_confidence_score(item.get("rating", 0), item.get("vote_count", 0))
+    rank_quality = max((
+        rank_signal(signal["rank"]) * 0.55 for signal in signals.values()
+        if signal["type"] == "rating_rank"
+    ), default=0.0)
+    quality = rating or rank_quality
+    direct = {signal["source"] for signal in signals.values()
+              if signal["type"] in {"views_rank", "trending_rank"}}
+    if tmdb_rank:
+        direct.add("tmdb")
     return {
-        "version": 2,
-        "period": period,
-        "generated_at": int(time.time()),
-        "weights": {
-            "provider_momentum": 0.45,
-            "provider_consensus": 0.20,
-            "tmdb_trending": 0.15,
-            "rating_confidence": 0.10,
-            "freshness": 0.10,
-        },
-        "source_status": {
-            "movie_providers": movie_providers,
-            "series_trending_provider": "serienstream" if seriesstream_rows else None,
-            "tmdb": bool(getattr(tmdb_client, "configured", False)),
-        },
-        "candidates": [
-            {
-                "identity": candidate["identity"],
-                "kind": candidate["kind"],
-                "item": candidate["item"],
-                "global_rank": candidate["global_rank"],
-                "score": candidate["score"],
-                "components": candidate["components"],
-                "provider_ranks": candidate.get("provider_ranks") or {},
-                "availability_providers": candidate.get("availability_providers") or [],
-                "tmdb_trend_rank": candidate.get("tmdb_trend_rank"),
-            }
-            for candidate in ranked
-        ],
+        **candidate,
+        "score": round(popularity * WEIGHTS["popularity"] + quality * WEIGHTS["quality"], 3),
+        "components": {"popularity": round(popularity, 2), "quality": round(quality, 2)},
+        "quality_source": "tmdb_votes" if rating else "rating_rank" if rank_quality else None,
+        "confidence": "high" if len(direct) >= 2 else "medium" if direct else "limited",
+        "popularity_observations": observations,
+        "provider_ranks": {provider: signal["rank"] for provider, signal in signals.items()},
+        "availability_providers": sorted(set(candidate["availability_providers"])),
+        "aliases": sorted(set(candidate["aliases"])),
     }
 
 
-def daily_top_payload(period: str = "") -> dict[str, Any]:
-    period = str(period or "").strip()
+def _apply_diversity(candidates, limit=30):
+    ordered = sorted(candidates, key=lambda candidate: (-candidate["score"], candidate["identity"]))
+    preview = ordered[:10]
+    if len(preview) == 10:
+        floor = max(18.0, preview[0]["score"] * 0.34)
+        dominant = next((kind for kind in ("movie", "series")
+                         if sum(item["kind"] == kind for item in preview) > 7), None)
+        if dominant:
+            others = [item for item in ordered if item["kind"] != dominant and item["score"] >= floor]
+            if len(others) >= 3:
+                leaders = [item for item in ordered if item["kind"] == dominant][:7]
+                selected = {item["identity"] for item in leaders + others[:3]}
+                ordered = ([item for item in ordered if item["identity"] in selected]
+                           + [item for item in ordered if item["identity"] not in selected])
+    return [dict(item, global_rank=rank) for rank, item in enumerate(ordered[:limit], 1)]
+
+
+def _configuration():
+    priority = backend_value("provider_priority")
+    state = backend_value("state")
+    client = backend_value("get_tmdb_client")()
+    # Routing health must not change the scope during an outage.
+    with state.provider_priority_lock:
+        movies = priority("movies", configured_only=True)
+        series = priority("series", configured_only=True)
+        configuration = [
+            movies, series, sorted(state.content_languages),
+            client.language if getattr(client, "configured", False) else None,
+        ]
+    key = hashlib.sha256(json.dumps(configuration).encode()).hexdigest()
+    return key, movies, series, client
+
+
+def _collect(kind, providers, grouped, client, fresh_since):
+    types = MOVIE_SIGNALS if kind == "movie" else SERIES_SIGNALS
+    status = {}
+    fingerprints = {}
+    loader = backend_value("_load_movie_provider_pages" if kind == "movie" else "_load_series_provider_pages")
+    healthy = backend_value("state").provider_health.request_allowed
+    ranked_movies = {key for key, signal in MOVIE_SIGNALS.items() if signal != "recent_uploads"}
+    groups = (
+        {"chart-top": ranked_movies, "new": set(providers) - ranked_movies}
+        if kind == "movie"
+        else {"trending": ["serienstream"], "discover": [key for key in providers if key != "serienstream"]}
+    )
+    pages = {}
+    for mode, keys in groups.items():
+        requests = [(key, 1) for key in providers if key in keys and healthy(key)]
+        if not requests:
+            continue
+        try:
+            pages.update(loader(mode, "", requests, None, fresh_since=fresh_since))
+        except Exception:
+            logger.warning("Chart catalog unavailable for %s/%s", kind, mode, exc_info=True)
+    for provider in providers:
+        signal = types.get(provider, "unknown")
+        fingerprint = _provider_rows(grouped, kind, provider, pages.get((provider, 1), []), signal)
+        status[provider] = {"type": signal, "observed": bool(fingerprint)}
+        if len(fingerprint) >= 3 and signal in POPULARITY_STRENGTH and provider != "huhu":
+            fingerprints.setdefault(fingerprint, []).append(provider)
+    for providers_with_same_list in fingerprints.values():
+        if len(providers_with_same_list) == 1:
+            continue
+        source = min(providers_with_same_list)
+        for candidate in grouped.values():
+            if candidate["kind"] == kind:
+                for provider in providers_with_same_list:
+                    signal = candidate["provider_signals"].get(provider)
+                    if signal:
+                        signal["source"] = source
+
+    media_type = "movie" if kind == "movie" else "tv"
+    if not getattr(client, "configured", False) or not any(row["kind"] == kind for row in grouped.values()):
+        return status
+    trends = _tmdb_rows(client, media_type)
+    status["tmdb"] = {"type": "trending_rank", "observed": bool(trends)}
+    by_rank = [row for _, row in trends.values()]
+    targets = []
+    for candidate in grouped.values():
+        if candidate["kind"] != kind:
+            continue
+        row = _match_tmdb(candidate["item"], by_rank)
+        if row:
+            targets.append((candidate, row))
+    matched = {candidate["identity"] for candidate, _ in targets}
+    for candidate, row in targets:
+        candidate["tmdb_trend_rank"] = trends[row["tmdb_id"]][0]
+
+    remaining = sorted(
+        (candidate for candidate in grouped.values()
+         if candidate["kind"] == kind and candidate["identity"] not in matched),
+        key=lambda candidate: (-_score_candidate(candidate)["score"], candidate["identity"]),
+    )
+
+    metadata_unavailable = threading.Event()
+
+    def enrich(candidate):
+        if metadata_unavailable.is_set():
+            return candidate, None
+        item = candidate["item"]
+        data = _tmdb_request(client, f"/search/{media_type}", query=item["title"], include_adult="false")
+        if not data:
+            metadata_unavailable.set()
+            return candidate, None
+        rows = [_tmdb_row(raw, media_type) for raw in _result_list(data)]
+        return candidate, _match_tmdb(
+            item, [row for row in rows if row], allow_yearless=data.get("total_pages") == 1,
+        )
+
+    if remaining:
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            targets.extend(pool.map(enrich, remaining[:ENRICH_LIMIT_PER_KIND]))
+    if targets:
+        genre_data = _tmdb_request(client, f"/genre/{media_type}/list")
+        genres = {str(row["id"]): str(row.get("name") or "") for row in _result_list(genre_data, "genres")
+                  if isinstance(row, dict) and "id" in row}
+        for candidate, row in targets:
+            if row:
+                _merge_metadata(candidate["item"], row, client, genres)
+                if row["year"]:
+                    candidate["aliases"].extend(
+                        _candidate_identity(kind, row[key], row["year"])
+                        for key in ("title", "original_title") if row[key]
+                    )
+                trend = trends.get(row["tmdb_id"])
+                if trend:
+                    candidate["tmdb_trend_rank"] = trend[0]
+    return status
+
+
+def _build_daily_top(day, movies, series, client):
+    grouped = {}
+    fresh_since = datetime.combine(day, day_time.min, timezone.utc).timestamp()
+    sources = {
+        "movie": _collect("movie", movies, grouped, client, fresh_since),
+        "series": _collect("series", series, grouped, client, fresh_since),
+    }
+    scored = [_score_candidate(candidate) for candidate in _merge_candidates(grouped.values())]
+    eligible = [
+        candidate for candidate in scored if candidate["components"]["popularity"]
+        and len(candidate["item"]["title"]) >= 2
+        and (candidate["item"].get("cover_url") or candidate["item"].get("backdrop_url"))
+    ]
+    return {
+        "period": day.isoformat(), "algorithm_version": ALGORITHM, "generated_at": int(time.time()),
+        "weights": WEIGHTS, "sources": sources, "candidates": _apply_diversity(eligible),
+        "source_status": {
+            "movie_providers": movies,
+            "series_trending_provider": "serienstream" if sources["series"].get("serienstream", {}).get("observed") else None,
+            "tmdb": any(kind.get("tmdb", {}).get("observed") for kind in sources.values()),
+        },
+    }
+
+
+def _record(history, scope, day, claim, movies, series, client):
     try:
-        period = datetime.strptime(period, "%Y-%m-%d").date().isoformat()
-    except ValueError:
-        period = date.today().isoformat()
-    now = time.time()
-    with _cache_lock:
-        cached = _cache.get(period)
-        if cached and now - cached[0] < DAILY_TOP_CACHE_TTL:
-            return cached[1]
-        payload = _build_daily_top(period)
-        _cache[period] = (now, payload)
-        if len(_cache) > 3:
-            oldest = min(_cache, key=lambda key: _cache[key][0])
-            _cache.pop(oldest, None)
-        return payload
+        payload = _build_daily_top(day, movies, series, client)
+        if payload["candidates"] and chart_day() == day and _configuration()[0] == scope:
+            history.save(scope, day, claim, payload)
+    except Exception:
+        logger.exception("Chart collection failed")
 
 
-async def api_daily_top(period: str = "") -> dict[str, Any]:
-    return await run_in_threadpool(daily_top_payload, period)
+def _schedule(history, scope, day, config):
+    global _build
+    with _BUILD_LOCK:
+        if _build and not _build[2].done():
+            return _build[2] if _build[:2] == (scope, day) else None
+        claim = history.claim(scope, day)
+        if claim is None:
+            return None
+        job = _BUILD_POOL.submit(_record, history, scope, day, claim, *config)
+        _build = (scope, day, job)
+        return job
 
 
-# The discovery router object already exists before runtime post-services are
-# imported. Attach this isolated route here so no legacy router contract or
-# composition-root wiring needs to be rewritten.
+def collect_scheduled_chart():
+    scope, *config = _configuration()
+    _schedule(ChartHistory(config_path().with_name("royal_charts.sqlite3")), scope, chart_day(), config)
+
+
+def _prepare(period):
+    today = chart_day()
+    if period:
+        try:
+            day = date.fromisoformat(period)
+        except ValueError:
+            day = today
+    else:
+        day = today
+    scope, *config = _configuration()
+    history = ChartHistory(config_path().with_name("royal_charts.sqlite3"))
+    job = _schedule(history, scope, day, config) if day == today else None
+    return history, scope, day, today, job
+
+
+def _payload(history, scope, day, today, mode, kind, genre):
+    result = chart_view(history.read(scope, day), day, mode, kind, genre)
+    result.update(scope=scope[:16], chart_day=today.isoformat(), timezone="UTC", weights=WEIGHTS)
+    if not result["source_status"]:
+        result["source_status"] = {"movie_providers": [], "series_trending_provider": None, "tmdb": False}
+    return result
+
+
+async def _serve(period, mode="today", kind="mixed", genre=""):
+    history, scope, day, today, job = await run_in_threadpool(_prepare, period)
+    if job is not None:
+        await asyncio.shield(asyncio.wrap_future(job))
+    return await run_in_threadpool(_payload, history, scope, day, today, mode, kind, genre)
+
+
+async def api_daily_top(response: Response, period: str = Query(default="", max_length=10)):
+    response.headers["Cache-Control"] = "private, no-store"
+    result = await _serve(period)
+    return {**result, "version": 2}
+
+
+async def api_royal_charts(
+    response: Response,
+    mode: str = Query(default="today", pattern="^(today|week|month|breakouts|new)$"),
+    kind: str = Query(default="mixed", pattern="^(mixed|movie|series)$"),
+    genre: str = Query(default="", max_length=80),
+    period: str = Query(default="", max_length=10),
+):
+    response.headers["Cache-Control"] = "private, no-store"
+    return await _serve(period, mode, kind, genre)
+
+
 _existing_paths = {getattr(route, "path", "") for route in discovery_router.routes}
-if "/api/daily-top" not in _existing_paths:
-    discovery_router.add_api_route("/api/daily-top", api_daily_top, methods=["GET"])
-if "/api/v1/daily-top" not in _existing_paths:
-    discovery_router.add_api_route("/api/v1/daily-top", api_daily_top, methods=["GET"])
+for path, endpoint in (
+    ("/api/daily-top", api_daily_top),
+    ("/api/v1/daily-top", api_daily_top),
+    ("/api/v3/royal-charts", api_royal_charts),
+):
+    if path not in _existing_paths:
+        discovery_router.add_api_route(path, endpoint, methods=["GET"])
