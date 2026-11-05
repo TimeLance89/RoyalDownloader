@@ -699,18 +699,6 @@ def _fetch_movie_provider_page(
     source_page: int,
 ) -> List[FilmpalastSearchResult]:
     """Lädt genau eine Quellseite; nur markierte Anbieter paginieren."""
-    if mode == "chart-top":
-        if provider == "sflix":
-            scraper = SflixScraper(progress_cb=log)
-            return _apply_provider_metadata_many(
-                scraper.list_movies("top", source_page, require_trending=True), provider,
-            )
-        if provider == "ridomovies":
-            scraper = RidomoviesScraper(progress_cb=log)
-            return _apply_provider_metadata_many(
-                scraper.list_movies("top", source_page, require_highlights=True), provider,
-            )
-        mode = "top"
     if provider not in MOVIE_PAGINATED_PROVIDERS and source_page != 1:
         return []
     provider_genre = _movie_genre_for_provider(provider, genre) if mode == "genre" else genre
@@ -779,6 +767,7 @@ def _load_movie_provider_pages(
     genre_key = clean_genre(genre).casefold()
 
     for provider, source_page in dict.fromkeys(requests_to_load):
+        # Only the two strict chart adapters need separate provider pages.
         cache_mode = "top" if mode == "chart-top" and provider not in {"sflix", "ridomovies"} else mode
         cache_key = ("provider", cache_mode, genre_key, provider, int(source_page))
         cached, freshness = _movie_provider_page_cache_state(cache_key, fresh_since)
@@ -842,7 +831,7 @@ def _load_movie_provider_pages(
                         timed_out[0] = True
                     continue
                 future = _MOVIE_PROVIDER_LOAD_POOL.submit(
-                    _fetch_movie_provider_page, provider, mode, genre, source_page,
+                    _fetch_movie_provider_page, provider, cache_key[1], genre, source_page,
                 )
                 _MOVIE_PROVIDER_INFLIGHT[cache_key] = future
                 created = True

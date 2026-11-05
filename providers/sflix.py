@@ -109,17 +109,15 @@ class SflixScraper:
         self,
         category: str = "new",
         page: int = 1,
-        *,
-        require_trending: bool = False,
     ) -> List[FilmpalastSearchResult]:
         page = max(1, int(page or 1))
-        if category == "top":
+        if category in {"top", "chart-top"}:
             if page != 1:
                 return []
             soup = self._get_soup("/home")
             container = soup.select_one("#trending-movies")
             if container is None:
-                if require_trending:
+                if category == "chart-top":
                     return []
                 container = soup
         else:

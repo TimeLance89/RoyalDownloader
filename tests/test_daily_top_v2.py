@@ -67,13 +67,12 @@ def test_provider_signal_audit():
     assert "moflix" not in charts.MOVIE_SIGNALS
 
 
-@pytest.mark.parametrize("scraper, flag", [(SflixScraper, "require_trending"),
-                                          (RidomoviesScraper, "require_highlights")])
-def test_missing_ranked_sections_cannot_turn_arbitrary_cards_into_signals(monkeypatch, scraper, flag):
+@pytest.mark.parametrize("scraper", [SflixScraper, RidomoviesScraper])
+def test_missing_ranked_sections_cannot_turn_arbitrary_cards_into_signals(monkeypatch, scraper):
     provider = object.__new__(scraper)
     monkeypatch.setattr(provider, "_get_soup", lambda _: BeautifulSoup("<main>Catalog</main>", "html.parser"))
     monkeypatch.setattr(provider, "_parse_cards", lambda _: pytest.fail("general catalog parsed"))
-    assert provider.list_movies("top", **{flag: True}) == []
+    assert provider.list_movies("chart-top") == []
 
 
 @pytest.mark.parametrize("signal", ["recent_uploads", "unknown", "rating_rank"])

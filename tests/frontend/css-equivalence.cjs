@@ -63,6 +63,10 @@ const baselineRef = process.env.ROYAL_CSS_BASELINE || "7d93908";
       });
       await page.evaluate(({ css, withLegacyStyles }) => {
         if (withLegacyStyles) { const style = document.createElement("style"); style.textContent = css; document.head.append(style); }
+        // Remove only the new chart UI from both frozen fixtures so the new mobile
+        // header row cannot shift the shell geometry. royal-charts-browser covers it.
+        document.querySelectorAll(".royal-charts-controls, #home-top-status, #royal-charts, #royal-chart-detail")
+          .forEach(element => element.remove());
         const track = document.getElementById("home-top-track");
         const card = document.createElement("article"); card.className = "home-card is-ranked";
         card.innerHTML = '<span class="home-card-art"><button class="taste-v2-dismiss" type="button">⊘</button><span class="home-card-overlay"><strong>Ranking fixture</strong><span class="daily-top-movement is-up">↑2</span></span></span>';

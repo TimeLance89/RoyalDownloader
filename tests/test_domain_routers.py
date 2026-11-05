@@ -54,6 +54,7 @@ def test_api_route_method_pairs_are_unique_and_explicitly_owned():
         ("GET", "/api/v1/health"),
         ("POST", "/api/auth/login"),
         ("POST", "/api/v1/auth/login"),
+        ("GET", "/api/v3/royal-charts"),
         ("POST", "/api/queue/add"),
         ("POST", "/api/v1/queue/add"),
         ("WEBSOCKET", "/ws"),
