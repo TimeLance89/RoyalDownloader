@@ -7,6 +7,7 @@ ARG CHROME_SECURITY_FLOOR="151.0.7922.169-1"
 ARG DEBIAN_CHROMIUM_SECURITY_FLOOR="151.0.7922.169-1~deb12u1"
 ARG DEBIAN_PERL_SECURITY_FLOOR="5.36.0-7+deb12u4"
 ARG DEBIAN_OPENSSL_SECURITY_FLOOR="3.0.22-1~deb12u2"
+ARG DEBIAN_APT_SECURITY_FLOOR="2.6.2"
 
 # System dependencies:
 #  - Chrome/Chromium:  real browser for CDP-assisted extraction and verification.
@@ -21,7 +22,13 @@ ARG DEBIAN_OPENSSL_SECURITY_FLOOR="3.0.22-1~deb12u2"
 # architectures keep Debian Chromium, but fail closed until Debian publishes
 # the same fixed security baseline.
 RUN set -eux; \
-    apt-get update; \
+    # CVE-2026-109518 is triggered by download retries in the inherited APT.
+    apt-get -o Acquire::Retries=0 update; \
+    apt-get -o Acquire::Retries=0 install -y --no-install-recommends --only-upgrade apt libapt-pkg6.0; \
+    for package in apt libapt-pkg6.0; do \
+        installed_version="$(dpkg-query -W -f='${Version}' "${package}")"; \
+        dpkg --compare-versions "${installed_version}" ge "${DEBIAN_APT_SECURITY_FLOOR}"; \
+    done; \
     apt-get install -y --no-install-recommends \
         tini \
         xvfb \
