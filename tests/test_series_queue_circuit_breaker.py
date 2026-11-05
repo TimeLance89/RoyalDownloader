@@ -100,13 +100,31 @@ def test_two_preparations_can_progress_without_global_head_of_line_blocking():
     assert not slots.locked()
 
 
-def test_serienstream_remains_first_source(monkeypatch):
-    monkeypatch.setattr(server, "provider_priority", lambda _kind: ["serienstream", "filmpalast"])
-    ordered = server._ordered_episode_sources([
-        episode_movie("filmpalast", "fallback"),
-        episode_movie("serienstream", "primary"),
-    ])
-    assert ordered[0].provider == "serienstream"
+@pytest.mark.parametrize("alternate_works", [True, False])
+def test_serienstream_episode_page_is_only_loaded_after_alternatives(monkeypatch, tmp_path, alternate_works):
+    slug = "serienstream:exact-show-s02e04"
+    primary = episode_movie("serienstream", slug)
+    fallback = episode_movie("filmpalast", "fallback")
+    server.state.picked.add(slug)
+    calls = []
+    monkeypatch.setattr(server, "provider_priority", lambda kind: ["serienstream", "filmpalast"] if kind == "series" else [])
+    monkeypatch.setattr(server, "_episode_fallback_aliases", lambda *_: ())
+    monkeypatch.setattr(server, "find_episode_fallbacks", lambda *args, **kwargs: [fallback])
+    monkeypatch.setattr(server, "load_movie_for_slug", lambda value: calls.append(("load", value)) or primary)
+
+    def extract(candidate, *_args, **_kwargs):
+        calls.append(("extract", candidate.provider))
+        return SimpleNamespace(stream_info=("stream", "hls") if candidate is primary or alternate_works else None, gated=False)
+
+    monkeypatch.setattr(server, "_extract_from_movie", extract)
+    monkeypatch.setattr(server, "_enqueue_hoster_attempt", lambda **kwargs: calls.append(("enqueue", kwargs["movie"].provider)) or True)
+    assert server.run_download_queue([(episode_movie("serienstream", slug, hosters=False), slug)],
+                                     tmp_path, start_queue=False) == {slug}
+    if alternate_works:
+        assert calls == [("extract", "filmpalast"), ("enqueue", "filmpalast")]
+    else:
+        assert calls == [("extract", "filmpalast"), ("load", slug),
+                         ("extract", "serienstream"), ("enqueue", "serienstream")]
 
 
 def test_queue_add_twenty_episodes_does_not_load_pages(monkeypatch):
@@ -185,6 +203,31 @@ def test_queue_add_rejects_known_scheduled_episode(monkeypatch):
     assert response["added"] == 0
     assert response["skipped_details"][slug] == "noch nicht veröffentlicht (ab 12.08.2099 · 00:00)"
     assert slug not in server.state.picked
+
+
+def test_scheduled_episode_with_confirmed_track_can_enter_queue(monkeypatch):
+    from features.episode_language_probe import EpisodeLanguageProbes
+
+    slug = "serienstream:confirmed-s04e21"
+    base = "serienstream:confirmed"
+    server.state.series_cache[base] = FilmpalastSeries(
+        "Confirmed", base, "https://serienstream.to/serie/confirmed",
+        seasons={4: [SeriesEpisode(4, 21, slug, "https://serienstream.to/episode-21", release_label="Demnächst")]},
+    )
+    monkeypatch.setattr(server.state, "content_languages", {"de"})
+    monkeypatch.setattr(server, "_content_already_available", lambda *_: (False, ""))
+    monkeypatch.setattr(server, "_enqueue_automatic_downloads", lambda values, **_: set(values))
+    probes = EpisodeLanguageProbes()
+    monkeypatch.setattr("features.episode_language_probe.language_probes", probes)
+    try:
+        probes.record_release(slug, ["en"])
+        rejected = asyncio.run(server.api_queue_add(server.QueueAddBody(slugs=[slug])))
+        assert rejected["added"] == 0
+        probes.record_release(slug, ["de"])
+        accepted = asyncio.run(server.api_queue_add(server.QueueAddBody(slugs=[slug])))
+        assert accepted["added"] == 1
+    finally:
+        probes.close()
 
 
 def test_jellyfin_duplicate_protection_still_rejects_episode(monkeypatch):

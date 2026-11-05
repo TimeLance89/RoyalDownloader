@@ -2,6 +2,7 @@
 import threading
 import time
 
+from features.episode_language_policy import LANGUAGE_EVIDENCE_TTL
 from features.episode_probe_scheduler import ProviderProbeScheduler
 
 
@@ -10,6 +11,7 @@ class EpisodeLanguageProbes:
         self._pool = ProviderProbeScheduler(workers, "episode-languages")
         self._lock = threading.Lock()
         self._entries = {}
+        self._releases = {}
         self._capacity = capacity
         self._ttl = ttl
 
@@ -34,6 +36,22 @@ class EpisodeLanguageProbes:
             future = self._pool.submit(provider, lookup)
             self._entries[key] = (now, future)
             return future
+
+    def record_release(self, slug, languages):
+        with self._lock:
+            now = time.monotonic()
+            self._releases.pop(slug, None)
+            if len(self._releases) >= self._capacity:
+                self._releases.pop(next(iter(self._releases)))
+            self._releases[slug] = (now, frozenset(languages))
+
+    def confirmed_languages(self, slug):
+        with self._lock:
+            release = self._releases.get(slug)
+            if release and time.monotonic() - release[0] < LANGUAGE_EVIDENCE_TTL:
+                return release[1]
+            self._releases.pop(slug, None)
+            return frozenset()
 
     def close(self):
         self._pool.close()

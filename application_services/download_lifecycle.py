@@ -842,7 +842,9 @@ def _provider_retry_worker() -> None:
                     continue
 
                 if state.provider_health.begin_probe("serienstream"):
-                    _execute_provider_probe(due[0] if due else None)
+                    item = next((candidate for candidate in due
+                                 if provider_for_value(candidate["slug"]) == "serienstream"), None)
+                    _execute_provider_probe(item)
                 else:
                     state.provider_retry_wake_event.wait(1)
                     state.provider_retry_wake_event.clear()
@@ -1140,19 +1142,10 @@ def find_episode_fallbacks(
             getattr(state, "subscription_content_languages", {}),
         )
     desired = {normalize_content_language(value) for value in content_languages} - {""}
-    fallback_providers = backend_value("SERIES_FALLBACK_PROVIDERS") or tuple(
-        episode_source_providers(provider_priority("series"), provider_priority("anime"))
+    configured = backend_value("SERIES_FALLBACK_PROVIDERS")
+    fallback_providers = episode_source_providers(
+        configured or provider_priority("series"), () if configured else provider_priority("anime"),
     )
-    searched_labels = [
-        PROVIDER_LABELS.get(provider, provider)
-        for provider in fallback_providers
-        if provider != source_provider
-    ]
-    if searched_labels:
-        log(
-            f"  Fallback-Suche S{season:02d}E{episode:02d}: "
-            + " → ".join(searched_labels)
-        )
     for provider in fallback_providers:
         if provider == source_provider or provider in skipped_providers:
             continue
