@@ -17,7 +17,7 @@ function fixture(responses, waitForRetry = async () => {}) {
     updateSeriesInfiniteState:noop,showSeriesDetail:noop,firstEpisodeSlug:noop,updateSeriesStatus:noop,
     refreshSeriesJellyfinStatus:noop,recheckSeriesInfinite(){ rechecks += 1; },preloadSeriesPosterImages:noop,
     syncSeriesCatalogFromHome:noop,renderSeriesResults:noop,refreshSeriesCatalogInBackground:noop,
-    applySeriesResults(data) { applied.push(data); state.results.push(...data.results); state.page=data.page; state.lastPageFull=data.has_more; state.loadError=''; },
+    applySeriesResults(data) { applied.push(data); state.results.push(...data.results); state.page=data.page; state.partialPageCount=data.partialPageCount || 0; state.lastPageFull=data.has_more; state.loadError=''; },
     client:{ async get(url,options) { calls.push({url,options}); const result=responses.shift(); if (result instanceof Error) throw result; return result; } },
   });
   browse.mount(); return {browse,state,calls,applied,scheduled,get rechecks(){ return rechecks; }};
@@ -95,6 +95,26 @@ test('downward demand survives transient warmup retries', async()=>{
     assert.equal(h.state.results.length,33);
     assert.equal(h.applied.length,1);
   } finally {h.browse.unmount();}
+});
+
+test('partial follow-up appears immediately and resumes the same page without another gesture', async () => {
+  const partial = { ...page2, has_more: true, partial_page: true };
+  const tail = { ...page2, results: [{ base_slug: 'series-33' }] };
+  const h = fixture([partial, tail]);
+  try {
+    await h.browse.next({ reveal: true });
+    assert.equal(h.state.results.length, 33);
+    assert.equal(h.state.page, 1);
+    assert.equal(h.state.waitingForNextPage, true);
+    h.scheduled.shift()();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(h.calls.map(({ url }) => new URL(url, 'http://rd').searchParams.get('received')), ['0', '1']);
+    assert.ok(h.calls.every(({ url }) => url.includes('page=2')));
+    assert.equal(h.state.page, 2);
+    assert.equal(h.state.partialPageCount, 0);
+    assert.equal(h.state.waitingForNextPage, false);
+    assert.equal(h.state.results.length, 34);
+  } finally { h.browse.unmount(); }
 });
 
 test('switching catalogs discards a late prefetched response',async()=>{

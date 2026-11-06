@@ -28,8 +28,9 @@ export function createSeriesPresentation(catalogRoot, detailRoot, {
     if (!browsable) return;
 
     const count = seriesState.results.length;
-    sentinel.setAttribute("aria-busy", String(seriesState.loadingBrowse));
-    retry.hidden = !seriesState.loadError;
+    const waiting = seriesState.waitingForNextPage;
+    sentinel.setAttribute("aria-busy", String(Boolean(seriesState.loadingBrowse || waiting)));
+    retry.hidden = !seriesState.loadError && (!seriesState.lastPageFull || waiting || seriesState.loadingBrowse);
     retry.textContent = seriesState.loadError ? "Erneut versuchen" : "Weitere laden";
     if (seriesState.loadingBrowse) {
       sentinel.dataset.state = "loading";
@@ -37,6 +38,9 @@ export function createSeriesPresentation(catalogRoot, detailRoot, {
     } else if (seriesState.loadError) {
       sentinel.dataset.state = "error";
       label.textContent = `Nachladen fehlgeschlagen · ${count} Serien geladen`;
+    } else if (waiting) {
+      sentinel.dataset.state = "waiting";
+      label.textContent = `${count} Serien geladen · Weitere werden vorbereitet …`;
     } else if (seriesState.lastPageFull) {
       sentinel.dataset.state = "ready";
       label.textContent = `${count} Serien geladen · Weiter scrollen`;
@@ -301,6 +305,7 @@ export function createSeriesPresentation(catalogRoot, detailRoot, {
       )
       : incoming;
     seriesState.page = data.page || 1;
+    seriesState.partialPageCount = data.partialPageCount || 0;
     seriesState.lastPageFull = Boolean(data.has_more ?? data.last_page_full);
     seriesState.sources = mergeCatalogSources(seriesState.sources, data.sources, append);
     seriesState.loadError = "";

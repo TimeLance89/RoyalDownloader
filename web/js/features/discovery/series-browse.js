@@ -12,6 +12,10 @@ export function createSeriesBrowse(root, {
   let scope = null, request = null, cancelRequest = null;
   let nextPage = null;
   let revealPending = false;
+  function setRevealPending(value) {
+    revealPending = value;
+    seriesState.waitingForNextPage = value;
+  }
   const current = id => scope?.active && request?.scope.active
     && request.id === id && seriesState.browseRequestSeq === id;
   const transientCatalogError = error => error?.code === "series_catalog_pending"
@@ -77,6 +81,7 @@ export function createSeriesBrowse(root, {
       browseMode: seriesState.browseMode,
       page: seriesState.page,
       lastPageFull: seriesState.lastPageFull,
+      partialPageCount: seriesState.partialPageCount,
       sources: seriesState.sources.slice(),
       current: seriesState.current,
       currentSampleSlug: seriesState.currentSampleSlug,
@@ -89,7 +94,7 @@ export function createSeriesBrowse(root, {
     if (seriesState.browseMode !== "search" && !seriesState.searchReturn) return;
     cancelRequest?.();
     nextPage = null;
-    revealPending = false;
+    setRevealPending(false);
     const saved = seriesState.searchReturn;
     seriesState.searchReturn = null;
     byId("series-search").value = "";
@@ -107,6 +112,7 @@ export function createSeriesBrowse(root, {
       results: saved.results,
       page: saved.page,
       has_more: saved.lastPageFull,
+      partialPageCount: saved.partialPageCount,
       sources: saved.sources,
     });
     renderSeriesTiles();
@@ -124,7 +130,7 @@ export function createSeriesBrowse(root, {
     closeSearchSuggestions("series-search-suggestions", "series-search");
     rememberSeriesSearchContext();
     nextPage = null;
-    revealPending = false;
+    setRevealPending(false);
     const requestId = ++seriesState.browseRequestSeq;
     const previousMode = seriesState.browseMode;
     seriesState.browseMode = "search";
@@ -170,21 +176,19 @@ export function createSeriesBrowse(root, {
         || !mode || mode === "search" || !seriesState.lastPageFull) return;
     const id = seriesState.browseRequestSeq;
     const page = seriesState.page + 1;
+    const received = seriesState.partialPageCount || 0;
     if (nextPage?.id === id && nextPage.mode === mode && nextPage.page === page) return nextPage.promise;
     const pending = { id, mode, page, data: null, error: null };
     nextPage = pending;
     const valid = () => nextPage === pending && current(id)
       && seriesState.browseMode === mode && seriesState.page + 1 === page;
-    pending.promise = load(seriesParams(mode, page), id, true)
-      .then(async data => {
+    pending.promise = load({ ...seriesParams(mode, page), received }, id, true)
+      .then(data => {
         if (!valid()) return;
-        await preloadSeriesPosterImages(data.results || [], 2000, scope.signal);
-        if (valid()) {
-          pending.data = data;
-          // Remember reaching the end while the request/posters were pending.
-          // Requiring another wheel/scroll event can strand users at the bottom.
-          if (revealPending) void loadNextSeriesPage({ reveal: true });
-        }
+        pending.data = data;
+        // Artwork must not delay cards once the user has reached this page.
+        void preloadSeriesPosterImages(data.results || [], 2000, request.scope.signal);
+        if (revealPending) void loadNextSeriesPage({ reveal: true });
       })
       .catch(error => {
         if (!valid()) return;
@@ -194,7 +198,10 @@ export function createSeriesBrowse(root, {
             nextPage = null;
             void prepareNextSeriesPage();
           });
-        } else pending.error = error;
+        } else {
+          pending.error = error;
+          if (revealPending) void loadNextSeriesPage({ reveal: true });
+        }
       });
     return pending.promise;
   }
@@ -202,7 +209,7 @@ export function createSeriesBrowse(root, {
   async function seriesBrowse(mode, page, { append = false } = {}) {
     if (!scope?.active) return;
     nextPage = null;
-    revealPending = false;
+    setRevealPending(false);
     if (mode !== "search") clearSeriesSearchContext();
     const requestId = ++seriesState.browseRequestSeq;
     const previousMode = seriesState.browseMode;
@@ -296,18 +303,30 @@ export function createSeriesBrowse(root, {
     if ((reveal || retry) && nextPage?.data) {
       const data = nextPage.data;
       nextPage = null;
-      revealPending = false;
+      setRevealPending(Boolean(data.partial_page));
       ++seriesState.browseRequestSeq;
-      applySeriesResults(data, { append: true });
-      void prepareNextSeriesPage();
+      if (data.partial_page) {
+        applySeriesResults({
+          ...data, page: seriesState.page,
+          partialPageCount: (seriesState.partialPageCount || 0) + data.results.length,
+        }, { append: true });
+        scheduleInfiniteRecheck(prepareNextSeriesPage);
+      } else {
+        applySeriesResults(data, { append: true });
+        void prepareNextSeriesPage();
+      }
       return;
     }
     if ((reveal || retry) && nextPage?.error) {
       seriesState.loadError = nextPage.error.message;
+      setRevealPending(false);
       updateSeriesInfiniteState();
       return;
     }
-    revealPending ||= reveal || retry;
+    if (!revealPending && (reveal || retry)) {
+      setRevealPending(true);
+      updateSeriesInfiniteState();
+    }
     // Background prefetch stays hidden until the user requests this page.
     await prepareNextSeriesPage();
   }
@@ -351,7 +370,7 @@ export function createSeriesBrowse(root, {
     unmount() {
       scope?.dispose(); scope = null; request = null; cancelRequest = null;
       nextPage = null;
-      revealPending = false;
+      setRevealPending(false);
       seriesState.loadingBrowse = false;
     },
     clear: clearSeriesSearchContext, remember: rememberSeriesSearchContext, restore: restoreSeriesSearchContext,
