@@ -26,11 +26,16 @@ import { createDailyTop } from "../features/home/daily-top.js";
 import { createHomeData } from "../features/home/data.js";
 
 import { createCarousel } from "../shared/components/carousel.js";
+import { createContinueWatching } from "../features/home/continue-watching.js";
 
 export function composeHome({ discoveryPolicy, movieState, artworkUrls, recommendations, getDiscovery, getIntegrations, getCore, getSearch, getProfile }) {
   const services = {
   seasonalEvents: createSeasonalEvents(document.getElementById("tab-home")),
   discoveryPolicy,
+  continueWatching: createContinueWatching(document.getElementById("home-continue-watching"), {
+    openItem: (...args) => getDiscovery().moviePresentation.openPlaybackItem(...args),
+    updateNavigation: track => services.carousel.updateHomeRailNavigation(track),
+  }),
   exposureVisibility: createHomeExposureVisibility(document.getElementById("tab-home"), {
     record: (lane, entries) => discoveryPolicy.recordDiscoveryExposureV2(lane, entries),
     logicalKey: entry => discoveryPolicy.discoveryV2LogicalKey(entry),

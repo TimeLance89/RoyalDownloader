@@ -13,6 +13,8 @@
 <link rel="stylesheet" href="/styles/source-sentinel.css">
 <link rel="stylesheet" href="/styles/people.css">
 <link rel="stylesheet" href="/styles/movie-playback.css">
+<link rel="stylesheet" href="/styles/continue-watching.css">
+<link rel="stylesheet" href="/styles/series-detail-browser.css">
 </head>
 <body>
 <div id="royal-loader" class="royal-loader" role="status" aria-live="polite" aria-label="Royal Downloader wird geladen">
@@ -437,6 +439,17 @@
             Startseite gestalten
           </button>
         </div>
+      </section>
+
+      <section id="home-continue-watching" class="home-rail" aria-labelledby="home-continue-watching-title" aria-roledescription="Karussell" hidden>
+        <header class="home-rail-head">
+          <h2 id="home-continue-watching-title" tabindex="-1">Weiterschauen</h2>
+          <div class="home-rail-controls">
+            <button type="button" data-home-scroll="home-continue-track" data-direction="-1" aria-label="Weiterschauen nach links scrollen" hidden>‹</button>
+            <button type="button" data-home-scroll="home-continue-track" data-direction="1" aria-label="Weiterschauen nach rechts scrollen" hidden>›</button>
+          </div>
+        </header>
+        <div id="home-continue-track" class="home-track" role="group" aria-label="Angefangene Filme und Serienfolgen"></div>
       </section>
 
       <div class="home-rails" aria-live="polite">
@@ -978,14 +991,6 @@
               </article>
             </div>
           </div>
-          <dialog id="fp-movie-player" aria-labelledby="fp-movie-player-title">
-            <header>
-              <h2 id="fp-movie-player-title" data-i18n-ignore></h2>
-              <button class="btn btn-ghost" type="button" autofocus>Player schließen</button>
-            </header>
-            <video controls playsinline preload="none" aria-labelledby="fp-movie-player-title"></video>
-            <p role="status"></p>
-          </dialog>
         </div>
       </div>
     </section>
@@ -1109,36 +1114,39 @@
                 <span class="series-jellyfin-mark" aria-hidden="true">JF</span>
                 <strong>Jellyfin wird geprüft</strong>
               </div>
-              <div class="series-selection-dock">
-              <div class="series-selection-status" aria-live="polite">
-                <span>EPISODENAUSWAHL</span>
-                <strong id="series-pick-count">0 ausgewählt</strong>
-              </div>
-              <button id="series-add-btn" class="btn btn-accent" disabled>↓ Auswahl herunterladen</button>
-              </div>
             </div>
             <section class="series-episode-browser" aria-labelledby="series-episodes-title">
               <header class="series-episodes-head">
                 <div>
-                  <span class="series-section-kicker">STAFFELN &amp; FOLGEN</span>
                   <h3 id="series-episodes-title">Episoden</h3>
                 </div>
-                <div class="toolbar">
-                  <button id="series-select-all" class="btn btn-ghost btn-sm">Alle auswählen</button>
-                  <button id="series-select-none" class="btn btn-ghost btn-sm">Auswahl löschen</button>
+                <div class="series-episode-navigation">
+                  <div id="series-view-switch" class="series-view-switch" role="group" aria-label="Episodenansicht" hidden>
+                    <button type="button" data-series-mode="watch" aria-pressed="false">Ansehen</button>
+                    <button type="button" data-series-mode="downloads" aria-pressed="true">Downloads</button>
+                  </div>
+                  <div id="series-season-picker" class="series-season-picker" hidden>
+                    <select id="series-active-season" aria-label="Staffel auswählen"></select>
+                  </div>
                 </div>
               </header>
-              <div class="series-state-legend" aria-label="Episodenstatus">
-                <span><i class="is-available"></i>Verfügbar</span>
-                <span><i class="is-queued"></i>Warteschlange</span>
-                <span><i class="is-downloaded"></i>Geladen</span>
-                <span><i class="is-selected"></i>Ausgewählt</span>
-                <span><i class="is-jellyfin"></i>Jellyfin</span>
-                <span><i class="is-scheduled"></i>Terminiert</span>
+              <div id="series-watch-episodes" hidden></div>
+              <div id="series-download-episodes">
+                <div class="toolbar">
+                  <button id="series-select-all" class="btn btn-ghost btn-sm">Alle Staffeln auswählen</button>
+                  <button id="series-select-none" class="btn btn-ghost btn-sm">Auswahl löschen</button>
+                </div>
+                <section id="series-probe-progress" class="series-probe-progress" role="status" aria-live="polite" aria-atomic="true" hidden></section>
+                <div id="series-tiles" class="tiles-scroll"></div>
+                <p id="series-no-downloads" class="series-loading" hidden>Für diese Staffel sind keine Downloadquellen verfügbar.</p>
               </div>
-              <section id="series-probe-progress" class="series-probe-progress" role="status" aria-live="polite" aria-atomic="true" hidden></section>
-              <div id="series-tiles" class="tiles-scroll"></div>
             </section>
+            <div id="series-download-dock" class="series-selection-dock">
+              <div class="series-selection-status" aria-live="polite">
+                <strong id="series-pick-count">0 ausgewählt</strong>
+              </div>
+              <button id="series-add-btn" class="btn btn-accent" disabled>↓ Auswahl herunterladen</button>
+            </div>
             <section class="series-detail-discovery" aria-label="Mehr über diese Serie">
               <div class="series-detail-lower-grid">
                 <section id="series-detail-extras-section" class="detail-extras" aria-labelledby="series-detail-extras-title" hidden>
@@ -2841,6 +2849,80 @@
     </div>
   </div>
 </div>
+
+<dialog id="fp-movie-player" aria-labelledby="fp-movie-player-title">
+  <div class="rd-player">
+    <header class="rd-player-header">
+      <h2 id="fp-movie-player-title" data-i18n-ignore></h2>
+      <span class="rd-player-source">Jellyfin</span>
+      <button class="rd-player-icon" data-player-action="close" type="button" aria-label="Player schließen" title="Player schließen" autofocus>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </header>
+    <div class="rd-player-screen">
+      <video controls playsinline preload="metadata" aria-labelledby="fp-movie-player-title"></video>
+      <button class="rd-player-center rd-player-icon" data-player-action="play" type="button" aria-label="Abspielen" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path class="rd-player-play-icon" d="m8 5 12 7-12 7z"/></svg>
+      </button>
+      <div class="rd-player-notice">
+        <p role="status"></p>
+        <button class="rd-player-retry" data-player-action="retry" type="button" hidden>Erneut versuchen</button>
+      </div>
+    </div>
+    <div class="rd-player-deck" role="group" aria-label="Wiedergabesteuerung">
+      <input class="rd-player-range rd-player-timeline" type="range" min="0" max="1" step="1" value="0" aria-label="Wiedergabeposition" disabled>
+      <div class="rd-player-toolbar">
+        <div class="rd-player-transport">
+          <button class="rd-player-icon" data-player-action="previous-episode" type="button" aria-label="Vorherige Folge" title="Vorherige Folge" hidden disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5v14m14-14L8 12l11 7z"/></svg>
+          </button>
+          <button class="rd-player-icon rd-player-primary" data-player-action="play" type="button" aria-label="Abspielen" title="Abspielen">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path class="rd-player-play-icon" d="m8 5 12 7-12 7z"/><path class="rd-player-pause-icon" d="M9 5v14m6-14v14"/></svg>
+          </button>
+          <button class="rd-player-icon rd-player-skip" data-player-action="back" type="button" aria-label="10 Sekunden zurück" title="10 Sekunden zurück (←)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10a9 9 0 1 1 2 8M3 4v6h6"/></svg><span aria-hidden="true">10</span>
+          </button>
+          <button class="rd-player-icon rd-player-skip" data-player-action="forward" type="button" aria-label="10 Sekunden vor" title="10 Sekunden vor (→)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 10a9 9 0 1 0-2 8m2-14v6h-6"/></svg><span aria-hidden="true">10</span>
+          </button>
+          <button class="rd-player-icon" data-player-action="next-episode" type="button" aria-label="Nächste Folge" title="Nächste Folge" hidden disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v14M5 5l11 7L5 19z"/></svg>
+          </button>
+        </div>
+        <div class="rd-player-clock" data-i18n-ignore><span data-player-elapsed>00:00</span><span data-player-duration></span></div>
+        <div class="rd-player-options">
+          <details class="rd-player-episodes" hidden>
+            <summary aria-label="Staffeln und Folgen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg><span>Folgen</span></summary>
+            <div class="rd-player-season-menu" role="group" aria-label="Staffeln und Folgen">
+              <div class="rd-player-season-head">
+                <label for="rd-player-season-select">Staffel</label>
+                <select id="rd-player-season-select" aria-label="Staffel im Player auswählen" disabled></select>
+              </div>
+              <p class="rd-player-season-status" role="status"></p>
+              <div class="rd-player-season-list"></div>
+              <button class="rd-player-retry" type="button" data-player-episodes-retry hidden>Erneut laden</button>
+            </div>
+          </details>
+          <button class="rd-player-icon" data-player-action="mute" type="button" aria-label="Stummschalten" title="Stummschalten (M)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path class="rd-player-volume-on" d="M15 9a4 4 0 0 1 0 6m3-9a8 8 0 0 1 0 12"/><path class="rd-player-volume-off" d="m15 9 6 6m0-6-6 6"/></svg>
+          </button>
+          <input class="rd-player-range rd-player-volume" type="range" min="0" max="1" step="0.05" value="1" aria-label="Lautstärke">
+          <label class="rd-player-rate" title="Wiedergabegeschwindigkeit">
+            <select aria-label="Wiedergabegeschwindigkeit">
+              <option value="0.75">0,75×</option><option value="1" selected>1×</option><option value="1.25">1,25×</option><option value="1.5">1,5×</option><option value="2">2×</option>
+            </select>
+          </label>
+          <button class="rd-player-icon" data-player-action="pip" type="button" aria-label="Bild-in-Bild" title="Bild-in-Bild" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M13 12h6v5h-6z"/></svg>
+          </button>
+          <button class="rd-player-icon" data-player-action="fullscreen" type="button" aria-label="Vollbild" title="Vollbild (F)" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H4v5m11-5h5v5m0 6v5h-5m-6 0H4v-5"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</dialog>
 
 <div id="fp-trailer-modal" class="trailer-modal" role="dialog" aria-modal="true" aria-labelledby="fp-trailer-title" hidden>
   <div id="fp-trailer-backdrop" class="trailer-modal-backdrop" aria-hidden="true"></div>

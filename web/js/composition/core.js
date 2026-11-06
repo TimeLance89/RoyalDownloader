@@ -81,7 +81,7 @@ export function prepareCore({ getDiscovery, getDownloads, getIntegrations, getHo
       closeCollectionDetails: () => getDiscovery().movieCollections.close(),
       closeAniworldDetails: () => getDiscovery().aniworld.closeDetail(),
       closeAnimeDetails: () => getDiscovery().anime.closeDetail(),
-      closeSeriesDetails() { getDiscovery().seriesDetailsLoader.unmount(); getDiscovery().seriesChecks.unmount(); getDiscovery().seriesPresentation.closeSavedMedia(); },
+      closeSeriesDetails() { getDiscovery().seriesDetailsLoader.unmount(); getDiscovery().seriesChecks.unmount(); getDiscovery().seriesEpisodes.closeBrowser(); getDiscovery().seriesPresentation.closeSavedMedia(); },
       closeMovieDetails: () => {
         getDiscovery().movieDetailsLoader.unmount();
         getDownloads().movieDownloads.closeDetail();

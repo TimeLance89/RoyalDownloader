@@ -1,0 +1,297 @@
+#series-detail-modal :is(#series-view-switch, #series-season-picker, #series-watch-episodes, #series-download-episodes, #series-no-downloads, #series-download-dock, .season-row)[hidden] {
+  display: none;
+}
+
+#series-detail-modal .series-episodes-head {
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.series-episode-navigation,
+.series-view-switch {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.series-episode-navigation { flex-wrap: wrap; }
+
+.series-view-switch {
+  padding: 0.2rem;
+  border: 1px solid #303a46;
+  border-radius: 0.5rem;
+  background: #151d26;
+}
+
+.series-view-switch button,
+.series-season-picker select {
+  min-height: 2.4rem;
+  padding: 0 0.7rem;
+  border: 0;
+  border-radius: 0.32rem;
+  color: #b8c4d0;
+  background: transparent;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.series-view-switch button[aria-pressed="true"] {
+  color: #f1d2a2;
+  background: #2d3540;
+}
+
+.series-season-picker select {
+  border: 1px solid #303a46;
+  background: #151d26;
+  color: #eff3f8;
+  color-scheme: dark;
+}
+
+#series-detail-modal :is(.series-view-switch button, .series-season-picker select, .series-watch-action, .series-next-action):focus-visible {
+  outline: 2px solid #f1d2a2;
+  outline-offset: 2px;
+}
+
+#series-watch-episodes,
+#series-download-episodes {
+  padding-top: 0.9rem;
+}
+
+.series-next-episode {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid #353d46;
+  border-left: 3px solid #f1d2a2;
+  border-radius: 0.5rem;
+  background: #1c2630;
+}
+
+.series-next-copy,
+.series-watch-copy {
+  display: grid;
+  min-width: 0;
+  gap: 0.24rem;
+}
+
+.series-next-kicker {
+  color: #f1d2a2;
+  font-size: 0.77rem;
+  font-weight: 650;
+}
+
+.series-next-copy strong,
+.series-watch-copy strong {
+  color: #eff3f8;
+  font-size: 0.93rem;
+  overflow-wrap: anywhere;
+}
+
+.series-watch-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+}
+
+.series-watch-row {
+  display: grid;
+  grid-template-columns: clamp(6rem, 14vw, 10rem) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid #28333e;
+}
+
+.series-watch-art {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  border-radius: 0.35rem;
+  background: linear-gradient(140deg, #303d4d, #161f28);
+}
+
+.series-watch-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.series-watch-art span {
+  position: absolute;
+  left: 0.35rem;
+  bottom: 0.38rem;
+  padding: 0.14rem 0.3rem;
+  border-radius: 0.2rem;
+  color: #f3f5f8;
+  background: rgb(11 14 18 / 86%);
+  font-size: 0.71rem;
+}
+
+.series-watch-progress {
+  position: absolute;
+  inset: auto 0 0;
+  height: 3px;
+  background: linear-gradient(to right, #f1d2a2 var(--episode-played), rgb(11 14 18 / 75%) 0);
+}
+
+.series-watch-copy small { color: #a8b3c2; }
+
+.series-watch-action,
+.series-next-action {
+  min-height: 2.55rem;
+  white-space: nowrap;
+  font-size: 0.8rem;
+}
+
+#series-detail-modal #series-tiles { min-height: 0; }
+
+#series-detail-modal .series-detail-panel .season-row {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+}
+
+#series-detail-modal .series-detail-panel .season-btn {
+  width: fit-content;
+  min-height: 2.55rem;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0.65rem;
+}
+
+#series-detail-modal .series-detail-panel .season-btn :is(span, strong, small) {
+  color: inherit;
+  font: inherit;
+  margin: 0;
+  letter-spacing: normal;
+}
+
+#series-detail-modal .series-detail-panel .season-btn strong,
+#series-detail-modal .series-detail-panel .season-btn small {
+  color: #a8b3c2;
+  font-size: 0.75rem;
+}
+
+#series-detail-modal .series-detail-panel .ep-tiles {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.35rem;
+}
+
+#series-detail-modal .series-detail-panel .ep-tile {
+  display: flex;
+  flex-flow: row wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.4rem 0.6rem;
+  width: 100%;
+  min-height: 2.65rem;
+  height: auto;
+  padding: 0.35rem 0.6rem;
+  text-align: left;
+}
+
+#series-detail-modal .series-detail-panel .ep-tile:hover:not(:disabled) {
+  transform: none;
+}
+
+#series-detail-modal .series-detail-panel .ep-tile.selected {
+  background: #29323c;
+  border-color: #c3a476;
+  box-shadow: none;
+}
+
+#series-detail-modal .series-detail-panel .ep-tile.in-jellyfin:disabled {
+  opacity: 1;
+}
+
+#series-detail-modal .ep-tile::before {
+  content: "";
+  display: grid;
+  place-items: center;
+  flex: 0 0 1rem;
+  height: 1rem;
+  border: 1px solid #667584;
+  border-radius: 0.2rem;
+  background: transparent;
+  position: static;
+}
+
+#series-detail-modal .ep-tile[aria-pressed="true"]::before {
+  content: "✓";
+  border-color: #f1d2a2;
+  background: #f1d2a2;
+  color: #151d26;
+  font-size: 0.7rem;
+}
+
+#series-detail-modal .ep-tile:disabled::before { visibility: hidden; }
+#series-detail-modal .ep-tile.in-jellyfin::after { display: none; }
+
+#series-detail-modal .ep-tile strong {
+  flex: 1 1 7rem;
+  color: #eff3f8;
+  font: 650 0.83rem/1.25 "Archivo", sans-serif;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+#series-detail-modal .ep-tile .ep-download-number {
+  color: #a8b3c2;
+  font-size: 0.7rem;
+}
+
+#series-detail-modal .ep-tile :is(.ep-download-state, .ep-language-lock, .ep-source-label) {
+  position: static;
+  margin: 0;
+  font-size: 0.7rem;
+  line-height: 1.15;
+}
+
+#series-detail-modal .ep-download-state:empty { display: none; }
+
+#series-detail-modal .ep-download-state {
+  font-family: inherit;
+  color: #b8c4d0;
+}
+
+#series-detail-modal #series-download-dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid #353d46;
+  border-radius: 0.5rem;
+  background: #151d26;
+}
+
+#series-detail-modal #series-download-dock:is([hidden], :not([data-has-selection="true"])) {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  #series-detail-modal .series-episodes-head { align-items: flex-start; }
+  .series-view-switch button,
+  .series-season-picker select { min-height: 2.75rem; }
+  .series-next-episode { align-items: flex-start; flex-direction: column; }
+  .series-watch-row { grid-template-columns: 5.5rem minmax(0, 1fr); }
+  .series-watch-action { grid-column: 2; justify-self: start; }
+}
+
+@media (max-width: 820px) {
+  #series-detail-modal #series-download-dock {
+    position: fixed;
+    z-index: 25;
+    inset: auto 0 0;
+    padding-bottom: calc(0.65rem + env(safe-area-inset-bottom));
+    border-radius: 0;
+  }
+}

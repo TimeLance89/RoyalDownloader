@@ -10,6 +10,13 @@ import integrations.jellyfin_client as jellyfin_client
 from integrations.jellyfin_client import JellyfinClient
 
 
+def test_movie_title_normalization_strips_only_trailing_years():
+    for title in ["Dune (2021)", "Dune [2021]  ", "Dune 2021", "Dune\t(2021)\n"]:
+        assert jellyfin_client._normalize(title) == "dune"
+    assert jellyfin_client._normalize("Dune 2021 Extended") == "dune2021extended"
+    assert jellyfin_client._normalize("Dune" + " " * 100_000 + "X") == "dunex"
+
+
 class _Response:
     def __init__(self, payload):
         self.payload = payload

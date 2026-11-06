@@ -1118,7 +1118,7 @@ test("Royal archive behaves like a searchable media center", () => {
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {
-  assert.match(html, /is-scheduled[^\n]*Terminiert/);
+  assert.match(html, /is-scheduled[^\n]*Angekündigt/);
   assert.match(app, /ep\.unreleased \? `Folge \$\{ep\.episode\}, verfügbar ab/);
   assert.match(app, /completedSeriesHeroTrailers\.add/);
   assert.match(app, /playerState === 0/);
