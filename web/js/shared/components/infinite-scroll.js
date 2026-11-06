@@ -7,23 +7,22 @@ export function createInfiniteScroll(root, {
   let scope, scheduled = false;
   let reveal = false, lastWindowTop = 0, lastRootTop = 0;
   let touchY = null;
-  let endVisible = false;
   const win = root.ownerDocument.defaultView;
   function run() {
     scheduled = false;
     const downward = reveal;
     reveal = false;
     if (!scope?.active || sentinel.classList.contains("hidden")) return;
+    if (root.ownerDocument.hidden) return;
     const overflow = win.getComputedStyle(root).overflowY;
     const internal = /(auto|scroll|overlay)/.test(overflow) && root.scrollHeight > root.clientHeight + 1;
     const viewportBottom = win.innerHeight || root.ownerDocument.documentElement.clientHeight;
     const end = sentinel.getBoundingClientRect();
     const remaining = internal ? root.scrollHeight - root.scrollTop - root.clientHeight : Infinity;
     const bottom = internal && revealAtEnd ? Math.min(viewportBottom, root.getBoundingClientRect().bottom) : viewportBottom;
-    const visible = end.top < bottom && end.bottom > 0;
-    const reachedEnd = revealAtEnd && (
-      remaining <= 2 || (visible && (endVisible || !win.IntersectionObserver))
-    );
+    // Leave room for the fixed download dock and rounding at nested scrollers.
+    const visible = end.top <= bottom + 200 && end.bottom > 0;
+    const reachedEnd = revealAtEnd && (remaining <= 200 || visible);
     const nearEnd = internal ? remaining <= preload : end.top <= viewportBottom + preload;
     if (nearEnd || reachedEnd) loadNext({ reveal: downward || reachedEnd });
   }
@@ -74,16 +73,26 @@ export function createInfiniteScroll(root, {
       if (retryButton) scope.listen(retryButton, "click", retry);
       if (revealAtEnd && win.IntersectionObserver) {
         const owner = scope;
-        const observer = new win.IntersectionObserver(([entry]) => {
+        const observer = new win.IntersectionObserver(() => {
           if (!owner.active) return;
-          endVisible = entry.isIntersecting && entry.intersectionRatio > 0;
           refresh();
         });
         observer.observe(sentinel);
         scope.observe(observer);
       }
+      if (revealAtEnd) {
+        // Fullscreen changes and restored nested scrollers can miss an
+        // intersection/scroll notification. Recheck geometry while mounted.
+        scope.interval(refresh, 1000);
+        if (win.ResizeObserver) {
+          const observer = new win.ResizeObserver(refresh);
+          observer.observe(root);
+          observer.observe(sentinel);
+          scope.observe(observer);
+        }
+      }
       refresh();
     },
-    unmount() { scope?.dispose(); scope = null; scheduled = false; reveal = false; endVisible = false; touchY = null; },
+    unmount() { scope?.dispose(); scope = null; scheduled = false; reveal = false; touchY = null; },
   };
 }

@@ -25,6 +25,45 @@ function fixture(responses, waitForRetry = async () => {}) {
 const pending=()=>Object.assign(new Error('Dieser Serienabschnitt wird vorbereitet'),{status:409,code:'series_catalog_pending'});
 const page2={page:2,has_more:false,results:[{base_slug:'series-32'}]};
 
+test('visible series end recovers when browser observers and scroll events do not fire', async t => {
+  const previousFrame = globalThis.requestAnimationFrame;
+  const previousCancel = globalThis.cancelAnimationFrame;
+  globalThis.requestAnimationFrame = callback => setTimeout(callback, 0);
+  globalThis.cancelAnimationFrame = clearTimeout;
+  t.after(() => {
+    globalThis.requestAnimationFrame = previousFrame;
+    globalThis.cancelAnimationFrame = previousCancel;
+  });
+  class SilentObserver { observe() {} disconnect() {} }
+  const win = Object.assign(new EventTarget(), {
+    innerHeight: 800, scrollY: 0, getComputedStyle: () => ({ overflowY: 'visible' }),
+    IntersectionObserver: SilentObserver, ResizeObserver: SilentObserver,
+  });
+  const root = Object.assign(new EventTarget(), { scrollTop: 0, ownerDocument: { defaultView: win } });
+  let top = 1100;
+  const sentinel = { classList: { contains: () => false }, getBoundingClientRect: () => ({ top, bottom: top + 60 }) };
+  const reveals = [];
+  let resolve;
+  const revealed = new Promise(done => { resolve = done; });
+  const infinite = createInfiniteScroll(root, {
+    sentinel, revealAtEnd: true, loadNext({ reveal }) { reveals.push(reveal); if (reveal) resolve(); },
+  });
+  infinite.mount();
+  try {
+    await new Promise(done => setTimeout(done, 20));
+    assert.deepEqual(reveals, [false]);
+    top = 850; // The footer may sit just beyond the viewport behind the dock.
+    await Promise.race([
+      revealed,
+      new Promise((_, reject) => {
+        const timer = setTimeout(() => reject(new Error('Visible end was never rechecked')), 3000);
+        t.after(() => clearTimeout(timer));
+      }),
+    ]);
+    assert.equal(reveals.at(-1), true);
+  } finally { infinite.unmount(); }
+});
+
 test('only downward input reveals buffered pages, including wheel and touch at the bottom',t=>{
   const frames=new Map(); let frameId=0;
   const originalRequest=globalThis.requestAnimationFrame, originalCancel=globalThis.cancelAnimationFrame;

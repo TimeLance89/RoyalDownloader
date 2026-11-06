@@ -189,6 +189,7 @@ export function createSeriesBrowse(root, {
         // Artwork must not delay cards once the user has reached this page.
         void preloadSeriesPosterImages(data.results || [], 2000, request.scope.signal);
         if (revealPending) void loadNextSeriesPage({ reveal: true });
+        else recheckSeriesInfinite();
       })
       .catch(error => {
         if (!valid()) return;
