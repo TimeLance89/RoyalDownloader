@@ -96,6 +96,24 @@ def _movie_id(client, items, title, year, tmdb_id):
         raise HTTPException(502, "Jellyfin hat keine gültige Film-ID geliefert.") from None
 
 
+def _episode_cards(items):
+    episodes = []
+    for item in items:
+        if (not isinstance(item, dict) or item.get("Type") != "Episode"
+                or not isinstance(item.get("ParentIndexNumber"), int)
+                or not isinstance(item.get("IndexNumber"), int)
+                or item.get("LocationType") in {"Virtual", "Offline"}):
+            continue
+        card = _resume_card(item, resumable_only=False)
+        if card:
+            user_data = item.get("UserData") or {}
+            episodes.append(card | {
+                "played": bool(user_data.get("Played")),
+                "last_played": user_data.get("LastPlayedDate") or "",
+            })
+    return episodes
+
+
 def _stream_options(base_url, headers, item_id, start_ticks=0):
     with requests.get(f"{base_url}/Items/{item_id}/PlaybackInfo", headers=headers,
                       timeout=10, allow_redirects=False) as info:
@@ -200,21 +218,31 @@ def create_movie_playback_router(backend, administrator):
             "UserId": profile_id, "IsMissing": "false", "EnableUserData": "true",
             "ImageTypeLimit": 1, "EnableImageTypes": "Primary",
         })
-        episodes = []
-        for item in result.get("Items") or []:
-            if (not isinstance(item, dict) or item.get("Type") != "Episode"
-                    or not isinstance(item.get("ParentIndexNumber"), int)
-                    or not isinstance(item.get("IndexNumber"), int)
-                    or item.get("LocationType") in {"Virtual", "Offline"}):
-                continue
-            card = _resume_card(item, resumable_only=False)
-            if card:
-                user_data = item.get("UserData") or {}
-                episodes.append(card | {
-                    "played": bool(user_data.get("Played")),
-                    "last_played": user_data.get("LastPlayedDate") or "",
-                })
+        episodes = _episode_cards(result.get("Items") or [])
         return {"items": episodes, "profile_id": profile_id, "generation": generation}
+
+    @router.get("/api/media-center/episodes/{item_id}/navigation")
+    def episode_navigation(request: Request, item_id: UUID):
+        active = connection()
+        if active is None:
+            raise HTTPException(404)
+        config, generation, base_url = active
+        profile_id = linked_profile(request, config)
+        current = profile_video(base_url, config, profile_id, item_id.hex)
+        if current.get("Type") != "Episode":
+            raise HTTPException(404)
+        try:
+            series_id = UUID(current["SeriesId"]).hex
+        except (KeyError, TypeError, ValueError, AttributeError):
+            raise HTTPException(502, "Die Serie konnte in Jellyfin nicht zugeordnet werden.") from None
+        result = _jellyfin_json(base_url, config["api_key"], f"/Shows/{series_id}/Episodes", {
+            "UserId": profile_id, "IsMissing": "false", "EnableUserData": "true",
+            "EnableImages": "false",
+        })
+        return {
+            "items": _episode_cards(result.get("Items") or []),
+            "profile_id": profile_id, "generation": generation,
+        }
 
     @router.get("/api/media-center/continue-watching")
     def continue_watching(request: Request):

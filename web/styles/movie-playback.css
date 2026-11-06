@@ -380,3 +380,115 @@
     height: min(56vw, calc(100dvh - 12rem));
   }
 }
+.rd-player-deck {
+  position: relative;
+}
+
+.rd-player-episodes {
+  flex: 0 0 auto;
+}
+
+.rd-player-episodes summary {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-height: 2.6rem;
+  padding: 0 0.45rem;
+  border-radius: 0.4rem;
+  color: var(--rd-ink);
+  cursor: pointer;
+  list-style: none;
+  white-space: nowrap;
+  font-size: 0.8rem;
+}
+
+.rd-player-episodes summary::-webkit-details-marker {
+  display: none;
+}
+
+.rd-player-episodes summary svg {
+  width: 1.15rem;
+  height: 1.15rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+}
+
+.rd-player-episodes[open] summary,
+.rd-player-episodes summary:hover {
+  color: var(--rd-gold);
+  background: var(--rd-line);
+}
+
+.rd-player-season-menu {
+  position: absolute;
+  right: 0.75rem;
+  bottom: calc(100% - 0.15rem);
+  z-index: 3;
+  width: min(24rem, calc(100% - 1.5rem));
+  max-height: min(24rem, 55dvh);
+  padding: 0.4rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--rd-line);
+  border-radius: 0.6rem;
+  background: var(--rd-deck);
+  box-shadow: 0 0.5rem 2rem rgb(0 0 0 / 45%);
+}
+
+.rd-player-season-status {
+  margin: 0;
+  padding: 0.6rem;
+  color: var(--rd-muted);
+  font-size: 0.8rem;
+}
+
+.rd-player-season-status:empty {
+  display: none;
+}
+
+.rd-player-season-list button {
+  display: grid;
+  gap: 0.25rem;
+  width: 100%;
+  padding: 0.7rem 0.65rem;
+  border: 0;
+  border-radius: 0.35rem;
+  background: transparent;
+  color: var(--rd-ink);
+  text-align: left;
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.rd-player-season-list button:hover,
+.rd-player-season-list button[aria-current="true"] {
+  background: var(--rd-line);
+}
+
+.rd-player-season-list button[aria-current="true"] {
+  box-shadow: inset 3px 0 var(--rd-gold);
+}
+
+.rd-player-season-list small {
+  color: var(--rd-muted);
+  font-size: 0.73rem;
+}
+
+@media (max-width: 380px) {
+  .rd-player-transport {
+    grid-column: 1 / -1;
+    justify-content: center;
+  }
+
+  .rd-player-clock {
+    grid-column: 1 / -1;
+    justify-content: center;
+  }
+
+  .rd-player-options {
+    flex-wrap: wrap;
+  }
+}

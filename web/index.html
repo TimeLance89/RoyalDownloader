@@ -2873,6 +2873,9 @@
       <input class="rd-player-range rd-player-timeline" type="range" min="0" max="1" step="1" value="0" aria-label="Wiedergabeposition" disabled>
       <div class="rd-player-toolbar">
         <div class="rd-player-transport">
+          <button class="rd-player-icon" data-player-action="previous-episode" type="button" aria-label="Vorherige Folge" title="Vorherige Folge" hidden disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5v14m14-14L8 12l11 7z"/></svg>
+          </button>
           <button class="rd-player-icon rd-player-primary" data-player-action="play" type="button" aria-label="Abspielen" title="Abspielen">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path class="rd-player-play-icon" d="m8 5 12 7-12 7z"/><path class="rd-player-pause-icon" d="M9 5v14m6-14v14"/></svg>
           </button>
@@ -2882,9 +2885,20 @@
           <button class="rd-player-icon rd-player-skip" data-player-action="forward" type="button" aria-label="10 Sekunden vor" title="10 Sekunden vor (→)">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 10a9 9 0 1 0-2 8m2-14v6h-6"/></svg><span aria-hidden="true">10</span>
           </button>
+          <button class="rd-player-icon" data-player-action="next-episode" type="button" aria-label="Nächste Folge" title="Nächste Folge" hidden disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v14M5 5l11 7L5 19z"/></svg>
+          </button>
         </div>
         <div class="rd-player-clock" data-i18n-ignore><span data-player-elapsed>00:00</span><span data-player-duration></span></div>
         <div class="rd-player-options">
+          <details class="rd-player-episodes" hidden>
+            <summary aria-label="Folgen der laufenden Staffel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg><span>Folgen</span></summary>
+            <div class="rd-player-season-menu" role="group" aria-label="Folgen der laufenden Staffel">
+              <p class="rd-player-season-status" role="status"></p>
+              <div class="rd-player-season-list"></div>
+              <button class="rd-player-retry" type="button" data-player-episodes-retry hidden>Erneut laden</button>
+            </div>
+          </details>
           <button class="rd-player-icon" data-player-action="mute" type="button" aria-label="Stummschalten" title="Stummschalten (M)">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path class="rd-player-volume-on" d="M15 9a4 4 0 0 1 0 6m3-9a8 8 0 0 1 0 12"/><path class="rd-player-volume-off" d="m15 9 6 6m0-6-6 6"/></svg>
           </button>

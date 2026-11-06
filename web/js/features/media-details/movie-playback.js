@@ -1,5 +1,6 @@
 import { api } from "../../core/api.js";
 import { createMoviePlayerControls, formatMovieTime } from "./movie-player-controls.js";
+import { createMoviePlayerEpisodes } from "./movie-player-episodes.js";
 
 const TICKS_PER_SECOND = 10_000_000;
 const progressPath = "/api/media-center/movies/progress";
@@ -10,7 +11,7 @@ export function createMoviePlayback(root, { canPlay, stopTrailer, client = api }
   const video = dialog.querySelector("video");
   const title = dialog.querySelector("h2");
   let currentMovie, slug, owned;
-  let progress, readController, playing, controls;
+  let progress, readController, playing, controls, episodes;
   let writes = Promise.resolve();
 
   function movieQuery() {
@@ -94,6 +95,7 @@ export function createMoviePlayback(root, { canPlay, stopTrailer, client = api }
     controls?.leavePresentationMode();
     if (wasOpen) dialog.close();
     stop();
+    episodes?.reset();
     if (wasOpen) void writes.then(() => dialog.ownerDocument.dispatchEvent(new Event("royal:playback-closed")));
   }
 
@@ -133,21 +135,28 @@ export function createMoviePlayback(root, { canPlay, stopTrailer, client = api }
     if (button.hidden || button.disabled || !canPlay() || dialog.open) return;
     stopTrailer();
     title.textContent = currentMovie.title;
+    episodes.reset();
     dialog.showModal();
     startStream(progress, (progress.position_ticks || 0) / TICKS_PER_SECOND, true);
   }
 
-  function openItem(item, trigger) {
-    if (!controls || !canPlay() || dialog.open || !item?.id || !item.profile_id) return;
+  function selectItem(item) {
     const entry = { ...item, params: new URLSearchParams({ item_id: item.id }).toString() };
-    trigger?.focus({ preventScroll: true });
-    stopTrailer();
+    saveProgress(video.ended);
     title.textContent = item.kind === "episode"
       ? [item.title, item.season != null && `Staffel ${item.season}`,
         item.episode != null && `Episode ${item.episode}`].filter(Boolean).join(" · ")
       : item.title;
+    startStream(entry, (item.position_ticks || 0) / TICKS_PER_SECOND, true);
+    void episodes.show(item, writes);
+  }
+
+  function openItem(item, trigger) {
+    if (!controls || !canPlay() || dialog.open || !item?.id || !item.profile_id) return;
+    trigger?.focus({ preventScroll: true });
+    stopTrailer();
     dialog.showModal();
-    startStream(entry, item.position_ticks / TICKS_PER_SECOND, true);
+    selectItem(item);
   }
 
   function resetProgress() {
@@ -174,6 +183,9 @@ export function createMoviePlayback(root, { canPlay, stopTrailer, client = api }
       controls = createMoviePlayerControls(dialog, {
         getPosition, seek, replay: () => startStream(playing.entry, 0, true),
         retry: () => startStream(playing.entry, getPosition().elapsed, true),
+      });
+      episodes = createMoviePlayerEpisodes(dialog, {
+        client, selectEpisode: item => { if (dialog.open && canPlay()) selectItem(item); },
       });
       scope.listen(button, "click", open);
       scope.listen(dialog.querySelector('[data-player-action="close"]'), "click", close);
@@ -209,6 +221,7 @@ export function createMoviePlayback(root, { canPlay, stopTrailer, client = api }
         }
       });
       controls.mount(scope);
+      episodes.mount(scope);
     },
   };
 }
