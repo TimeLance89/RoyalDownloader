@@ -54,7 +54,7 @@ def _jellyfin_json(base_url, key, endpoint, params):
     raise HTTPException(502, "Jellyfin konnte die Wiedergabedaten nicht liefern.")
 
 
-def _resume_card(item):
+def _resume_card(item, *, resumable_only=True):
     if item.get("Type") not in RESUME_TYPES or not item.get("Name"):
         return None
     try:
@@ -64,7 +64,9 @@ def _resume_card(item):
     except (KeyError, TypeError, ValueError, AttributeError):
         return None
     if not 0 < position <= MAX_POSITION_TICKS or (duration and position >= duration):
-        return None
+        if resumable_only:
+            return None
+        position = 0
     episode = item["Type"] == "Episode"
     return {
         "id": item_id, "kind": "episode" if episode else "movie",
@@ -166,6 +168,48 @@ def create_movie_playback_router(backend, administrator):
                 or str(item.get("Id", "")).replace("-", "").lower() != item_id):
             raise HTTPException(404, "Dieser Inhalt ist im verknüpften Jellyfin-Profil nicht verfügbar.")
         return item
+
+    @router.get("/api/media-center/series/episodes")
+    def series_episodes(request: Request, title: str = Query(min_length=1, max_length=400),
+                        tmdb_id: int | None = Query(default=None, gt=0),
+                        aliases: Annotated[list[str] | None, Query(max_length=8)] = None):
+        active = connection()
+        if active is None:
+            return {"items": []}
+        config, generation, base_url = active
+        profile_id = linked_profile(request, config)
+        if not profile_id:
+            return {"items": []}
+        library = backend.get_jellyfin_series()
+        if library is None:
+            raise HTTPException(503, "Die Jellyfin-Serienbibliothek ist nicht erreichbar.")
+        client = JellyfinClient(base_url, config["api_key"])
+        matches = client.series_ids_for(title, tmdb_id, aliases or (), items=library)
+        if not matches or len(matches) != 1:
+            return {"items": []}
+        try:
+            series_id = UUID(next(iter(matches))).hex
+        except (ValueError, TypeError, AttributeError):
+            raise HTTPException(502, "Jellyfin hat keine gültige Serien-ID geliefert.") from None
+        result = _jellyfin_json(base_url, config["api_key"], f"/Shows/{series_id}/Episodes", {
+            "UserId": profile_id, "IsMissing": "false", "EnableUserData": "true",
+            "ImageTypeLimit": 1, "EnableImageTypes": "Primary",
+        })
+        episodes = []
+        for item in result.get("Items") or []:
+            if (not isinstance(item, dict) or item.get("Type") != "Episode"
+                    or not isinstance(item.get("ParentIndexNumber"), int)
+                    or not isinstance(item.get("IndexNumber"), int)
+                    or item.get("LocationType") in {"Virtual", "Offline"}):
+                continue
+            card = _resume_card(item, resumable_only=False)
+            if card:
+                user_data = item.get("UserData") or {}
+                episodes.append(card | {
+                    "played": bool(user_data.get("Played")),
+                    "last_played": user_data.get("LastPlayedDate") or "",
+                })
+        return {"items": episodes, "profile_id": profile_id, "generation": generation}
 
     @router.get("/api/media-center/continue-watching")
     def continue_watching(request: Request):

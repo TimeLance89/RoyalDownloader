@@ -14,6 +14,7 @@
 <link rel="stylesheet" href="/styles/people.css">
 <link rel="stylesheet" href="/styles/movie-playback.css">
 <link rel="stylesheet" href="/styles/continue-watching.css">
+<link rel="stylesheet" href="/styles/series-detail-browser.css">
 </head>
 <body>
 <div id="royal-loader" class="royal-loader" role="status" aria-live="polite" aria-label="Royal Downloader wird geladen">
@@ -1113,36 +1114,39 @@
                 <span class="series-jellyfin-mark" aria-hidden="true">JF</span>
                 <strong>Jellyfin wird geprüft</strong>
               </div>
-              <div class="series-selection-dock">
-              <div class="series-selection-status" aria-live="polite">
-                <span>EPISODENAUSWAHL</span>
-                <strong id="series-pick-count">0 ausgewählt</strong>
-              </div>
-              <button id="series-add-btn" class="btn btn-accent" disabled>↓ Auswahl herunterladen</button>
-              </div>
             </div>
             <section class="series-episode-browser" aria-labelledby="series-episodes-title">
               <header class="series-episodes-head">
                 <div>
-                  <span class="series-section-kicker">STAFFELN &amp; FOLGEN</span>
                   <h3 id="series-episodes-title">Episoden</h3>
                 </div>
-                <div class="toolbar">
-                  <button id="series-select-all" class="btn btn-ghost btn-sm">Alle auswählen</button>
-                  <button id="series-select-none" class="btn btn-ghost btn-sm">Auswahl löschen</button>
+                <div class="series-episode-navigation">
+                  <div id="series-view-switch" class="series-view-switch" role="group" aria-label="Episodenansicht" hidden>
+                    <button type="button" data-series-mode="watch" aria-pressed="false">Ansehen</button>
+                    <button type="button" data-series-mode="downloads" aria-pressed="true">Downloads</button>
+                  </div>
+                  <div id="series-season-picker" class="series-season-picker" hidden>
+                    <select id="series-active-season" aria-label="Staffel auswählen"></select>
+                  </div>
                 </div>
               </header>
-              <div class="series-state-legend" aria-label="Episodenstatus">
-                <span><i class="is-available"></i>Verfügbar</span>
-                <span><i class="is-queued"></i>Warteschlange</span>
-                <span><i class="is-downloaded"></i>Geladen</span>
-                <span><i class="is-selected"></i>Ausgewählt</span>
-                <span><i class="is-jellyfin"></i>Jellyfin</span>
-                <span><i class="is-scheduled"></i>Terminiert</span>
+              <div id="series-watch-episodes" hidden></div>
+              <div id="series-download-episodes">
+                <div class="toolbar">
+                  <button id="series-select-all" class="btn btn-ghost btn-sm">Alle Staffeln auswählen</button>
+                  <button id="series-select-none" class="btn btn-ghost btn-sm">Auswahl löschen</button>
+                </div>
+                <section id="series-probe-progress" class="series-probe-progress" role="status" aria-live="polite" aria-atomic="true" hidden></section>
+                <div id="series-tiles" class="tiles-scroll"></div>
+                <p id="series-no-downloads" class="series-loading" hidden>Für diese Staffel sind keine Downloadquellen verfügbar.</p>
               </div>
-              <section id="series-probe-progress" class="series-probe-progress" role="status" aria-live="polite" aria-atomic="true" hidden></section>
-              <div id="series-tiles" class="tiles-scroll"></div>
             </section>
+            <div id="series-download-dock" class="series-selection-dock">
+              <div class="series-selection-status" aria-live="polite">
+                <strong id="series-pick-count">0 ausgewählt</strong>
+              </div>
+              <button id="series-add-btn" class="btn btn-accent" disabled>↓ Auswahl herunterladen</button>
+            </div>
             <section class="series-detail-discovery" aria-label="Mehr über diese Serie">
               <div class="series-detail-lower-grid">
                 <section id="series-detail-extras-section" class="detail-extras" aria-labelledby="series-detail-extras-title" hidden>
