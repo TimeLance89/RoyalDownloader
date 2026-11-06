@@ -83,14 +83,14 @@ export function createMoviePlayerControls(dialog, { getPosition, seek, replay, r
   }
 
   function toggleFullscreen() {
-    if (document.fullscreenElement === player) attempt(() => document.exitFullscreen());
-    else if (document.fullscreenEnabled && player.requestFullscreen) attempt(() => player.requestFullscreen());
+    if (document.fullscreenElement === video) attempt(() => document.exitFullscreen());
+    else if (document.fullscreenEnabled && video.requestFullscreen) attempt(() => video.requestFullscreen());
     else if (video.webkitEnterFullscreen) attempt(() => video.webkitEnterFullscreen());
   }
 
   function leavePresentationMode() {
     scrubbing = false;
-    if (document.fullscreenElement === player) attempt(() => document.exitFullscreen());
+    if (document.fullscreenElement === video) attempt(() => document.exitFullscreen());
     if (document.pictureInPictureElement === video) attempt(() => document.exitPictureInPicture());
     if (video.webkitDisplayingFullscreen) attempt(() => video.webkitExitFullscreen());
   }
@@ -120,6 +120,7 @@ export function createMoviePlayerControls(dialog, { getPosition, seek, replay, r
       actions[action]?.();
     });
     scope.listen(video, "click", togglePlayback);
+    scope.listen(video, "dblclick", toggleFullscreen);
     scope.listen(timeline, "input", () => { scrubbing = true; render(); });
     scope.listen(timeline, "change", () => {
       scrubbing = false;

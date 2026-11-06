@@ -102,7 +102,7 @@ export function createMoviePlayback(root, { canPlay, stopTrailer, client = api }
     const startTicks = Math.round(seconds * TICKS_PER_SECOND);
     if (startTicks) params.set("start_ticks", startTicks);
     playing = { entry, startTicks, started: false, ready: false, nextSave: 15 };
-    controls.message("Film wird geladen …", { loading: true });
+    controls.message(title.textContent, { loading: true });
     video.src = `/api/media-center/movies/stream?${params}`;
     if (autoplay) void video.play().catch(() => {});
   }
@@ -142,8 +142,10 @@ export function createMoviePlayback(root, { canPlay, stopTrailer, client = api }
     const entry = { ...item, params: new URLSearchParams({ item_id: item.id }).toString() };
     trigger?.focus({ preventScroll: true });
     stopTrailer();
-    title.textContent = item.kind === "episode" && item.episode_title && item.episode_title !== item.title
-      ? `${item.title} · ${item.episode_title}` : item.title;
+    title.textContent = item.kind === "episode"
+      ? [item.title, item.season != null && `Staffel ${item.season}`,
+        item.episode != null && `Episode ${item.episode}`].filter(Boolean).join(" · ")
+      : item.title;
     dialog.showModal();
     startStream(entry, item.position_ticks / TICKS_PER_SECOND, true);
   }
@@ -188,7 +190,7 @@ export function createMoviePlayback(root, { canPlay, stopTrailer, client = api }
         controls.message();
       });
       scope.listen(video, "waiting", () => {
-        if (playing && !video.paused) controls.message("Film wird geladen …", { loading: true });
+        if (playing && !video.paused) controls.message(title.textContent, { loading: true });
       });
       scope.listen(video, "timeupdate", () => {
         if (!playing?.started || video.currentTime < playing.nextSave) return;
@@ -203,7 +205,7 @@ export function createMoviePlayback(root, { canPlay, stopTrailer, client = api }
       });
       scope.listen(video, "error", () => {
         if (dialog.open && video.hasAttribute("src")) {
-          controls.message("Der Film konnte nicht abgespielt werden.", { error: true });
+          controls.message("Der Inhalt konnte nicht abgespielt werden.", { error: true });
         }
       });
       controls.mount(scope);
