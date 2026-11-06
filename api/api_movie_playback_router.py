@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 from typing import Annotated
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
@@ -119,6 +119,11 @@ def _stream_options(base_url, headers, item_id, start_ticks=0):
         return options | {"Static": "true"}
     options.update({
         "Static": "false", "VideoCodec": "h264", "AudioCodec": "aac",
+        # AAC from downloaded TS sources can contain ADTS headers. Copying it
+        # into progressive MP4 may abort the muxer after the first video frame.
+        "AllowAudioStreamCopy": "false",
+        # Keep retries and simultaneous viewers out of a failed transcode file.
+        "PlaySessionId": uuid4().hex, "DeviceId": "RoyalDownloader",
         "MaxVideoBitDepth": 8, "MaxWidth": 1920, "VideoBitRate": 8_000_000,
         "AudioBitRate": 192_000, "MaxAudioChannels": 2, "RequireAvc": "true",
     })
