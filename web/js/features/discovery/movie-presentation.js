@@ -1,15 +1,20 @@
-import { mediaCenterText } from "../../shared/media-center.js";
+import { mediaCenterName, mediaCenterText } from "../../shared/media-center.js";
 import { createScope } from "../../core/lifecycle.js";
 import { createSavedMediaAction } from "../media-details/saved-media.js";
+import { createMoviePlayback } from "../media-details/movie-playback.js";
 
 export function createMoviePresentation(catalogRoot, detailRoot, {
-  locale, movieState, getQueuedSlugs, coverUrl, subscriptionFor, openSubscription,
+  locale, movieState, getQueuedSlugs, coverUrl, subscriptionFor, openSubscription, isAdministrator, stopFpDetailHeroTrailer,
   activateResultCard, applyFpSmartFilters, configureFpDetailAction, configureFpTrailer, createResultCardVisual, dedupeCatalogMedia, discardObservedResultPosters, fpMetadataPreloadItems, fpSmartFilteredResults, fpSmartFilters, homeMovieBySlug, mediaJellyfinStatus, mergeFpMetadata, preloadTmdbMetadata, refreshFpJellyfinStatus, refreshMovieFeatureCandidates, renderFpAbout, renderFpExtras, renderFpSimilarTitles, scheduleFpCatalogRefresh, selectFpRow, setCatalogJellyfinBadge, syncResultCardPoster, toggleFpPick, updateTasteFeedbackButtons,
 }) {
   const document = catalogRoot.ownerDocument;
   const byId = id => catalogRoot.querySelector(`#${id}`) || detailRoot.querySelector(`#${id}`);
   const actions = new WeakMap();
   const savedMedia = createSavedMediaAction(byId("fp-detail-save"), byId("fp-detail-save-note"));
+  const playback = createMoviePlayback(detailRoot, {
+    canPlay: () => isAdministrator() && mediaCenterName() === "Jellyfin",
+    stopTrailer: stopFpDetailHeroTrailer,
+  });
   let scope = null, detailScope = null;
   function bind(node, type, callback) { actions.set(node, { type, callback }); }
   function dispatch(event) {
@@ -444,6 +449,7 @@ export function createMoviePresentation(catalogRoot, detailRoot, {
   }
 
   function setFpDetailJellyfinStatus(owned) {
+    playback.setOwned(owned === true);
     const badge = byId("fp-detail-jellyfin");
     const label = badge.querySelector("strong");
     badge.className = "detail-jellyfin";
@@ -679,6 +685,7 @@ export function createMoviePresentation(catalogRoot, detailRoot, {
   }
 
   function showFpDetail(slug, movie, metadataOnly = false) {
+    playback.show(slug, movie);
     savedMedia.show(movie, "movie");
     const detailPanel = byId("fp-detail-panel");
     const cover = byId("fp-detail-cover");
@@ -782,7 +789,7 @@ export function createMoviePresentation(catalogRoot, detailRoot, {
     );
     byId("fp-detail-desc").textContent = movie.description || "(keine Beschreibung)";
 
-    configureFpTrailer(movie);
+    if (!playback.active) configureFpTrailer(movie);
     configureFpDetailAction(slug, movie, metadataOnly);
     updateTasteFeedbackButtons();
   }
@@ -796,7 +803,9 @@ export function createMoviePresentation(catalogRoot, detailRoot, {
     if (detailScope?.active) return;
     detailScope = createScope(); detailScope.listen(detailRoot, "change", dispatch);
     detailScope.listen(byId("fp-detail-subscribe"), "click", openSelectedMovieSubscription);
+    playback.mount(detailScope);
   }
-  function unmountDetail() { savedMedia.close(); detailScope?.dispose(); detailScope = null; }
-  return { closeSavedMedia: savedMedia.close, mount, unmount, mountDetail, unmountDetail, fpStatusMessage, setActiveGenreFilter, mergeCatalogItems, mergeCatalogSources, updateFpInfiniteState, fpResultYear, setFpJellyfinBadge, setFpPosterJellyfinBadge, updateFpJellyfinBadges, fpResultMedia, fpResultAvailability, findFpResultCard, updateFpResultCard, syncFpDetailQueueAction, syncFpQueueIndicators, updateFpResultSelection, renderFpResults, applyFpResults, basicMovieMetadata, metadataPreviewMovie, renderFpDetailItems, setFpDetailAvailability, setFpDetailJellyfinStatus, fpDetailJellyfinValue, formatMovieDate, formatMovieNumber, formatMovieMoney, movieCertificationLabel, movieStatusLabel, setFpDetailText, renderFpCast, configureFpSubscriptionAction, openSelectedMovieSubscription, presentMovieSubscriptions, movieQualityRank, renderFpDownloadSources, showFpDetail };
+  function closeDetail() { savedMedia.close(); playback.reset(); }
+  function unmountDetail() { closeDetail(); detailScope?.dispose(); detailScope = null; }
+  return { closeDetail, mount, unmount, mountDetail, unmountDetail, fpStatusMessage, setActiveGenreFilter, mergeCatalogItems, mergeCatalogSources, updateFpInfiniteState, fpResultYear, setFpJellyfinBadge, setFpPosterJellyfinBadge, updateFpJellyfinBadges, fpResultMedia, fpResultAvailability, findFpResultCard, updateFpResultCard, syncFpDetailQueueAction, syncFpQueueIndicators, updateFpResultSelection, renderFpResults, applyFpResults, basicMovieMetadata, metadataPreviewMovie, renderFpDetailItems, setFpDetailAvailability, setFpDetailJellyfinStatus, fpDetailJellyfinValue, formatMovieDate, formatMovieNumber, formatMovieMoney, movieCertificationLabel, movieStatusLabel, setFpDetailText, renderFpCast, configureFpSubscriptionAction, openSelectedMovieSubscription, presentMovieSubscriptions, movieQualityRank, renderFpDownloadSources, showFpDetail };
 }

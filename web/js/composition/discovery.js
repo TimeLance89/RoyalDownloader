@@ -53,7 +53,7 @@ import { createCatalogArtwork } from "../features/discovery/artwork.js";
 
 import { createMovieHero } from "../features/discovery/movie-hero.js";
 
-export function composeDiscovery({ movieState, seriesState, artworkUrls, i18n, state, getCore, getIntegrations, getDownloads, getSubscriptions, getHome, getSettings }) {
+export function composeDiscovery({ movieState, seriesState, artworkUrls, i18n, state, getCore, getIntegrations, getDownloads, getSubscriptions, getHome, getSettings, getProfile }) {
   const services = {
   movieState,
   seriesState,
@@ -73,6 +73,8 @@ export function composeDiscovery({ movieState, seriesState, artworkUrls, i18n, s
         kind: "series", coverUrl: url => artworkUrls.coverUrl(url), selectFpRow: (...args) => services.movieActions.selectFpRow(...args), loadSeries: (...args) => services.seriesActions.loadSeries(...args), fpTrailerYoutubeKey: (...args) => services.movieActions.fpTrailerYoutubeKey(...args), openFpTrailerModal: (...args) => services.movieActions.openFpTrailerModal(...args),
       }),
   moviePresentation: createMoviePresentation(document.getElementById("tab-filme"), document.getElementById("fp-detail-modal"), {
+        isAdministrator: () => getProfile().auth.get().user?.role === "admin",
+        stopFpDetailHeroTrailer: () => services.movieActions.stopFpDetailHeroTrailer(),
         locale: () => i18n.locale(), movieState, getQueuedSlugs: () => state.queuedSlugs, coverUrl: url => artworkUrls.coverUrl(url),
         subscriptionFor: (...args) => getSubscriptions().movieSubscriptionFor(...args),
         openSubscription: (...args) => getSubscriptions().movieSubscriptionRules.open(...args),

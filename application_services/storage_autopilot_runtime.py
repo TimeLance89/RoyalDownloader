@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 import core.config as appconfig
 from application_services.runtime import backend_value
 from core.queue_jobs import media_type_for_slug
+from integrations.jellyfin_client import has_rd_movie_streams
 from integrations.media_center import media_client
 from storage.storage_autopilot import (
     get_autopilot,
@@ -67,6 +68,8 @@ def queue_context() -> list[dict]:
 
 
 def playback_idle() -> bool:
+    if has_rd_movie_streams():
+        return False
     config = appconfig.load_media_center()
     if config.get("url") and config.get("api_key"):
         try:
