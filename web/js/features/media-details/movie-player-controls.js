@@ -28,6 +28,20 @@ export function createMoviePlayerControls(dialog, { getPosition, seek, replay, r
   const forward = actionButton("forward");
   const playbackButtons = dialog.querySelectorAll('[data-player-action="play"]');
   let busy = false, failed = false, scrubbing = false;
+  let hideControls, keyboardNavigation = false, owner;
+
+  function revealControls() {
+    hideControls?.();
+    player.classList.remove("is-controls-hidden");
+    if (document.fullscreenElement !== player || !owner?.active) return;
+    hideControls = owner.timeout(() => {
+      const menuOpen = player.querySelector(".rd-player-episodes[open]");
+      const keyboardFocus = keyboardNavigation && player.contains(document.activeElement) && document.activeElement !== video;
+      if (!video.paused && !video.ended && !busy && !failed && !menuOpen && !keyboardFocus) {
+        player.classList.add("is-controls-hidden");
+      }
+    }, 2800);
+  }
 
   function render() {
     if (!dialog.open) return;
@@ -68,6 +82,7 @@ export function createMoviePlayerControls(dialog, { getPosition, seek, replay, r
     failed = error;
     status.textContent = text;
     player.classList.toggle("is-buffering", busy);
+    revealControls();
     render();
   }
 
@@ -83,14 +98,16 @@ export function createMoviePlayerControls(dialog, { getPosition, seek, replay, r
   }
 
   function toggleFullscreen() {
-    if (document.fullscreenElement === video) attempt(() => document.exitFullscreen());
-    else if (document.fullscreenEnabled && video.requestFullscreen) attempt(() => video.requestFullscreen());
+    if (document.fullscreenElement === player) attempt(() => document.exitFullscreen());
+    else if (document.fullscreenEnabled && player.requestFullscreen) attempt(() => player.requestFullscreen());
     else if (video.webkitEnterFullscreen) attempt(() => video.webkitEnterFullscreen());
   }
 
   function leavePresentationMode() {
     scrubbing = false;
-    if (document.fullscreenElement === video) attempt(() => document.exitFullscreen());
+    hideControls?.();
+    player.classList.remove("is-controls-hidden");
+    if (document.fullscreenElement === player) attempt(() => document.exitFullscreen());
     if (document.pictureInPictureElement === video) attempt(() => document.exitPictureInPicture());
     if (video.webkitDisplayingFullscreen) attempt(() => video.webkitExitFullscreen());
   }
@@ -112,6 +129,7 @@ export function createMoviePlayerControls(dialog, { getPosition, seek, replay, r
   };
 
   function mount(scope) {
+    owner = scope;
     video.controls = false;
     fullscreen.hidden = !(document.fullscreenEnabled || video.webkitEnterFullscreen);
     pip.hidden = !(document.pictureInPictureEnabled && video.requestPictureInPicture);
@@ -121,6 +139,12 @@ export function createMoviePlayerControls(dialog, { getPosition, seek, replay, r
     });
     scope.listen(video, "click", togglePlayback);
     scope.listen(video, "dblclick", toggleFullscreen);
+    scope.listen(player, "pointermove", () => { keyboardNavigation = false; revealControls(); });
+    scope.listen(player, "pointerdown", () => { keyboardNavigation = false; revealControls(); });
+    scope.listen(player, "focusin", revealControls);
+    scope.listen(player.querySelector(".rd-player-episodes"), "toggle", revealControls);
+    scope.listen(video, "play", revealControls);
+    scope.listen(video, "pause", revealControls);
     scope.listen(timeline, "input", () => { scrubbing = true; render(); });
     scope.listen(timeline, "change", () => {
       scrubbing = false;
@@ -129,13 +153,15 @@ export function createMoviePlayerControls(dialog, { getPosition, seek, replay, r
     });
     scope.listen(volume, "input", () => { video.volume = Number(volume.value); video.muted = false; });
     scope.listen(rate, "change", () => { video.defaultPlaybackRate = video.playbackRate = Number(rate.value); });
-    scope.listen(document, "fullscreenchange", render);
+    scope.listen(document, "fullscreenchange", () => { render(); revealControls(); });
     scope.listen(video, "webkitbeginfullscreen", () => { video.controls = true; });
     scope.listen(video, "webkitendfullscreen", () => { video.controls = false; });
     for (const event of ["loadedmetadata", "durationchange", "play", "pause", "ended", "timeupdate", "volumechange", "ratechange"]) {
       scope.listen(video, event, render);
     }
     scope.listen(dialog, "keydown", event => {
+      if (event.key === "Tab") keyboardNavigation = true;
+      revealControls();
       if (event.ctrlKey || event.altKey || event.metaKey || event.target.closest("input, select, textarea, [contenteditable]")) return;
       const shortcut = {
         k: "play", ArrowLeft: "back", ArrowRight: "forward", m: "mute", f: "fullscreen",
@@ -145,6 +171,7 @@ export function createMoviePlayerControls(dialog, { getPosition, seek, replay, r
       event.preventDefault();
       if (!event.repeat || action === "back" || action === "forward") actions[action]();
     });
+    scope.add(() => { hideControls?.(); player.classList.remove("is-controls-hidden"); owner = null; });
   }
 
   return { render, message, leavePresentationMode, mount };
