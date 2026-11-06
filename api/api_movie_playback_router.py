@@ -1,7 +1,13 @@
 """Same-origin Jellyfin movie streaming for RD administrators."""
 
+import json
 from datetime import UTC, datetime
-from typing import Annotated
+from hashlib import sha256
+from pathlib import Path
+from tempfile import NamedTemporaryFile
+from threading import Lock
+from time import monotonic
+from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -9,6 +15,7 @@ from pydantic import BaseModel, Field
 from starlette.responses import Response, StreamingResponse
 
 from core import egress_requests as requests
+from core.config import home_layout_file
 from integrations.jellyfin_auth import jellyfin_auth_headers
 from integrations.jellyfin_client import JellyfinClient, track_rd_movie_stream
 from integrations.media_center import profile_identity, validate_server_url
@@ -24,6 +31,42 @@ class MovieProgress(BaseModel):
     generation: int
     position_ticks: int = Field(ge=0, le=MAX_POSITION_TICKS)
     ended: bool = False
+
+
+class ResumeAction(BaseModel):
+    profile_id: UUID
+    generation: int
+    action: Literal["hide", "watched", "undo"]
+    undo_token: UUID | None = None
+
+
+def _resume_stamp(item):
+    data = item.get("UserData") or {}
+    return [data.get("PlaybackPositionTicks") or 0, data.get("LastPlayedDate") or ""]
+
+
+def _write_hidden(path, hidden):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    file = NamedTemporaryFile(dir=path.parent, delete=False)
+    temporary = Path(file.name)
+    try:
+        with file:
+            file.write(json.dumps(hidden).encode())
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _save_jellyfin_data(base_url, key, profile_id, item_id, data):
+    try:
+        with requests.post(f"{base_url}/UserItems/{item_id}/UserData", params={"userId": profile_id},
+                           json=data, headers=jellyfin_auth_headers(key),
+                           timeout=5, allow_redirects=False) as response:
+            if response.status_code == 200:
+                return response.json()
+    except (requests.RequestException, ValueError):
+        pass
+    raise HTTPException(502, "Jellyfin konnte den Wiedergabestand nicht speichern.")
 
 
 class MovieStream(StreamingResponse):
@@ -155,6 +198,19 @@ def _stream_options(base_url, headers, item_id, start_ticks=0):
 
 def create_movie_playback_router(backend, administrator):
     router = APIRouter(tags=["media-center"], dependencies=[Depends(administrator)])
+    resume_lock = Lock()
+    undo_actions = {}
+
+    def resume_path(request, base_url, profile_id):
+        user = backend.current_user(request.headers, request.cookies) or {}
+        owner = sha256(json.dumps([base_url, user.get("id"), profile_id]).encode()).hexdigest()
+        return home_layout_file().with_name("continue-watching") / f"{owner}.json"
+
+    def read_hidden(path):
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return {}
 
     def connection():
         state = backend.state
@@ -184,7 +240,7 @@ def create_movie_playback_router(backend, administrator):
             raise HTTPException(403, "Verknüpfe dein Jellyfin-Profil, um den Inhalt abzuspielen.")
         result = _jellyfin_json(base_url, config["api_key"], "/Items", {
             "UserId": profile_id, "Ids": item_id, "IncludeItemTypes": "Movie,Episode",
-            "Recursive": "true", "Limit": 1, "EnableUserData": "true",
+            "Recursive": "true", "Limit": 1, "EnableUserData": "true", "Fields": "Overview,ProviderIds",
         })
         item = next(iter(result.get("Items") or []), {})
         if (not isinstance(item, dict) or item.get("Type") not in RESUME_TYPES
@@ -258,8 +314,91 @@ def create_movie_playback_router(backend, administrator):
             "EnableUserData": "true", "EnableTotalRecordCount": "false", "ImageTypeLimit": 1,
             "EnableImageTypes": "Primary,Backdrop",
         })
-        cards = [_resume_card(item) for item in (result.get("Items") or [])[:30] if isinstance(item, dict)]
-        return {"items": [card for card in cards if card], "generation": generation, "profile_id": profile_id}
+        hidden = read_hidden(resume_path(request, base_url, profile_id))
+        cards = []
+        for item in (result.get("Items") or [])[:30]:
+            card = _resume_card(item) if isinstance(item, dict) else None
+            if card and hidden.get(card["id"]) != _resume_stamp(item):
+                cards.append(card)
+        return {"items": cards, "generation": generation, "profile_id": profile_id}
+
+    @router.post("/api/media-center/continue-watching/{item_id}/action")
+    def resume_action(request: Request, item_id: UUID, body: ResumeAction):
+        active = connection()
+        if active is None:
+            raise HTTPException(404)
+        config, generation, base_url = active
+        profile_id = linked_profile(request, config)
+        if profile_id != body.profile_id.hex or generation != body.generation:
+            raise HTTPException(409, "Das verknüpfte Jellyfin-Profil oder der Server wurde geändert.")
+        path = resume_path(request, base_url, profile_id)
+        item_key = item_id.hex
+        with resume_lock:
+            now = monotonic()
+            for token, (expires, *_) in list(undo_actions.items()):
+                if expires <= now:
+                    del undo_actions[token]
+            item = profile_video(base_url, config, profile_id, item_key)
+            stamp = _resume_stamp(item)
+            if body.action == "undo":
+                entry = undo_actions.get(body.undo_token)
+                if not entry or entry[1:4] != (path, generation, item_key):
+                    raise HTTPException(409, "Diese Aktion kann nicht mehr rückgängig gemacht werden.")
+                _, _, _, _, action, expected, previous = entry
+                if action == "hide":
+                    hidden = read_hidden(path)
+                    if hidden.get(item_key) == expected:
+                        hidden.pop(item_key)
+                        _write_hidden(path, hidden)
+                else:
+                    if stamp != expected or not (item.get("UserData") or {}).get("Played"):
+                        raise HTTPException(409, "Der Wiedergabestand wurde inzwischen geändert.")
+                    _save_jellyfin_data(base_url, config["api_key"], profile_id, item_key, previous)
+                del undo_actions[body.undo_token]
+                return {}
+
+            if not _resume_card(item):
+                raise HTTPException(409, "Dieser Inhalt steht nicht mehr unter Weiterschauen.")
+            previous = None
+            if body.action == "hide":
+                hidden = read_hidden(path)
+                if hidden.get(item_key) == stamp:
+                    raise HTTPException(409, "Dieser Inhalt wurde bereits ausgeblendet.")
+                hidden.pop(item_key, None)
+                hidden[item_key] = stamp
+                _write_hidden(path, dict(list(hidden.items())[-500:]))
+            else:
+                data = item.get("UserData") or {}
+                previous = {"PlaybackPositionTicks": stamp[0], "Played": bool(data.get("Played"))}
+                saved = _save_jellyfin_data(base_url, config["api_key"], profile_id, item_key, {
+                    "PlaybackPositionTicks": 0, "Played": True,
+                })
+                stamp = _resume_stamp({"UserData": saved})
+            token = uuid4()
+            if len(undo_actions) >= 512:
+                del undo_actions[next(iter(undo_actions))]
+            undo_actions[token] = (monotonic() + 30, path, generation, item_key, body.action, stamp, previous)
+            return {"undo_token": token}
+
+    @router.get("/api/media-center/continue-watching/{item_id}/details")
+    def resume_details(request: Request, item_id: UUID):
+        active = connection()
+        if active is None:
+            raise HTTPException(404)
+        config, _, base_url = active
+        profile_id = linked_profile(request, config)
+        item = profile_video(base_url, config, profile_id, item_id.hex)
+        series = item["Type"] == "Episode"
+        if series:
+            try:
+                series_id = UUID(item["SeriesId"]).hex
+            except (KeyError, TypeError, ValueError, AttributeError):
+                raise HTTPException(404, "Die zugehörige Serie ist nicht verfügbar.") from None
+            item = _jellyfin_json(base_url, config["api_key"], f"/Items/{series_id}", {"userId": profile_id})
+        return {
+            "title": item.get("Name"), "year": item.get("ProductionYear"),
+            "description": item.get("Overview"), "tmdb_id": (item.get("ProviderIds") or {}).get("Tmdb"),
+        }
 
     @router.get("/api/media-center/continue-watching/{item_id}/image")
     def continue_watching_image(request: Request, item_id: UUID):
@@ -347,14 +486,7 @@ def create_movie_playback_router(backend, administrator):
         }
         if progress.ended:
             data["Played"] = True
-        try:
-            with requests.post(f"{base_url}/UserItems/{item_id}/UserData", params={"userId": profile_id},
-                               json=data, headers=jellyfin_auth_headers(config["api_key"]),
-                               timeout=5, allow_redirects=False) as response:
-                if response.status_code != 200:
-                    raise HTTPException(502, "Jellyfin konnte den Wiedergabestand nicht speichern.")
-        except requests.RequestException:
-            raise HTTPException(502, "Jellyfin konnte den Wiedergabestand nicht speichern.") from None
+        _save_jellyfin_data(base_url, config["api_key"], profile_id, item_id, data)
         return Response(status_code=204)
 
     @router.get("/api/media-center/movies/stream")
