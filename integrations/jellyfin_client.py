@@ -66,7 +66,9 @@ def _movie_quality_rank(item: dict) -> int:
 
 
 def _normalize(title: str) -> str:
-    title = re.sub(r"\s*[\(\[]?(?:19|20)\d{2}[\)\]]?\s*$", "", title or "")
+    # Whitespace is discarded below; trim it once instead of backtracking over
+    # every possible whitespace prefix in an untrusted library title.
+    title = re.sub(r"[\(\[]?(?:19|20)\d{2}[\)\]]?$", "", (title or "").rstrip())
     ascii_title = unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode("ascii")
     return re.sub(r"[^a-z0-9]+", "", ascii_title.casefold())
 
