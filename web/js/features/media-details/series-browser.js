@@ -38,6 +38,8 @@ export function createSeriesBrowser(root, { client, canPlay, openItem, chooseDow
   }
 
   function nextEpisode(all) {
+    const selected = all.find(row => row.item?.id === series?.jellyfin_episode_id);
+    if (selected) return selected;
     const partial = all.filter(row => row.item?.position_ticks > 0)
       .sort((a, b) => watchedAt(b.item) - watchedAt(a.item))[0];
     if (partial) return partial;
@@ -141,8 +143,10 @@ export function createSeriesBrowser(root, { client, canPlay, openItem, chooseDow
     const next = nextEpisode(all);
     const seasons = [...new Set(all.map(row => Number(row.season)))];
     const available = inventory.size > 0 && canPlay();
+    const hasDownloads = !series?.jellyfin_inventory
+      || all.some(row => !row.item && row.download && !row.download.in_jellyfin);
     if (!available) mode = "downloads";
-    else if (!modeChosen) mode = "watch";
+    else if (!modeChosen || !hasDownloads) mode = "watch";
     if (!seasons.includes(Number(season)) || (available && !seasonChosen)) {
       season = available && next ? Number(next.season) : seasons[0];
     }
@@ -156,7 +160,7 @@ export function createSeriesBrowser(root, { client, canPlay, openItem, chooseDow
       }));
     }
     select.value = season ?? "";
-    switcher.hidden = !available;
+    switcher.hidden = !available || !hasDownloads;
     picker.hidden = !seasons.length;
     for (const button of switcher.querySelectorAll("[data-series-mode]")) {
       button.setAttribute("aria-pressed", String(button.dataset.seriesMode === mode));
@@ -183,22 +187,28 @@ export function createSeriesBrowser(root, { client, canPlay, openItem, chooseDow
     render();
   }
 
-  async function load(params) {
+  function acceptInventory(data) {
+    context = { profile_id: data.profile_id, generation: data.generation };
+    inventory = new Map();
+    for (const item of data.items || []) {
+      const key = keyOf(item.season, item.episode);
+      const existing = inventory.get(key);
+      if (!existing || item.id === series?.jellyfin_episode_id
+          || (existing.id !== series?.jellyfin_episode_id
+            && (watchedAt(item) > watchedAt(existing) || (item.position_ticks && !existing.position_ticks)))) {
+        inventory.set(key, item);
+      }
+    }
+  }
+
+  async function load(url) {
     request?.abort();
     const current = new AbortController();
     request = current;
     try {
-      const data = await client.get(`/api/media-center/series/episodes?${params}`, { signal: current.signal, timeoutMs: 9_000 });
+      const data = await client.get(url, { signal: current.signal, timeoutMs: 9_000 });
       if (request !== current) return;
-      context = { profile_id: data.profile_id, generation: data.generation };
-      inventory = new Map();
-      for (const item of data.items || []) {
-        const key = keyOf(item.season, item.episode);
-        const existing = inventory.get(key);
-        if (!existing || watchedAt(item) > watchedAt(existing) || (item.position_ticks && !existing.position_ticks)) {
-          inventory.set(key, item);
-        }
-      }
+      acceptInventory(data);
       render();
     } catch {
       // Jellyfin failures leave the independent download controls usable.
@@ -213,12 +223,21 @@ export function createSeriesBrowser(root, { client, canPlay, openItem, chooseDow
     if (id !== identity) reset();
     identity = id;
     series = next;
+    if (next.jellyfin_inventory && next.jellyfin_episode_id) {
+      const url = `/api/media-center/episodes/${encodeURIComponent(next.jellyfin_episode_id)}/navigation`;
+      if (query !== url) {
+        query = url;
+        acceptInventory(next.jellyfin_inventory);
+      }
+      render();
+      return;
+    }
     render();
     if (!next.title || !scope?.active || !canPlay()) return;
     const params = new URLSearchParams({ title: next.title });
     if (Number(next.tmdb_id) > 0) params.set("tmdb_id", next.tmdb_id);
     for (const alias of [...new Set([next.original_title, ...(next.aliases || [])].filter(Boolean))].slice(0, 8)) params.append("aliases", alias);
-    const key = params.toString();
+    const key = `/api/media-center/series/episodes?${params}`;
     if (key !== query) {
       if (query) {
         inventory = new Map();

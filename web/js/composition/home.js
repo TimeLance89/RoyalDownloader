@@ -37,15 +37,17 @@ export function composeHome({ discoveryPolicy, movieState, artworkUrls, recommen
     openDetails(item, details) {
       const tmdb_id = Number(details.tmdb_id) || null;
       const title = details.title || item.title;
-      const media = { ...details, title, tmdb_id, year: details.year || item.year || "" };
+      const media = { title, tmdb_id, year: details.year || item.year || "",
+        description: details.description, genres: details.genres, metadata_source: "Jellyfin" };
       if (item.kind === "episode") {
-        const slug = tmdb_id ? `tmdb:${tmdb_id}` : title;
         void getDiscovery().seriesActions.loadSeries({
-          ...media, base_slug: tmdb_id ? slug : "", sample_slug: slug, sources: [], metadata_source: "TMDB",
+          ...media, base_slug: `jellyfin:${details.series_id}`, jellyfin_episode_id: item.id,
+          jellyfin_inventory: details.inventory,
         });
       } else {
-        const slug = tmdb_id ? `tmdb:${tmdb_id}` : `jellyfin:${item.id}`;
-        void getDiscovery().movieActions.selectFpRow(slug, { ...media, slug, hosters: [] });
+        const slug = `jellyfin:${item.id}`;
+        const backdrop_url = item.has_image ? `/api/media-center/continue-watching/${item.id}/image` : "";
+        void getDiscovery().movieActions.selectFpRow(slug, { ...media, slug, backdrop_url, jellyfin_item_id: item.id });
       }
     },
     updateNavigation: track => services.carousel.updateHomeRailNavigation(track),

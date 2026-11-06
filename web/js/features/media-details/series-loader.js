@@ -61,6 +61,31 @@ export function createSeriesDetailsLoader(root, status, {
     };
   }
 
+  function librarySeries(result, provider = {}) {
+    const seasons = new Map();
+    for (const group of provider.seasons || []) {
+      seasons.set(Number(group.season), new Map(group.episodes.map(episode => [Number(episode.episode), episode])));
+    }
+    for (const item of result.jellyfin_inventory.items) {
+      if (!seasons.has(item.season)) seasons.set(item.season, new Map());
+      const episodes = seasons.get(item.season);
+      const episode = episodes.get(item.episode) || {
+        slug: `jellyfin:${item.id}`, season: item.season, episode: item.episode, title: item.episode_title,
+      };
+      episodes.set(item.episode, { ...episode, in_jellyfin: true });
+    }
+    const groups = [...seasons].sort(([a], [b]) => a - b).map(([season, episodes]) => ({
+      season, episodes: [...episodes.values()].sort((a, b) => a.episode - b.episode),
+    }));
+    return {
+      ...mergeDetailMetadata(result, provider),
+      base_slug: result.base_slug,
+      seasons: groups,
+      episode_count: groups.reduce((count, group) => count + group.episodes.length, 0),
+      jellyfin_configured: true, jellyfin_available: true, jellyfin_pending: false, jellyfin_stale: false,
+    };
+  }
+
   async function loadSeries(result) {
     const cacheKey = result.base_slug || result.sample_slug;
     if (seriesState.pendingBaseSlug === cacheKey) return;
@@ -68,6 +93,19 @@ export function createSeriesDetailsLoader(root, status, {
     trackDiscoveryPreference("series", result, 0.8, "open");
     const owner = begin();
     const requestId = ++seriesState.requestSeq;
+    if (result.jellyfin_inventory) {
+      showSeriesDetail(librarySeries(result), "");
+      if (!result.tmdb_id) return;
+      const slug = `tmdb:${result.tmdb_id}`;
+      try {
+        const provider = await loadSeriesDetails(client, slug, slug, { deferChecks: true, signal: owner.signal });
+        if (!owner.active || requestId !== seriesState.requestSeq) return;
+        showSeriesDetail(librarySeries(result, provider), provider.sample_slug || "", { preserveSelection: true });
+      } catch {
+        // The verified Jellyfin episodes remain usable if provider enrichment fails.
+      }
+      return;
+    }
     seriesState.pendingBaseSlug = cacheKey;
     updateSeriesResultSelection();
     showSeriesLoading(result);

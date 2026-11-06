@@ -15,6 +15,7 @@ export function createMoviePlayback(root, { canPlay, stopTrailer, client = api }
   let writes = Promise.resolve();
 
   function movieQuery() {
+    if (currentMovie.jellyfin_item_id) return new URLSearchParams({ item_id: currentMovie.jellyfin_item_id });
     const params = new URLSearchParams({ title: currentMovie.title, year: currentMovie.year || "" });
     if (Number(currentMovie.tmdb_id) > 0) params.set("tmdb_id", currentMovie.tmdb_id);
     return params;

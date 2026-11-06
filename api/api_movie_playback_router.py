@@ -240,13 +240,20 @@ def create_movie_playback_router(backend, administrator):
             raise HTTPException(403, "Verknüpfe dein Jellyfin-Profil, um den Inhalt abzuspielen.")
         result = _jellyfin_json(base_url, config["api_key"], "/Items", {
             "UserId": profile_id, "Ids": item_id, "IncludeItemTypes": "Movie,Episode",
-            "Recursive": "true", "Limit": 1, "EnableUserData": "true", "Fields": "Overview,ProviderIds",
+            "Recursive": "true", "Limit": 1, "EnableUserData": "true", "Fields": "Overview,ProviderIds,Genres",
         })
         item = next(iter(result.get("Items") or []), {})
         if (not isinstance(item, dict) or item.get("Type") not in RESUME_TYPES
                 or str(item.get("Id", "")).replace("-", "").lower() != item_id):
             raise HTTPException(404, "Dieser Inhalt ist im verknüpften Jellyfin-Profil nicht verfügbar.")
         return item
+
+    def series_inventory(base_url, config, profile_id, series_id):
+        result = _jellyfin_json(base_url, config["api_key"], f"/Shows/{series_id}/Episodes", {
+            "UserId": profile_id, "IsMissing": "false", "EnableUserData": "true",
+            "ImageTypeLimit": 1, "EnableImageTypes": "Primary",
+        })
+        return _episode_cards(result.get("Items") or [])
 
     @router.get("/api/media-center/series/episodes")
     def series_episodes(request: Request, title: str = Query(min_length=1, max_length=400),
@@ -270,11 +277,7 @@ def create_movie_playback_router(backend, administrator):
             series_id = UUID(next(iter(matches))).hex
         except (ValueError, TypeError, AttributeError):
             raise HTTPException(502, "Jellyfin hat keine gültige Serien-ID geliefert.") from None
-        result = _jellyfin_json(base_url, config["api_key"], f"/Shows/{series_id}/Episodes", {
-            "UserId": profile_id, "IsMissing": "false", "EnableUserData": "true",
-            "ImageTypeLimit": 1, "EnableImageTypes": "Primary",
-        })
-        episodes = _episode_cards(result.get("Items") or [])
+        episodes = series_inventory(base_url, config, profile_id, series_id)
         return {"items": episodes, "profile_id": profile_id, "generation": generation}
 
     @router.get("/api/media-center/episodes/{item_id}/navigation")
@@ -291,12 +294,8 @@ def create_movie_playback_router(backend, administrator):
             series_id = UUID(current["SeriesId"]).hex
         except (KeyError, TypeError, ValueError, AttributeError):
             raise HTTPException(502, "Die Serie konnte in Jellyfin nicht zugeordnet werden.") from None
-        result = _jellyfin_json(base_url, config["api_key"], f"/Shows/{series_id}/Episodes", {
-            "UserId": profile_id, "IsMissing": "false", "EnableUserData": "true",
-            "EnableImages": "false",
-        })
         return {
-            "items": _episode_cards(result.get("Items") or []),
+            "items": series_inventory(base_url, config, profile_id, series_id),
             "profile_id": profile_id, "generation": generation,
         }
 
@@ -385,20 +384,28 @@ def create_movie_playback_router(backend, administrator):
         active = connection()
         if active is None:
             raise HTTPException(404)
-        config, _, base_url = active
+        config, generation, base_url = active
         profile_id = linked_profile(request, config)
         item = profile_video(base_url, config, profile_id, item_id.hex)
-        series = item["Type"] == "Episode"
-        if series:
+        context = {}
+        if item["Type"] == "Episode":
             try:
                 series_id = UUID(item["SeriesId"]).hex
             except (KeyError, TypeError, ValueError, AttributeError):
                 raise HTTPException(404, "Die zugehörige Serie ist nicht verfügbar.") from None
+            episodes = series_inventory(base_url, config, profile_id, series_id)
+            if not any(episode["id"] == item_id.hex for episode in episodes):
+                episodes.extend(_episode_cards([item]))
+            context = {
+                "series_id": series_id,
+                "inventory": {"items": episodes, "profile_id": profile_id, "generation": generation},
+            }
             item = _jellyfin_json(base_url, config["api_key"], f"/Items/{series_id}", {"userId": profile_id})
         return {
             "title": item.get("Name"), "year": item.get("ProductionYear"),
             "description": item.get("Overview"), "tmdb_id": (item.get("ProviderIds") or {}).get("Tmdb"),
-        }
+            "genres": item.get("Genres") or [],
+        } | context
 
     @router.get("/api/media-center/continue-watching/{item_id}/image")
     def continue_watching_image(request: Request, item_id: UUID):
