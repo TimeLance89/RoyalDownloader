@@ -1,5 +1,4 @@
 import { createSeriesState } from "../features/discovery/series-state.js";
-import { api } from "../core/api.js";
 import { createMovieState } from "../features/discovery/movie-state.js";
 import { createCollectionActions } from "../features/collections/actions.js";
 import { createAniworldActions } from "../features/discovery/aniworld-actions.js";
@@ -203,11 +202,6 @@ export function composeDiscovery({ movieState, seriesState, artworkUrls, i18n, s
       }),
   infinite: {
         movies: createInfiniteScroll(document.getElementById("tab-filme"), {
-          diagnose: geometry => api.post("/api/catalog/probe", {
-            ...geometry, catalog: "movies", page: movieState.page, count: movieState.results.length,
-            has_more: Boolean(movieState.lastPageFull), loading: Boolean(movieState.loadingMore),
-            error: Boolean(movieState.loadError), waiting: false, mode: movieState.searchActive ? "search" : movieState.category || "",
-          }).catch(() => {}),
           sentinel: document.getElementById("fp-infinite"), retryButton: document.getElementById("fp-infinite-retry"),
           loadNext: () => services.movieActions.loadNextFpPage(), retry() {
             if (movieState.loadingMore || !movieState.category) return;
@@ -218,11 +212,6 @@ export function composeDiscovery({ movieState, seriesState, artworkUrls, i18n, s
           },
         }),
         series: createInfiniteScroll(document.getElementById("tab-serien"), {
-          diagnose: geometry => api.post("/api/catalog/probe", {
-            ...geometry, catalog: "series", page: seriesState.page, count: seriesState.results.length,
-            has_more: Boolean(seriesState.lastPageFull), loading: Boolean(seriesState.loadingBrowse),
-            error: Boolean(seriesState.loadError), waiting: Boolean(seriesState.waitingForNextPage), mode: seriesState.browseMode || "",
-          }).catch(() => {}),
           trackScrollIntent: true,
           revealAtEnd: true,
           sentinel: document.getElementById("series-infinite"), retryButton: document.getElementById("series-infinite-retry"),

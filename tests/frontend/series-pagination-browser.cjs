@@ -110,4 +110,47 @@ async function waitUntil(page, predicate) {
       console.log(`series return ${width}px: visible end loads the next page without a new scroll gesture`);
     } finally { await run.close(); }
   }
+  for (const width of [390, 1913]) {
+    const mobile = width < 1000;
+    const run = await fixture({ engine: process.env.ROYAL_BROWSER || "chromium", mobile, viewport: { width, height: 1079 } });
+    const { page, errors } = run;
+    let releaseRefresh;
+    const refreshGate = new Promise(resolve => { releaseRefresh = resolve; });
+    try {
+      for (const catalog of ["movies", "series"]) {
+        await page.route(`**/api/${catalog}?**`, async route => {
+          const number = Number(new URL(route.request().url()).searchParams.get("page") || 1);
+          if (number === 1) await refreshGate;
+          return route.fulfill({ json: {
+            results: Array.from({ length: 32 }, (_, index) => ({
+              title: `Cached ${catalog} ${32 + index}`,
+              slug: `filmpalast:cached-${32 + index}`, base_slug: `serienstream:cached-${32 + index}`,
+              cover_url: "/fixture-art.svg",
+            })), page: number, has_more: false, sources: [],
+          } });
+        });
+      }
+      await page.evaluate(() => {
+        const data = fixtureApp.home.homeData.get();
+        for (const [key, prefix] of [["newMovies", "filmpalast"], ["discoverySeries", "serienstream"]]) {
+          data[key].splice(0, Infinity, ...Array.from({ length: 32 }, (_, index) => ({
+            title: `Cached ${key} ${index}`, slug: `${prefix}:cached-${index}`,
+            base_slug: `${prefix}:cached-${index}`, cover_url: "/fixture-art.svg",
+          })));
+        }
+        fixtureApp.discovery.movieActions.syncFpCatalogFromHome({ fresh: true });
+        fixtureApp.discovery.movieActions.syncSeriesCatalogFromHome({ fresh: true });
+      });
+      for (const [tab, shelf, marker] of [
+        ["filme", "fp-results", "fp-infinite"], ["serien", "series-results", "series-infinite"],
+      ]) {
+        await page.evaluate(tab => fixtureApp.core.actions.switchTab(tab), tab);
+        await page.waitForFunction(id => !document.getElementById(id).classList.contains("hidden"), marker, { timeout: 1000 });
+        await page.locator(`#${marker}`).scrollIntoViewIfNeeded();
+        await page.waitForFunction(id => document.getElementById(id).children.length === 64, shelf);
+        console.log(`cached ${tab} ${width}px: pagination is active before the background refresh returns`);
+      }
+      assert.deepEqual(errors, []);
+    } finally { releaseRefresh(); await run.close(); }
+  }
 })().catch(error => { console.error(error); process.exitCode = 1; });

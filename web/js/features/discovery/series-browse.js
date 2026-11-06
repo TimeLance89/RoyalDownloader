@@ -277,6 +277,7 @@ export function createSeriesBrowse(root, {
     syncSeriesCatalogFromHome();
     if (seriesState.results.length) {
       if (!byId("series-results").childElementCount) renderSeriesResults();
+      updateSeriesInfiniteState();
       refreshSeriesCatalogInBackground();
       void prepareNextSeriesPage();
       return;

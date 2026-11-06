@@ -11,7 +11,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout, wait
 from dataclasses import asdict
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
@@ -94,38 +94,6 @@ async def _bounded_library_work(identity, work):
 
 
 router = APIRouter(tags=["discovery"])
-
-
-class CatalogProbe(BaseModel):
-    catalog: Literal["movies", "series"]
-    page: int = Field(ge=0, le=10000)
-    count: int = Field(ge=0, le=100000)
-    has_more: bool
-    loading: bool
-    error: bool
-    waiting: bool
-    mode: str = Field(max_length=30)
-    marker: str = Field(max_length=16)
-    hidden: bool
-    viewport: int = Field(ge=0, le=50000)
-    end_top: int = Field(ge=-10000000, le=10000000)
-    end_bottom: int = Field(ge=-10000000, le=10000000)
-    remaining: int = Field(ge=-10000000, le=10000000)
-
-
-_probe_lock = threading.Lock()
-_probe_times = {}
-
-
-@router.post("/api/catalog/probe")
-async def api_catalog_probe(body: CatalogProbe):
-    with _probe_lock:
-        now = time.monotonic()
-        if now - _probe_times.get(body.catalog, -100) < 5:
-            return {"recorded": False}
-        _probe_times[body.catalog] = now
-    log("CatalogProbe " + body.model_dump_json())
-    return {"recorded": True}
 _HOME_DISCOVERY = HomeDiscoveryService()
 MOVIE_AVAILABILITY_WAIT_SECONDS = 0.8
 
