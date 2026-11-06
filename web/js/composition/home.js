@@ -34,6 +34,20 @@ export function composeHome({ discoveryPolicy, movieState, artworkUrls, recommen
   discoveryPolicy,
   continueWatching: createContinueWatching(document.getElementById("home-continue-watching"), {
     openItem: (...args) => getDiscovery().moviePresentation.openPlaybackItem(...args),
+    openDetails(item, details) {
+      const tmdb_id = Number(details.tmdb_id) || null;
+      const title = details.title || item.title;
+      const media = { ...details, title, tmdb_id, year: details.year || item.year || "" };
+      if (item.kind === "episode") {
+        const slug = tmdb_id ? `tmdb:${tmdb_id}` : title;
+        void getDiscovery().seriesActions.loadSeries({
+          ...media, base_slug: tmdb_id ? slug : "", sample_slug: slug, sources: [], metadata_source: "TMDB",
+        });
+      } else {
+        const slug = tmdb_id ? `tmdb:${tmdb_id}` : `jellyfin:${item.id}`;
+        void getDiscovery().movieActions.selectFpRow(slug, { ...media, slug, hosters: [] });
+      }
+    },
     updateNavigation: track => services.carousel.updateHomeRailNavigation(track),
   }),
   exposureVisibility: createHomeExposureVisibility(document.getElementById("tab-home"), {
