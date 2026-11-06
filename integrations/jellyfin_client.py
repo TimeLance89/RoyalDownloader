@@ -13,8 +13,10 @@ from datetime import datetime
 import json
 import logging
 import re
+import threading
 import unicodedata
 import urllib.error
+from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import List, Optional
 from urllib.error import HTTPError
@@ -28,6 +30,26 @@ urllib = SimpleNamespace(request=egress_urllib, error=urllib.error)
 
 logger = logging.getLogger(__name__)
 MAX_ITEM_PAGES = 10_000
+_rd_stream_lock = threading.Lock()
+_rd_stream_count = 0
+
+
+@contextmanager
+def track_rd_movie_stream():
+    """Let storage automation see streams started with RD's server API key."""
+    global _rd_stream_count
+    with _rd_stream_lock:
+        _rd_stream_count += 1
+    try:
+        yield
+    finally:
+        with _rd_stream_lock:
+            _rd_stream_count -= 1
+
+
+def has_rd_movie_streams() -> bool:
+    with _rd_stream_lock:
+        return _rd_stream_count > 0
 
 
 def _movie_quality_rank(item: dict) -> int:

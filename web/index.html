@@ -12,6 +12,7 @@
 <link rel="stylesheet" href="/style.css?v=royal-charts-3">
 <link rel="stylesheet" href="/styles/source-sentinel.css">
 <link rel="stylesheet" href="/styles/people.css">
+<link rel="stylesheet" href="/styles/movie-playback.css">
 </head>
 <body>
 <div id="royal-loader" class="royal-loader" role="status" aria-live="polite" aria-label="Royal Downloader wird geladen">
@@ -892,6 +893,7 @@
                     <span class="detail-jellyfin-mark" aria-hidden="true">JF</span>
                     <strong>Jellyfin wird geprüft</strong>
                   </span>
+                  <button id="fp-detail-play" class="btn btn-accent" type="button" hidden>▶ Film ansehen</button>
                   <button id="fp-detail-trailer" class="btn btn-ghost detail-trailer-btn" type="button" hidden>
                     <span aria-hidden="true">▶</span> Trailer
                   </button>
@@ -976,6 +978,14 @@
               </article>
             </div>
           </div>
+          <dialog id="fp-movie-player" aria-labelledby="fp-movie-player-title">
+            <header>
+              <h2 id="fp-movie-player-title" data-i18n-ignore></h2>
+              <button class="btn btn-ghost" type="button" autofocus>Player schließen</button>
+            </header>
+            <video controls playsinline preload="none" aria-labelledby="fp-movie-player-title"></video>
+            <p role="status"></p>
+          </dialog>
         </div>
       </div>
     </section>

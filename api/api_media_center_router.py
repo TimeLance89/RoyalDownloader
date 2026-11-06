@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 import core.config as appconfig
+from api.api_movie_playback_router import create_movie_playback_router
 from integrations.media_center import media_client, validate_server_url
 from integrations.plex_client import PlexError
 
@@ -30,6 +31,7 @@ def create_media_center_router(backend):
             raise HTTPException(403, "Administratorrechte erforderlich.")
 
     router = APIRouter(tags=["media-center"])
+    router.routes.extend(create_movie_playback_router(backend, administrator).routes)
 
     def config_payload():
         with backend.state.jellyfin_cache_lock:

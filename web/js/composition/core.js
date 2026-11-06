@@ -85,7 +85,7 @@ export function prepareCore({ getDiscovery, getDownloads, getIntegrations, getHo
       closeMovieDetails: () => {
         getDiscovery().movieDetailsLoader.unmount();
         getDownloads().movieDownloads.closeDetail();
-        getDiscovery().moviePresentation.closeSavedMedia();
+        getDiscovery().moviePresentation.closeDetail();
         // Closing aborts the dialog's own library request. Keep the catalog
         // worker alive and recheck any titles superseded by that cancelled read.
         void getDiscovery().movieActions.refreshFpJellyfinStatus();
