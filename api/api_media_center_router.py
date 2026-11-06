@@ -31,7 +31,7 @@ def create_media_center_router(backend):
             raise HTTPException(403, "Administratorrechte erforderlich.")
 
     router = APIRouter(tags=["media-center"])
-    router.include_router(create_movie_playback_router(backend, administrator))
+    router.routes.extend(create_movie_playback_router(backend, administrator).routes)
 
     def config_payload():
         with backend.state.jellyfin_cache_lock:
