@@ -14,6 +14,9 @@ from integrations.jellyfin_client import JellyfinClient, track_rd_movie_stream
 from integrations.media_center import profile_identity, validate_server_url
 
 MAX_POSITION_TICKS = 24 * 60 * 60 * 10_000_000
+RESUME_TYPES = {"Movie", "Episode"}
+IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/avif"}
+MAX_IMAGE_BYTES = 2 * 1024 * 1024
 
 
 class MovieProgress(BaseModel):
@@ -35,6 +38,42 @@ class MovieStream(StreamingResponse):
                 await super().__call__(scope, receive, send)
             finally:
                 self.upstream.close()
+
+
+def _jellyfin_json(base_url, key, endpoint, params):
+    try:
+        with requests.get(f"{base_url}{endpoint}", params=params,
+                          headers=jellyfin_auth_headers(key), timeout=5,
+                          allow_redirects=False) as response:
+            if response.status_code == 200:
+                result = response.json()
+                if isinstance(result, dict):
+                    return result
+    except (requests.RequestException, ValueError):
+        pass
+    raise HTTPException(502, "Jellyfin konnte die Wiedergabedaten nicht liefern.")
+
+
+def _resume_card(item):
+    if item.get("Type") not in RESUME_TYPES or not item.get("Name"):
+        return None
+    try:
+        item_id = UUID(item["Id"]).hex
+        position = int((item.get("UserData") or {}).get("PlaybackPositionTicks") or 0)
+        duration = int(item.get("RunTimeTicks") or 0)
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return None
+    if not 0 < position <= MAX_POSITION_TICKS or (duration and position >= duration):
+        return None
+    episode = item["Type"] == "Episode"
+    return {
+        "id": item_id, "kind": "episode" if episode else "movie",
+        "title": (item.get("SeriesName") or item["Name"]) if episode else item["Name"],
+        "episode_title": item["Name"] if episode else "",
+        "season": item.get("ParentIndexNumber"), "episode": item.get("IndexNumber"),
+        "year": item.get("ProductionYear"), "position_ticks": position, "duration_ticks": duration,
+        "has_image": bool(item.get("BackdropImageTags") or (item.get("ImageTags") or {}).get("Primary")),
+    }
 
 
 def _movie_id(client, items, title, year, tmdb_id):
@@ -92,30 +131,18 @@ def _stream_options(base_url, headers, item_id, start_ticks=0):
 def create_movie_playback_router(backend, administrator):
     router = APIRouter(tags=["media-center"], dependencies=[Depends(administrator)])
 
-    def resolve_movie(title: str = Query(max_length=400), year: str = Query(default="", max_length=10),
-                      tmdb_id: int | None = Query(default=None, gt=0)):
+    def connection():
         state = backend.state
         with state.jellyfin_cache_lock:
             config = dict(state.jellyfin_cfg)
             generation = state.jellyfin_config_generation
         if config.get("provider", "jellyfin") != "jellyfin" or not config.get("api_key") or not config.get("url"):
-            raise HTTPException(404, "Jellyfin ist nicht als Mediencenter eingerichtet.")
+            return None
         try:
             base_url = validate_server_url(config["url"])
         except ValueError as error:
             raise HTTPException(503, str(error)) from None
-
-        client = JellyfinClient(base_url, config["api_key"])
-        items = backend.get_jellyfin_movie_identities()
-        with state.jellyfin_cache_lock:
-            if generation != state.jellyfin_config_generation:
-                raise HTTPException(409, "Die Jellyfin-Verbindung wurde geändert. Bitte erneut versuchen.")
-        if items is None:
-            raise HTTPException(503, "Die Jellyfin-Filmbibliothek ist nicht erreichbar.")
-        item_id = _movie_id(client, items, backend.clean_movie_title(title), year, tmdb_id)
-        return config, generation, base_url, item_id
-
-    movie_dependency = Annotated[tuple[dict, int, str, str], Depends(resolve_movie)]
+        return config, generation, base_url
 
     def linked_profile(request, config):
         user = backend.current_user(request.headers, request.cookies) or {}
@@ -127,22 +154,104 @@ def create_movie_playback_router(backend, administrator):
         except ValueError:
             return None
 
-    @router.get("/api/media-center/movies/progress")
-    def read_progress(request: Request, movie: movie_dependency):
-        config, generation, base_url, item_id = movie
+    def profile_video(base_url, config, profile_id, item_id):
+        if not profile_id:
+            raise HTTPException(403, "Verknüpfe dein Jellyfin-Profil, um den Inhalt abzuspielen.")
+        result = _jellyfin_json(base_url, config["api_key"], "/Items", {
+            "UserId": profile_id, "Ids": item_id, "IncludeItemTypes": "Movie,Episode",
+            "Recursive": "true", "Limit": 1, "EnableUserData": "true",
+        })
+        item = next(iter(result.get("Items") or []), {})
+        if (not isinstance(item, dict) or item.get("Type") not in RESUME_TYPES
+                or str(item.get("Id", "")).replace("-", "").lower() != item_id):
+            raise HTTPException(404, "Dieser Inhalt ist im verknüpften Jellyfin-Profil nicht verfügbar.")
+        return item
+
+    @router.get("/api/media-center/continue-watching")
+    def continue_watching(request: Request):
+        active = connection()
+        if active is None:
+            return {"items": []}
+        config, generation, base_url = active
         profile_id = linked_profile(request, config)
         if not profile_id:
-            return {"position_ticks": 0, "profile_id": None}
+            return {"items": []}
+        result = _jellyfin_json(base_url, config["api_key"], "/UserItems/Resume", {
+            "UserId": profile_id, "IncludeItemTypes": "Movie,Episode", "Limit": 30,
+            "EnableUserData": "true", "EnableTotalRecordCount": "false", "ImageTypeLimit": 1,
+            "EnableImageTypes": "Primary,Backdrop",
+        })
+        cards = [_resume_card(item) for item in (result.get("Items") or [])[:30] if isinstance(item, dict)]
+        return {"items": [card for card in cards if card], "generation": generation, "profile_id": profile_id}
+
+    @router.get("/api/media-center/continue-watching/{item_id}/image")
+    def continue_watching_image(request: Request, item_id: UUID):
+        active = connection()
+        if active is None:
+            raise HTTPException(404)
+        config, _, base_url = active
+        item = profile_video(base_url, config, linked_profile(request, config), item_id.hex)
+        image_type = "Backdrop" if item.get("BackdropImageTags") else "Primary"
         try:
-            with requests.get(f"{base_url}/Items/{item_id}", params={"userId": profile_id},
-                              headers=jellyfin_auth_headers(config["api_key"]), timeout=5,
-                              allow_redirects=False) as response:
-                if response.status_code != 200:
-                    raise HTTPException(502, "Jellyfin konnte den Wiedergabestand nicht laden.")
-                item = response.json()
-                duration = int(item.get("RunTimeTicks") or 0)
-                position = int((item.get("UserData") or {}).get("PlaybackPositionTicks") or 0)
-        except (requests.RequestException, ValueError, TypeError, AttributeError):
+            with requests.get(f"{base_url}/Items/{item_id.hex}/Images/{image_type}",
+                              params={"maxWidth": 640, "quality": 85},
+                              headers=jellyfin_auth_headers(config["api_key"]), stream=True,
+                              timeout=5, allow_redirects=False) as image:
+                mime = image.headers.get("Content-Type", "").split(";", 1)[0].lower()
+                if image.status_code != 200 or mime not in IMAGE_TYPES:
+                    raise HTTPException(404)
+                content = bytearray()
+                for chunk in image.iter_content(chunk_size=65536):
+                    content.extend(chunk)
+                    if len(content) > MAX_IMAGE_BYTES:
+                        raise HTTPException(502, "Jellyfin-Bild ist zu groß.")
+        except requests.RequestException:
+            raise HTTPException(502, "Jellyfin-Bild ist nicht erreichbar.") from None
+        return Response(bytes(content), media_type=mime)
+
+    def resolve_movie(request: Request, title: str = Query(default="", max_length=400),
+                      year: str = Query(default="", max_length=10),
+                      tmdb_id: int | None = Query(default=None, gt=0), item_id: UUID | None = None):
+        active = connection()
+        if active is None:
+            raise HTTPException(404, "Jellyfin ist nicht als Mediencenter eingerichtet.")
+        config, generation, base_url = active
+        if item_id is not None:
+            item = profile_video(base_url, config, linked_profile(request, config), item_id.hex)
+            return config, generation, base_url, item_id.hex, item
+        if not title:
+            raise HTTPException(422, "Ein Filmtitel ist erforderlich.")
+
+        client = JellyfinClient(base_url, config["api_key"])
+        items = backend.get_jellyfin_movie_identities()
+        state = backend.state
+        with state.jellyfin_cache_lock:
+            if generation != state.jellyfin_config_generation:
+                raise HTTPException(409, "Die Jellyfin-Verbindung wurde geändert. Bitte erneut versuchen.")
+        if items is None:
+            raise HTTPException(503, "Die Jellyfin-Filmbibliothek ist nicht erreichbar.")
+        matched_id = _movie_id(client, items, backend.clean_movie_title(title), year, tmdb_id)
+        return config, generation, base_url, matched_id, None
+
+    movie_dependency = Annotated[tuple[dict, int, str, str, dict | None], Depends(resolve_movie)]
+
+    @router.get("/api/media-center/movies/progress")
+    def read_progress(request: Request, movie: movie_dependency):
+        config, generation, base_url, item_id, item = movie
+        profile_id = linked_profile(request, config)
+        endpoint = f"/Items/{item_id}" if profile_id else "/Items"
+        params = {"userId": profile_id} if profile_id else {
+            "Ids": item_id, "IncludeItemTypes": "Movie", "Recursive": "true",
+            "Limit": 1, "EnableImages": "false",
+        }
+        try:
+            if item is None:
+                item = _jellyfin_json(base_url, config["api_key"], endpoint, params)
+                if not profile_id:
+                    item = next(iter(item.get("Items") or []), {})
+            duration = int(item.get("RunTimeTicks") or 0)
+            position = int((item.get("UserData") or {}).get("PlaybackPositionTicks") or 0) if profile_id else 0
+        except (ValueError, TypeError, AttributeError):
             raise HTTPException(502, "Jellyfin konnte den Wiedergabestand nicht laden.") from None
         if not 0 < position <= MAX_POSITION_TICKS or (duration and position >= duration):
             position = 0
@@ -151,7 +260,7 @@ def create_movie_playback_router(backend, administrator):
 
     @router.post("/api/media-center/movies/progress", status_code=204)
     def save_progress(request: Request, progress: MovieProgress, movie: movie_dependency):
-        config, generation, base_url, item_id = movie
+        config, generation, base_url, item_id, _ = movie
         profile_id = linked_profile(request, config)
         if generation != progress.generation or profile_id != progress.profile_id.hex:
             raise HTTPException(409, "Das verknüpfte Jellyfin-Profil oder der Server wurde geändert.")
@@ -174,7 +283,7 @@ def create_movie_playback_router(backend, administrator):
     @router.get("/api/media-center/movies/stream")
     def stream_movie(request: Request, movie: movie_dependency,
                      start_ticks: int = Query(default=0, ge=0, le=MAX_POSITION_TICKS)):
-        config, _, base_url, item_id = movie
+        config, _, base_url, item_id, _ = movie
         headers = jellyfin_auth_headers(config["api_key"])
         try:
             options = _stream_options(base_url, headers, item_id, start_ticks)

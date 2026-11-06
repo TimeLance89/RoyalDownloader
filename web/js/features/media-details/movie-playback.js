@@ -1,25 +1,16 @@
 import { api } from "../../core/api.js";
+import { createMoviePlayerControls, formatMovieTime } from "./movie-player-controls.js";
 
 const TICKS_PER_SECOND = 10_000_000;
 const progressPath = "/api/media-center/movies/progress";
 
-function formatPosition(ticks) {
-  const seconds = Math.floor(ticks / TICKS_PER_SECOND);
-  const minutes = Math.floor(seconds / 60);
-  const pad = value => String(value).padStart(2, "0");
-  return minutes >= 60
-    ? `${Math.floor(minutes / 60)}:${pad(minutes % 60)}:${pad(seconds % 60)}`
-    : `${pad(minutes)}:${pad(seconds % 60)}`;
-}
-
 export function createMoviePlayback(root, { canPlay, stopTrailer, client = api }) {
   const button = root.querySelector("#fp-detail-play");
-  const dialog = root.querySelector("#fp-movie-player");
+  const dialog = root.querySelector("#fp-movie-player") || root.ownerDocument.getElementById("fp-movie-player");
   const video = dialog.querySelector("video");
   const title = dialog.querySelector("h2");
-  const status = dialog.querySelector("[role=status]");
   let currentMovie, slug, owned;
-  let progress, readController, playing;
+  let progress, readController, playing, controls;
   let writes = Promise.resolve();
 
   function movieQuery() {
@@ -58,14 +49,22 @@ export function createMoviePlayback(root, { canPlay, stopTrailer, client = api }
     }
     button.disabled = !button.hidden && Boolean(progress?.loading);
     button.textContent = progress?.position_ticks
-      ? `▶ Weiterschauen ${formatPosition(progress.position_ticks)}`
+      ? `▶ Weiterschauen ${formatMovieTime(progress.position_ticks / TICKS_PER_SECOND)}`
       : "▶ Film ansehen";
   }
 
+  function getPosition() {
+    const start = (playing?.startTicks || 0) / TICKS_PER_SECOND;
+    const elapsed = start + (playing?.ready && Number.isFinite(video.currentTime) ? video.currentTime : 0);
+    const nativeDuration = playing?.ready && Number.isFinite(video.duration) ? start + video.duration : 0;
+    const duration = (playing?.entry?.duration_ticks || 0) / TICKS_PER_SECOND || nativeDuration;
+    return { elapsed: duration ? Math.min(elapsed, duration) : elapsed, duration };
+  }
+
   function saveProgress(ended = false) {
-    if (!playing?.entry.profile_id || !playing.started || !Number.isFinite(video.currentTime)) return;
-    const { entry, startTicks } = playing;
-    const position = startTicks + Math.round(video.currentTime * TICKS_PER_SECOND);
+    if (!playing?.entry?.profile_id || !playing.started || playing.finished) return;
+    const { entry } = playing;
+    const position = Math.round(getPosition().elapsed * TICKS_PER_SECOND);
     const finished = ended && (!entry.duration_ticks || position >= entry.duration_ticks - 5 * TICKS_PER_SECOND);
     const positionTicks = finished ? 0 : position;
     if (positionTicks === entry.position_ticks && !finished) return;
@@ -75,7 +74,7 @@ export function createMoviePlayback(root, { canPlay, stopTrailer, client = api }
     writes = writes.then(() => client.post(`${progressPath}?${entry.params}`, body, {
       keepalive: true, timeoutMs: 8_000,
     })).catch(() => {
-      if (playing?.entry === entry && dialog.open) status.textContent = "Wiedergabestand konnte nicht gespeichert werden.";
+      if (playing?.entry === entry && dialog.open) controls.message("Wiedergabestand konnte nicht gespeichert werden.");
     });
     refresh();
   }
@@ -87,27 +86,66 @@ export function createMoviePlayback(root, { canPlay, stopTrailer, client = api }
     video.pause();
     video.removeAttribute("src");
     video.load();
-    status.textContent = "";
+    controls.message();
   }
 
   function close() {
-    if (dialog.open) dialog.close();
+    const wasOpen = dialog.open;
+    controls?.leavePresentationMode();
+    if (wasOpen) dialog.close();
     stop();
+    if (wasOpen) void writes.then(() => dialog.ownerDocument.dispatchEvent(new Event("royal:playback-closed")));
+  }
+
+  function startStream(entry, seconds, autoplay) {
+    const params = new URLSearchParams(entry.params);
+    const startTicks = Math.round(seconds * TICKS_PER_SECOND);
+    if (startTicks) params.set("start_ticks", startTicks);
+    playing = { entry, startTicks, started: false, ready: false, nextSave: 15 };
+    controls.message("Film wird geladen …", { loading: true });
+    video.src = `/api/media-center/movies/stream?${params}`;
+    if (autoplay) void video.play().catch(() => {});
+  }
+
+  function seek(seconds) {
+    if (!playing || !Number.isFinite(seconds)) return;
+    const { elapsed, duration } = getPosition();
+    const target = Math.max(0, Math.min(seconds, duration ? Math.max(0, duration - 0.25) : elapsed));
+    if (Math.abs(elapsed - target) < 0.05) return;
+    const relative = target - playing.startTicks / TICKS_PER_SECOND;
+    if (playing.ready && !playing.finished) {
+      for (let i = 0; i < video.seekable.length; i++) {
+        if (relative >= video.seekable.start(i) && relative < video.seekable.end(i)) {
+          video.currentTime = relative;
+          controls.render();
+          return;
+        }
+      }
+    }
+    // Jellyfin's progressive MP4 can only seek within data it has already sent.
+    // Outside that range, restart the stream at the requested film timestamp.
+    const autoplay = !video.paused && !video.ended;
+    saveProgress();
+    startStream(playing.entry, target, autoplay);
   }
 
   function open() {
     if (button.hidden || button.disabled || !canPlay() || dialog.open) return;
-    const params = movieQuery();
-    const startTicks = progress?.position_ticks || 0;
-    if (startTicks) params.set("start_ticks", startTicks);
-    playing = { entry: progress, startTicks, started: false, nextSave: 15 };
     stopTrailer();
     title.textContent = currentMovie.title;
-    status.textContent = "Film wird geladen …";
     dialog.showModal();
-    video.src = `/api/media-center/movies/stream?${params}`;
-    // The native controls remain usable when the browser blocks autoplay.
-    void video.play().catch(() => {});
+    startStream(progress, (progress.position_ticks || 0) / TICKS_PER_SECOND, true);
+  }
+
+  function openItem(item, trigger) {
+    if (!controls || !canPlay() || dialog.open || !item?.id || !item.profile_id) return;
+    const entry = { ...item, params: new URLSearchParams({ item_id: item.id }).toString() };
+    trigger?.focus({ preventScroll: true });
+    stopTrailer();
+    title.textContent = item.kind === "episode" && item.episode_title && item.episode_title !== item.title
+      ? `${item.title} · ${item.episode_title}` : item.title;
+    dialog.showModal();
+    startStream(entry, item.position_ticks / TICKS_PER_SECOND, true);
   }
 
   function resetProgress() {
@@ -117,6 +155,7 @@ export function createMoviePlayback(root, { canPlay, stopTrailer, client = api }
 
   return {
     get active() { return dialog.open; },
+    openItem,
     show(nextSlug, movie) {
       if (nextSlug !== slug) {
         close();
@@ -130,11 +169,27 @@ export function createMoviePlayback(root, { canPlay, stopTrailer, client = api }
     setOwned(value) { owned = value; refresh(); },
     reset() { close(); resetProgress(); slug = currentMovie = null; owned = false; refresh(); },
     mount(scope) {
+      controls = createMoviePlayerControls(dialog, {
+        getPosition, seek, replay: () => startStream(playing.entry, 0, true),
+        retry: () => startStream(playing.entry, getPosition().elapsed, true),
+      });
       scope.listen(button, "click", open);
-      scope.listen(dialog.querySelector("button"), "click", close);
+      scope.listen(dialog.querySelector('[data-player-action="close"]'), "click", close);
       scope.listen(dialog, "cancel", event => { event.preventDefault(); close(); });
       scope.listen(dialog, "keydown", event => event.stopPropagation());
-      scope.listen(video, "playing", () => { if (playing) playing.started = true; });
+      scope.listen(video, "loadedmetadata", () => {
+        if (!playing) return;
+        playing.ready = true;
+        if (video.paused) controls.message();
+      });
+      scope.listen(video, "playing", () => {
+        if (!playing) return;
+        playing.started = true;
+        controls.message();
+      });
+      scope.listen(video, "waiting", () => {
+        if (playing && !video.paused) controls.message("Film wird geladen …", { loading: true });
+      });
       scope.listen(video, "timeupdate", () => {
         if (!playing?.started || video.currentTime < playing.nextSave) return;
         playing.nextSave = video.currentTime + 15;
@@ -143,14 +198,15 @@ export function createMoviePlayback(root, { canPlay, stopTrailer, client = api }
       scope.listen(video, "pause", () => { if (!video.ended) saveProgress(); });
       scope.listen(video, "ended", () => {
         saveProgress(true);
-        playing = null;
+        if (playing) playing.finished = true;
+        controls.message();
       });
-      scope.listen(video, "loadeddata", () => { if (dialog.open) status.textContent = ""; });
       scope.listen(video, "error", () => {
         if (dialog.open && video.hasAttribute("src")) {
-          status.textContent = "Der Film konnte nicht abgespielt werden. Prüfe die Wiedergabe in Jellyfin und versuche es erneut.";
+          controls.message("Der Film konnte nicht abgespielt werden.", { error: true });
         }
       });
+      controls.mount(scope);
     },
   };
 }
