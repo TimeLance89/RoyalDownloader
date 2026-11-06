@@ -213,6 +213,7 @@ export function composeDiscovery({ movieState, seriesState, artworkUrls, i18n, s
         }),
         series: createInfiniteScroll(document.getElementById("tab-serien"), {
           trackScrollIntent: true,
+          revealAtEnd: true,
           sentinel: document.getElementById("series-infinite"), retryButton: document.getElementById("series-infinite-retry"),
           loadNext: options => services.seriesActions.loadNextSeriesPage(options), retry() {
             const mode = seriesState.browseMode;

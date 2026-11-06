@@ -83,4 +83,31 @@ async function waitUntil(page, predicate) {
       console.log(`series pagination ${width}px: partial page and remaining cards append without another gesture`);
     } finally { await run.close(); }
   }
+  for (const width of [1440, 3840]) {
+    const run = await fixture({ engine: process.env.ROYAL_BROWSER || "chromium", viewport: { width, height: 1100 } });
+    const { page, errors } = run;
+    try {
+      const items = Array.from({ length: 64 }, (_, index) => ({
+        title: `Return Series ${index}`, base_slug: `serienstream:return-${index}`,
+        sample_slug: `serienstream:return-${index}-s01e01`, cover_url: "/fixture-art.svg",
+      }));
+      await page.route("**/api/series?**", route => {
+        const number = Number(new URL(route.request().url()).searchParams.get("page") || 1);
+        return route.fulfill({ json: {
+          results: items.slice((number - 1) * 32, number * 32), page: number, has_more: number === 1, sources: [],
+        } });
+      });
+      await page.evaluate(() => fixtureApp.core.actions.switchTab("serien"));
+      await page.waitForFunction(() => document.querySelectorAll("#series-results .result-card").length === 32);
+      await page.evaluate(() => {
+        const tab = document.querySelector("#tab-serien");
+        tab.scrollTop = tab.scrollHeight;
+        fixtureApp.core.actions.switchTab("home");
+        fixtureApp.core.actions.switchTab("serien");
+      });
+      await page.waitForFunction(() => document.querySelectorAll("#series-results .result-card").length === 64);
+      assert.deepEqual(errors, []);
+      console.log(`series return ${width}px: visible end loads the next page without a new scroll gesture`);
+    } finally { await run.close(); }
+  }
 })().catch(error => { console.error(error); process.exitCode = 1; });
