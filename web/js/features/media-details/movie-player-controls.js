@@ -14,7 +14,7 @@ export function createMoviePlayerControls(dialog, { getPosition, seek, replay, r
   const deck = dialog.querySelector(".rd-player-deck");
   const timeline = deck.querySelector(".rd-player-timeline");
   const volume = deck.querySelector(".rd-player-volume");
-  const rate = deck.querySelector("select");
+  const rate = deck.querySelector(".rd-player-rate select");
   const elapsed = deck.querySelector("[data-player-elapsed]");
   const duration = deck.querySelector("[data-player-duration]");
   const status = dialog.querySelector("[role=status]");

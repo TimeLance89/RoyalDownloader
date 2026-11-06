@@ -20,14 +20,19 @@ export function createMoviePlayerEpisodes(dialog, { client, selectEpisode }) {
   const list = menu.querySelector(".rd-player-season-list");
   const status = menu.querySelector(".rd-player-season-status");
   const retry = menu.querySelector("[data-player-episodes-retry]");
+  const seasonSelect = menu.querySelector("#rd-player-season-select");
   const previousButton = dialog.querySelector('[data-player-action="previous-episode"]');
   const nextButton = dialog.querySelector('[data-player-action="next-episode"]');
-  let request, current, items = [], previous, next;
+  let request, current, items = [], previous, next, selectedSeason;
 
   function reset() {
     request?.abort();
     request = current = previous = next = null;
     items = [];
+    selectedSeason = undefined;
+    seasonSelect.replaceChildren();
+    delete seasonSelect.dataset.seasons;
+    seasonSelect.disabled = true;
     menu.open = false;
     menu.hidden = previousButton.hidden = nextButton.hidden = true;
     previousButton.disabled = nextButton.disabled = true;
@@ -43,7 +48,21 @@ export function createMoviePlayerEpisodes(dialog, { client, selectEpisode }) {
     nextButton.disabled = !next;
     previousButton.title = previous ? `Vorherige Folge · ${episodeCode(previous)}` : "Keine vorherige Folge verfügbar";
     nextButton.title = next ? `Nächste Folge · ${episodeCode(next)}` : "Keine nächste Folge verfügbar";
-    list.replaceChildren(...items.filter(item => item.season === current.season).map(item => {
+    const seasons = [...new Set(items.map(item => item.season))].sort((a, b) => a - b);
+    const availableSeasons = seasons.join(",");
+    if (seasonSelect.dataset.seasons !== availableSeasons) {
+      seasonSelect.dataset.seasons = availableSeasons;
+      seasonSelect.replaceChildren(...seasons.map(season => {
+        const option = document.createElement("option");
+        option.value = season;
+        option.textContent = season === 0 ? "Specials" : `Staffel ${season}`;
+        return option;
+      }));
+    }
+    seasonSelect.disabled = !seasons.length;
+    seasonSelect.value = selectedSeason;
+    summary.textContent = selectedSeason === 0 ? "Specials" : `Staffel ${selectedSeason}`;
+    list.replaceChildren(...items.filter(item => item.season === selectedSeason).map(item => {
       const button = document.createElement("button");
       button.type = "button";
       button.dataset.playerEpisodeId = item.id;
@@ -58,7 +77,7 @@ export function createMoviePlayerEpisodes(dialog, { client, selectEpisode }) {
       button.append(title, state);
       return button;
     }));
-    status.textContent = items.some(item => item.season === current.season)
+    status.textContent = items.some(item => item.season === selectedSeason)
       ? "" : "Keine weiteren Folgen verfügbar.";
   }
 
@@ -67,6 +86,7 @@ export function createMoviePlayerEpisodes(dialog, { client, selectEpisode }) {
     reset();
     if (item?.kind !== "episode") return;
     current = item;
+    selectedSeason = item.season;
     menu.hidden = previousButton.hidden = nextButton.hidden = false;
     menu.open = open;
     summary.textContent = `Staffel ${item.season}`;
@@ -111,6 +131,7 @@ export function createMoviePlayerEpisodes(dialog, { client, selectEpisode }) {
     mount(scope) {
       scope.listen(previousButton, "click", () => choose(previous));
       scope.listen(nextButton, "click", () => choose(next));
+      scope.listen(seasonSelect, "change", () => { selectedSeason = Number(seasonSelect.value); render(); });
       scope.listen(retry, "click", () => { if (current) void show(current); });
       scope.listen(list, "click", event => {
         const id = event.target.closest("[data-player-episode-id]")?.dataset.playerEpisodeId;

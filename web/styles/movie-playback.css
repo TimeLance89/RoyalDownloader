@@ -513,6 +513,32 @@
   font-size: 0.8rem;
 }
 
+.rd-player-season-head {
+  position: sticky;
+  top: -0.4rem;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.55rem 0.65rem;
+  border-bottom: 1px solid var(--rd-line);
+  background: var(--rd-deck);
+  color: var(--rd-muted);
+  font-size: 0.8rem;
+}
+
+.rd-player-season-head select {
+  flex: 1;
+  min-width: 0;
+  min-height: 2.5rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--rd-line);
+  border-radius: 0.35rem;
+  background: var(--rd-deck);
+  color: var(--rd-ink);
+  font: inherit;
+}
+
 .rd-player-season-status:empty {
   display: none;
 }

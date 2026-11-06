@@ -2892,8 +2892,12 @@
         <div class="rd-player-clock" data-i18n-ignore><span data-player-elapsed>00:00</span><span data-player-duration></span></div>
         <div class="rd-player-options">
           <details class="rd-player-episodes" hidden>
-            <summary aria-label="Folgen der laufenden Staffel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg><span>Folgen</span></summary>
-            <div class="rd-player-season-menu" role="group" aria-label="Folgen der laufenden Staffel">
+            <summary aria-label="Staffeln und Folgen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg><span>Folgen</span></summary>
+            <div class="rd-player-season-menu" role="group" aria-label="Staffeln und Folgen">
+              <div class="rd-player-season-head">
+                <label for="rd-player-season-select">Staffel</label>
+                <select id="rd-player-season-select" aria-label="Staffel im Player auswählen" disabled></select>
+              </div>
               <p class="rd-player-season-status" role="status"></p>
               <div class="rd-player-season-list"></div>
               <button class="rd-player-retry" type="button" data-player-episodes-retry hidden>Erneut laden</button>
