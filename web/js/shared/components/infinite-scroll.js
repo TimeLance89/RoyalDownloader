@@ -2,7 +2,7 @@ import { createScope } from "../../core/lifecycle.js";
 
 /** One viewport look-ahead; observes only the currently mounted catalog. */
 export function createInfiniteScroll(root, {
-  sentinel, loadNext, retry, retryButton, preload = 1200, trackScrollIntent = false, revealAtEnd = false,
+  sentinel, loadNext, retry, retryButton, preload = 1200, trackScrollIntent = false, revealAtEnd = false, diagnose,
 }) {
   let scope, scheduled = false;
   let reveal = false, lastWindowTop = 0, lastRootTop = 0;
@@ -90,6 +90,17 @@ export function createInfiniteScroll(root, {
           observer.observe(sentinel);
           scope.observe(observer);
         }
+      }
+      if (diagnose) {
+        scope.interval(() => {
+          if (root.ownerDocument.hidden) return;
+          const rect = sentinel.getBoundingClientRect();
+          diagnose({
+            marker: sentinel.dataset.state || "", hidden: sentinel.classList.contains("hidden"),
+            viewport: Math.round(win.innerHeight), end_top: Math.round(rect.top), end_bottom: Math.round(rect.bottom),
+            remaining: Math.round(root.scrollHeight - root.scrollTop - root.clientHeight),
+          });
+        }, 5000);
       }
       refresh();
     },

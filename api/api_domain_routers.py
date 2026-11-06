@@ -46,6 +46,7 @@ _PREFIXES = {
         "/api/v1/movie-subscriptions", "/api/watchlist", "/api/v1/watchlist",
     ),
     "discovery": (
+        "/api/catalog",
         "/api/genres", "/api/v1/genres", "/api/movies", "/api/v1/movies",
         "/api/movie-collections", "/api/v1/movie-collections",
         "/api/people", "/api/v1/people",
