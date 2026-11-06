@@ -986,8 +986,23 @@ async def api_series(mode: str = "search", query: str = "", letter: str = "", pa
             }, headers={"Retry-After": "1"}) from exc
         return {**catalog, "direct_series": None, "mode": browse_mode}
 
-    data = await run_in_threadpool(_work)
-    results = [_series_entry_to_dict(entry) for entry in data["entries"]]
+    def _catalog_with_library():
+        data = _work()
+        results = [_series_entry_to_dict(entry) for entry in data["entries"]]
+        client = get_jellyfin_client()
+        if client.configured:
+            with state.jellyfin_cache_lock:
+                library = list(state.jellyfin_series or []) if state.jellyfin_series_available else None
+            if library is not None:
+                for item in results:
+                    matches = client.series_ids_for(item["title"], tmdb_id=item.get("tmdb_id"),
+                                                   aliases=item.get("aliases") or (), items=library)
+                    if matches is not None:
+                        item["in_jellyfin"] = bool(matches)
+                        item["jellyfin_status"] = "owned" if matches else "missing"
+        return data, results
+
+    data, results = await run_in_threadpool(_catalog_with_library)
     if data["mode"] == "search":
         results = inject_monster_search_results(query, results)
     return {
