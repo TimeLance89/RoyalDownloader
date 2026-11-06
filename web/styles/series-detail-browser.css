@@ -284,6 +284,9 @@
   .series-next-episode { align-items: flex-start; flex-direction: column; }
   .series-watch-row { grid-template-columns: 5.5rem minmax(0, 1fr); }
   .series-watch-action { grid-column: 2; justify-self: start; }
+}
+
+@media (max-width: 820px) {
   #series-detail-modal #series-download-dock {
     position: fixed;
     z-index: 25;
