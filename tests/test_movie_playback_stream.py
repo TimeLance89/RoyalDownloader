@@ -91,3 +91,39 @@ def test_resume_actions_isolate_hide_and_restore_episode_progress(monkeypatch, t
     act("undo", undo_token=token)
     assert user_data["Played"] is False
     assert client.get(rail).json()["items"][0]["position_ticks"] == position
+
+
+def test_resume_series_details_use_linked_jellyfin_ids_without_catalog_match(monkeypatch):
+    profile, episode, series = "1" * 32, "2" * 32, "3" * 32
+    item = {"Id": episode, "Type": "Episode", "Name": "Pilot", "SeriesId": series,
+            "SeriesName": "Demo", "ParentIndexNumber": 1, "IndexNumber": 2,
+            "UserData": {"PlaybackPositionTicks": 600_000_000}}
+    backend = SimpleNamespace(
+        state=SimpleNamespace(jellyfin_cache_lock=Lock(), jellyfin_config_generation=4,
+                              jellyfin_cfg={"url": "http://jellyfin", "api_key": "fixture"}),
+        current_user=lambda *_: {"id": "a", "jellyfin_user_id": profile},
+    )
+    paths = []
+
+    def jellyfin(_url, _key, path, params):
+        paths.append(path)
+        assert params.get("UserId", params.get("userId")) == profile
+        if path == "/Items":
+            assert params["Ids"] == episode
+            return {"Items": [item]}
+        if path == f"/Shows/{series}/Episodes":
+            return {"Items": []}  # The already validated episode remains playable.
+        assert path == f"/Items/{series}"
+        return {"Name": "Demo", "Overview": "Aus der Bibliothek"}
+
+    monkeypatch.setattr("api.api_movie_playback_router._jellyfin_json", jellyfin)
+    app = FastAPI()
+    app.include_router(create_movie_playback_router(backend, lambda: None))
+    response = TestClient(app).get(f"/api/media-center/continue-watching/{episode}/details")
+    assert response.status_code == 200
+    details = response.json()
+    assert details["series_id"] == series
+    assert details["description"] == "Aus der Bibliothek"
+    assert details["inventory"]["profile_id"] == profile
+    assert details["inventory"]["items"][0]["id"] == episode
+    assert paths == ["/Items", f"/Shows/{series}/Episodes", f"/Items/{series}"]

@@ -153,7 +153,7 @@ export function createMoviePresentation(catalogRoot, detailRoot, {
       || movieState.metadataCache[movieState.selectedSlug];
     if (selected) {
       const selectedStatus = mediaJellyfinStatus(selected);
-      setFpDetailJellyfinStatus(selectedStatus === "owned" ? true
+      setFpDetailJellyfinStatus(selected.jellyfin_item_id || selectedStatus === "owned" ? true
         : selectedStatus === "missing" ? false : selectedStatus);
       const movie = movieState.moviesCache[selected.slug]
         || metadataPreviewMovie(movieState.metadataCache[selected.slug] || basicMovieMetadata(selected));
@@ -480,6 +480,7 @@ export function createMoviePresentation(catalogRoot, detailRoot, {
   }
 
   function fpDetailJellyfinValue(slug, movie) {
+    if (movie?.jellyfin_item_id || movieState.metadataCache[slug]?.jellyfin_item_id) return true;
     const status = movieState.metadataCache[slug]?.jellyfin_status;
     if (status) return status === "owned" ? true : status === "missing" ? false : status;
     const catalogItem = movieState.results.find((item) => item.slug === slug)
@@ -718,7 +719,7 @@ export function createMoviePresentation(catalogRoot, detailRoot, {
         `★ ${movie.rating}/10${movie.vote_count ? ` · ${formatMovieNumber(movie.vote_count)} Stimmen` : ""}`,
       );
     }
-    if (!metadataOnly) {
+    if (!metadataOnly && !movie.jellyfin_item_id) {
       if (movie.provider_count) {
         metaParts.push(`${movie.provider_count} Anbieter`);
       }
@@ -733,7 +734,8 @@ export function createMoviePresentation(catalogRoot, detailRoot, {
     tagline.textContent = movie.tagline || "";
     tagline.hidden = !movie.tagline;
     setFpDetailJellyfinStatus(fpDetailJellyfinValue(slug, movie));
-    if (metadataOnly) setFpDetailAvailability("Streams werden geprüft", "loading");
+    if (movie.jellyfin_item_id) setFpDetailAvailability("Abspielbar", "ready");
+    else if (metadataOnly) setFpDetailAvailability("Streams werden geprüft", "loading");
     else if (movie.hosters.length) {
       setFpDetailAvailability(
         movie.provider_count
@@ -768,6 +770,7 @@ export function createMoviePresentation(catalogRoot, detailRoot, {
     renderFpExtras(movie);
     renderFpCast(movie.cast, movie.tmdb_url);
     renderFpDownloadSources(slug, movie, metadataOnly);
+    byId("fp-detail-route-card").hidden = Boolean(movie.jellyfin_item_id);
     byId("fp-detail-route-card").classList.toggle("is-loading", metadataOnly);
     setFpDetailText(
       "fp-detail-route",

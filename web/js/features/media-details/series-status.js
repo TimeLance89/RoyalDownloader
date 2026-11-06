@@ -32,6 +32,11 @@ export function createSeriesStatus(statusElement, badgeElement, { onLibraryStatu
     if (!badge) return;
     const label = badge.querySelector("strong");
     badge.className = "series-jellyfin-status";
+    if (series?.jellyfin_inventory?.items.length) {
+      badge.classList.add("is-owned");
+      label.textContent = mediaCenterText("In Jellyfin vorhanden");
+      return;
+    }
     if (checking || series?.jellyfin_pending) {
       badge.classList.add("is-checking");
       label.textContent = mediaCenterText("Jellyfin wird geprüft");
