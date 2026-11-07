@@ -376,7 +376,7 @@ def _series_entry_to_dict(entry: _SeriesCatalogEntry) -> dict:
     return payload
 
 
-def _series_catalog_page_locked(mode: str, page: int = 1, letter: str = "") -> dict:
+def _series_catalog_page_locked(mode: str, page: int = 1, letter: str = "", *, received: int | None = None) -> dict:
     """Erzeugt eine stabile, gemischte Serienseite aus den verfügbaren Katalogen."""
     page = max(1, min(int(page), SERIES_MAX_GLOBAL_PAGE))
     mode = mode if mode in {"discover", "new", "trending", "alpha"} else "discover"
@@ -491,7 +491,7 @@ def _series_catalog_page_locked(mode: str, page: int = 1, letter: str = "") -> d
                 timed_out,
             )
         except SeriesCatalogColdLoadLimit:
-            if len(catalog_entries) < target_end:
+            if received is None and len(catalog_entries) < target_end:
                 raise
             has_more_unverified = True
             break
@@ -544,14 +544,15 @@ def _series_catalog_page_locked(mode: str, page: int = 1, letter: str = "") -> d
     has_more_unverified = has_more_unverified or (
         bool(set(paginated) - exhausted) and len(catalog_entries) <= target_end
     )
-    if has_more_unverified and len(catalog_entries) < target_end:
-        # Do not commit a truncated/empty follow-up page: advancing the browser's
-        # page cursor would permanently skip titles still arriving in the cache.
+    partial_page = has_more_unverified and len(catalog_entries) < target_end
+    page_entries = catalog_entries[start + (received or 0):target_end]
+    if partial_page and (received is None or not page_entries):
+        # Keep the current page until more titles arrive. Legacy callers do
+        # not send an offset and still require a complete page.
         raise SeriesCatalogColdLoadLimit(
             "Weitere Serien werden noch vorbereitet. Bitte kurz warten und erneut versuchen."
         )
-    page_entries = catalog_entries[start:target_end]
-    has_more = page < SERIES_MAX_GLOBAL_PAGE and (
+    has_more = partial_page or page < SERIES_MAX_GLOBAL_PAGE and (
         len(catalog_entries) > target_end or has_more_unverified
     )
     if has_more:
@@ -568,13 +569,14 @@ def _series_catalog_page_locked(mode: str, page: int = 1, letter: str = "") -> d
         "entries": page_entries,
         "page": page,
         "has_more": has_more,
+        "partial_page": partial_page,
         "sources": _series_catalog_sources(page_entries, priority),
     }
 
 
-def series_catalog_page(mode: str, page: int = 1, letter: str = "") -> dict:
+def series_catalog_page(mode: str, page: int = 1, letter: str = "", *, received: int | None = None) -> dict:
     """Erzeugt eine Seite; Provider-Single-Flight erfolgt pro Quellseite."""
-    return _series_catalog_page_locked(mode, page, letter)
+    return _series_catalog_page_locked(mode, page, letter, received=received)
 
 
 def series_search_catalog(query: str) -> dict:

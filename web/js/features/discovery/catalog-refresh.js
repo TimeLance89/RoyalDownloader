@@ -61,11 +61,12 @@ export function createCatalogRefresh({
     if (!seriesScope?.active) return;
     const owner = seriesScope;
     const requestSeq = seriesState.browseRequestSeq;
+    const paging = () => seriesState.waitingForNextPage || seriesState.partialPageCount;
     const current = () => owner.active && requestSeq === seriesState.browseRequestSeq
-      && seriesState.browseMode === "discover" && seriesState.page <= 1;
+      && seriesState.browseMode === "discover" && seriesState.page <= 1 && !paging();
     const stillFresh = Date.now() - seriesState.lastCatalogRefreshAt < CATALOG_REFRESH_INTERVAL_MS;
     if (
-      stillFresh || seriesCatalogRefreshPromise || seriesState.loadingBrowse
+      stillFresh || seriesCatalogRefreshPromise || seriesState.loadingBrowse || paging()
       || seriesState.browseMode !== "discover"
     ) return;
     seriesCatalogRefreshPromise = client.get("/api/series?mode=discover&page=1", { signal: owner.signal })

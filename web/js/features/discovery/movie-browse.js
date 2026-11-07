@@ -186,6 +186,7 @@ export function createMovieBrowse(root, {
     syncFpCatalogFromHome();
     if (movieState.results.length) {
       if (!byId("fp-results").childElementCount) renderFpResults();
+      updateFpInfiniteState();
       // The previous view may have cancelled a catalog batch. Cached metadata
       // and a fresh provider page are not evidence of a completed library check.
       void refreshFpJellyfinStatus();

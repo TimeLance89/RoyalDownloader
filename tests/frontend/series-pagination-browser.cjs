@@ -18,16 +18,22 @@ async function waitUntil(page, predicate) {
       let failures = 1;
       let initialFailures = 1;
       const requests = [];
+      const receivedCounts = [];
       let releaseSecondPage;
       const secondPageGate = new Promise(resolve => { releaseSecondPage = resolve; });
+      let releaseSecondPageTail;
+      const secondPageTailGate = new Promise(resolve => { releaseSecondPageTail = resolve; });
       const items = Array.from({ length: 66 }, (_, i) => ({
         title: `Pagination Series ${i}`, base_slug: `serienstream:pagination-${i}`,
         sample_slug: `serienstream:pagination-${i}-s01e01`, provider: "serienstream",
         cover_url: "/fixture-art.svg", year: "2026",
       }));
       await page.route("**/api/series?**", async route => {
-        const number = Number(new URL(route.request().url()).searchParams.get("page") || 1);
+        const params = new URL(route.request().url()).searchParams;
+        const number = Number(params.get("page") || 1);
+        const received = Number(params.get("received") || 0);
         requests.push(number);
+        if (number === 2) receivedCounts.push(received);
         if (number === 1 && initialFailures > 0) {
           initialFailures--;
           return route.fulfill({ status: 409, json: { detail: { code: "series_catalog_pending", message: "Vorbereitung" } } });
@@ -36,7 +42,14 @@ async function waitUntil(page, predicate) {
           failures--;
           return route.fulfill({ status: 409, json: { detail: { code: "series_catalog_pending", message: "Vorbereitung" } } });
         }
-        if (number === 2) await secondPageGate;
+        if (number === 2) {
+          if (!received) {
+            await secondPageGate;
+            return route.fulfill({ json: { results: items.slice(32, 40), page: 2, partial_page: true, has_more: true, sources: [] } });
+          }
+          await secondPageTailGate;
+          return route.fulfill({ json: { results: items.slice(32 + received, 64), page: 2, has_more: true, sources: [] } });
+        }
         return route.fulfill({ json: { results: items.slice((number - 1) * 32, number * 32), page: number, has_more: number < 3, sources: [] } });
       });
       await page.locator(`${mobile ? ".mobile-tabs" : ".tabs"} .tab-btn[data-tab="serien"]:visible`).first()[mobile ? "tap" : "click"]();
@@ -48,6 +61,10 @@ async function waitUntil(page, predicate) {
       assert.equal(await page.locator("#series-results .result-card").count(), 32);
       assert.notEqual(await page.locator("#series-infinite").getAttribute("data-state"), "loading");
       releaseSecondPage();
+      await page.waitForFunction(() => document.querySelectorAll("#series-results .result-card").length === 40);
+      assert.equal(await page.locator("#series-infinite").getAttribute("data-state"), "waiting");
+      await waitUntil(page, () => receivedCounts.includes(8));
+      releaseSecondPageTail();
       await page.waitForFunction(() => document.querySelectorAll("#series-results .result-card").length === 64);
       await waitUntil(page, () => requests.includes(3));
       await page.waitForTimeout(2500);
@@ -58,11 +75,82 @@ async function waitUntil(page, predicate) {
         null,
         { timeout: 15000 },
       );
-      assert.deepEqual(requests, [1, 1, 2, 2, 3]);
+      assert.deepEqual(requests, [1, 1, 2, 2, 2, 3]);
+      assert.deepEqual(receivedCounts, [0, 0, 8]);
       assert.equal(await page.evaluate(() => originalSeriesCard === document.querySelector("#series-results .result-card")), true);
       assert.equal(await page.locator("#series-infinite-retry").isVisible(), false);
       assert.deepEqual(errors, []);
-      console.log(`series pagination ${width}px: pending page appends on arrival, no second gesture, no skipped pages`);
+      console.log(`series pagination ${width}px: partial page and remaining cards append without another gesture`);
     } finally { await run.close(); }
+  }
+  for (const width of [1440, 3840]) {
+    const run = await fixture({ engine: process.env.ROYAL_BROWSER || "chromium", viewport: { width, height: 1100 } });
+    const { page, errors } = run;
+    try {
+      const items = Array.from({ length: 64 }, (_, index) => ({
+        title: `Return Series ${index}`, base_slug: `serienstream:return-${index}`,
+        sample_slug: `serienstream:return-${index}-s01e01`, cover_url: "/fixture-art.svg",
+      }));
+      await page.route("**/api/series?**", route => {
+        const number = Number(new URL(route.request().url()).searchParams.get("page") || 1);
+        return route.fulfill({ json: {
+          results: items.slice((number - 1) * 32, number * 32), page: number, has_more: number === 1, sources: [],
+        } });
+      });
+      await page.evaluate(() => fixtureApp.core.actions.switchTab("serien"));
+      await page.waitForFunction(() => document.querySelectorAll("#series-results .result-card").length === 32);
+      await page.evaluate(() => {
+        const tab = document.querySelector("#tab-serien");
+        tab.scrollTop = tab.scrollHeight;
+        fixtureApp.core.actions.switchTab("home");
+        fixtureApp.core.actions.switchTab("serien");
+      });
+      await page.waitForFunction(() => document.querySelectorAll("#series-results .result-card").length === 64);
+      assert.deepEqual(errors, []);
+      console.log(`series return ${width}px: visible end loads the next page without a new scroll gesture`);
+    } finally { await run.close(); }
+  }
+  for (const width of [390, 1913]) {
+    const mobile = width < 1000;
+    const run = await fixture({ engine: process.env.ROYAL_BROWSER || "chromium", mobile, viewport: { width, height: 1079 } });
+    const { page, errors } = run;
+    let releaseRefresh;
+    const refreshGate = new Promise(resolve => { releaseRefresh = resolve; });
+    try {
+      for (const catalog of ["movies", "series"]) {
+        await page.route(`**/api/${catalog}?**`, async route => {
+          const number = Number(new URL(route.request().url()).searchParams.get("page") || 1);
+          if (number === 1) await refreshGate;
+          return route.fulfill({ json: {
+            results: Array.from({ length: 32 }, (_, index) => ({
+              title: `Cached ${catalog} ${32 + index}`,
+              slug: `filmpalast:cached-${32 + index}`, base_slug: `serienstream:cached-${32 + index}`,
+              cover_url: "/fixture-art.svg",
+            })), page: number, has_more: false, sources: [],
+          } });
+        });
+      }
+      await page.evaluate(() => {
+        const data = fixtureApp.home.homeData.get();
+        for (const [key, prefix] of [["newMovies", "filmpalast"], ["discoverySeries", "serienstream"]]) {
+          data[key].splice(0, Infinity, ...Array.from({ length: 32 }, (_, index) => ({
+            title: `Cached ${key} ${index}`, slug: `${prefix}:cached-${index}`,
+            base_slug: `${prefix}:cached-${index}`, cover_url: "/fixture-art.svg",
+          })));
+        }
+        fixtureApp.discovery.movieActions.syncFpCatalogFromHome({ fresh: true });
+        fixtureApp.discovery.movieActions.syncSeriesCatalogFromHome({ fresh: true });
+      });
+      for (const [tab, shelf, marker] of [
+        ["filme", "fp-results", "fp-infinite"], ["serien", "series-results", "series-infinite"],
+      ]) {
+        await page.evaluate(tab => fixtureApp.core.actions.switchTab(tab), tab);
+        await page.waitForFunction(id => !document.getElementById(id).classList.contains("hidden"), marker, { timeout: 1000 });
+        await page.locator(`#${marker}`).scrollIntoViewIfNeeded();
+        await page.waitForFunction(id => document.getElementById(id).children.length === 64, shelf);
+        console.log(`cached ${tab} ${width}px: pagination is active before the background refresh returns`);
+      }
+      assert.deepEqual(errors, []);
+    } finally { releaseRefresh(); await run.close(); }
   }
 })().catch(error => { console.error(error); process.exitCode = 1; });
