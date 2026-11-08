@@ -5,7 +5,7 @@ function loadHls(document) {
   if (hlsLibrary) return hlsLibrary;
   hlsLibrary = new Promise((resolve, reject) => {
     const script = document.createElement("script");
-    script.src = "/vendor/hls.js/hls.min.js";
+    script.src = "/vendor/hls/hls.min.js";
     script.onload = () => resolve(document.defaultView.Hls);
     script.onerror = () => { script.remove(); hlsLibrary = null; reject(new Error("Videoplayer konnte nicht geladen werden.")); };
     document.head.append(script);
