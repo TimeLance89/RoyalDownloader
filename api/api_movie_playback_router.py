@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from starlette.responses import Response, StreamingResponse
 
+from api.jellyfin_playback import PlaybackSessions
 from core import egress_requests as requests
 from core.config import home_layout_file
 from integrations.jellyfin_auth import jellyfin_auth_headers
@@ -200,6 +201,7 @@ def create_movie_playback_router(backend, administrator):
     router = APIRouter(tags=["media-center"], dependencies=[Depends(administrator)])
     resume_lock = Lock()
     undo_actions = {}
+    playback_sessions = PlaybackSessions()
 
     def resume_path(request, base_url, profile_id):
         user = backend.current_user(request.headers, request.cookies) or {}
@@ -457,6 +459,44 @@ def create_movie_playback_router(backend, administrator):
         return config, generation, base_url, matched_id, None
 
     movie_dependency = Annotated[tuple[dict, int, str, str, dict | None], Depends(resolve_movie)]
+
+    def playback_context(request):
+        active = connection()
+        if active is None:
+            raise HTTPException(404)
+        config, generation, _ = active
+        user = backend.current_user(request.headers, request.cookies) or {}
+        return str(user.get("id") or ""), linked_profile(request, config), generation
+
+    @router.post("/api/media-center/movies/session")
+    def prepare_playback(request: Request, movie: movie_dependency, force_transcode: bool = False):
+        config, generation, base_url, item_id, _ = movie
+        owner, profile_id, active_generation = playback_context(request)
+        if generation != active_generation:
+            raise HTTPException(409, "Die Jellyfin-Verbindung wurde geändert.")
+        profile_video(base_url, config, profile_id, item_id)
+        return playback_sessions.open(base_url, config["api_key"], item_id, profile_id, generation, owner, force_transcode)
+
+    @router.get("/api/media-center/playback/{token}/asset/{name}")
+    def playback_asset(request: Request, token: str, name: str):
+        session = playback_sessions.get(token, *playback_context(request))
+        return playback_sessions.response(session, name, request.headers.get("range"))
+
+    @router.post("/api/media-center/playback/{token}/seek", status_code=204)
+    def interrupt_playback(request: Request, token: str):
+        playback_sessions.interrupt(playback_sessions.get(token, *playback_context(request)))
+        return Response(status_code=204)
+
+    @router.post("/api/media-center/playback/{token}/heartbeat", status_code=204)
+    def playback_heartbeat(request: Request, token: str):
+        playback_sessions.get(token, *playback_context(request))
+        return Response(status_code=204)
+
+    @router.delete("/api/media-center/playback/{token}", status_code=204)
+    def stop_playback(request: Request, token: str):
+        playback_sessions.get(token, *playback_context(request))
+        playback_sessions.close(token)
+        return Response(status_code=204)
 
     @router.get("/api/media-center/movies/progress")
     def read_progress(request: Request, movie: movie_dependency):

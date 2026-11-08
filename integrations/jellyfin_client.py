@@ -14,6 +14,7 @@ import json
 import logging
 import re
 import threading
+from time import monotonic
 import unicodedata
 import urllib.error
 from contextlib import contextmanager
@@ -32,6 +33,17 @@ logger = logging.getLogger(__name__)
 MAX_ITEM_PAGES = 10_000
 _rd_stream_lock = threading.Lock()
 _rd_stream_count = 0
+_rd_playbacks = {}
+
+
+def touch_rd_playback(token):
+    with _rd_stream_lock:
+        _rd_playbacks[token] = monotonic() + 90
+
+
+def forget_rd_playback(token):
+    with _rd_stream_lock:
+        _rd_playbacks.pop(token, None)
 
 
 @contextmanager
@@ -49,7 +61,11 @@ def track_rd_movie_stream():
 
 def has_rd_movie_streams() -> bool:
     with _rd_stream_lock:
-        return _rd_stream_count > 0
+        now = monotonic()
+        for token, expires in list(_rd_playbacks.items()):
+            if expires <= now:
+                del _rd_playbacks[token]
+        return _rd_stream_count > 0 or bool(_rd_playbacks)
 
 
 def _movie_quality_rank(item: dict) -> int:
