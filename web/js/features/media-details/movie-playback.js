@@ -1,6 +1,7 @@
 import { api } from "../../core/api.js";
 import { createMoviePlayerControls, formatMovieTime } from "./movie-player-controls.js";
 import { createMoviePlayerEpisodes } from "./movie-player-episodes.js";
+import { createMovieStream } from "./movie-stream.js";
 
 const TICKS_PER_SECOND = 10_000_000;
 const progressPath = "/api/media-center/movies/progress";
@@ -13,6 +14,15 @@ export function createMoviePlayback(root, { canPlay, stopTrailer, client = api }
   let currentMovie, slug, owned;
   let progress, readController, playing, controls, episodes;
   let writes = Promise.resolve();
+  const stream = createMovieStream(video, {
+    document: root.ownerDocument, client,
+    starting: position => {
+      if (playing) { playing.target = position; playing.ready = false; playing.started = false; }
+    },
+    positionReady: () => { if (playing) { playing.ready = true; playing.started = true; } },
+    failed: () => { if (dialog.open) controls.message("Der Inhalt konnte nicht abgespielt werden.", { error: true }); },
+    prepared: result => { if (playing && result.duration_ticks) playing.entry.duration_ticks = result.duration_ticks; },
+  });
 
   function movieQuery() {
     if (currentMovie.jellyfin_item_id) return new URLSearchParams({ item_id: currentMovie.jellyfin_item_id });
@@ -56,9 +66,8 @@ export function createMoviePlayback(root, { canPlay, stopTrailer, client = api }
   }
 
   function getPosition() {
-    const start = (playing?.startTicks || 0) / TICKS_PER_SECOND;
-    const elapsed = start + (playing?.ready && Number.isFinite(video.currentTime) ? video.currentTime : 0);
-    const nativeDuration = playing?.ready && Number.isFinite(video.duration) ? start + video.duration : 0;
+    const elapsed = stream.pendingPosition ?? (playing?.ready && Number.isFinite(video.currentTime) ? video.currentTime : playing?.target || 0);
+    const nativeDuration = playing?.ready && Number.isFinite(video.duration) ? video.duration : 0;
     const duration = (playing?.entry?.duration_ticks || 0) / TICKS_PER_SECOND || nativeDuration;
     return { elapsed: duration ? Math.min(elapsed, duration) : elapsed, duration };
   }
@@ -82,12 +91,9 @@ export function createMoviePlayback(root, { canPlay, stopTrailer, client = api }
   }
 
   function stop() {
-    if (!video.hasAttribute("src")) return;
     saveProgress(video.ended);
     playing = null;
-    video.pause();
-    video.removeAttribute("src");
-    video.load();
+    stream.close();
     controls.message();
   }
 
@@ -101,13 +107,11 @@ export function createMoviePlayback(root, { canPlay, stopTrailer, client = api }
   }
 
   function startStream(entry, seconds, autoplay) {
-    const params = new URLSearchParams(entry.params);
-    const startTicks = Math.round(seconds * TICKS_PER_SECOND);
-    if (startTicks) params.set("start_ticks", startTicks);
-    playing = { entry, startTicks, started: false, ready: false, nextSave: 15 };
+    playing = null;
+    stream.close();
+    playing = { entry, target: seconds, started: false, ready: false, nextSave: seconds + 15 };
     controls.message(title.textContent, { loading: true });
-    video.src = `/api/media-center/movies/stream?${params}`;
-    if (autoplay) void video.play().catch(() => {});
+    void stream.open(entry.params, seconds, autoplay);
   }
 
   function seek(seconds) {
@@ -115,21 +119,12 @@ export function createMoviePlayback(root, { canPlay, stopTrailer, client = api }
     const { elapsed, duration } = getPosition();
     const target = Math.max(0, Math.min(seconds, duration ? Math.max(0, duration - 0.25) : elapsed));
     if (Math.abs(elapsed - target) < 0.05) return;
-    const relative = target - playing.startTicks / TICKS_PER_SECOND;
-    if (playing.ready && !playing.finished) {
-      for (let i = 0; i < video.seekable.length; i++) {
-        if (relative >= video.seekable.start(i) && relative < video.seekable.end(i)) {
-          video.currentTime = relative;
-          controls.render();
-          return;
-        }
-      }
-    }
-    // Jellyfin's progressive MP4 can only seek within data it has already sent.
-    // Outside that range, restart the stream at the requested film timestamp.
-    const autoplay = !video.paused && !video.ended;
     saveProgress();
-    startStream(playing.entry, target, autoplay);
+    playing.target = target;
+    playing.finished = false;
+    playing.nextSave = target + 15;
+    stream.seek(target);
+    controls.render();
   }
 
   function open() {
@@ -217,10 +212,13 @@ export function createMoviePlayback(root, { canPlay, stopTrailer, client = api }
         controls.message();
       });
       scope.listen(video, "error", () => {
-        if (dialog.open && video.hasAttribute("src")) {
+        if (dialog.open && video.hasAttribute("src") && !stream.managesErrors) {
           controls.message("Der Inhalt konnte nicht abgespielt werden.", { error: true });
         }
       });
+      scope.interval(() => { if (dialog.open) stream.heartbeat(); }, 30_000);
+      scope.listen(root.ownerDocument.defaultView, "pagehide", () => { saveProgress(); stream.close(); });
+      scope.add(() => { playing = null; stream.close(); });
       controls.mount(scope);
       episodes.mount(scope);
     },
