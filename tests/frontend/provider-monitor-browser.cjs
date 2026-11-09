@@ -54,6 +54,10 @@ const { fixture } = require("./performance-fixture.cjs");
         if (path.endsWith("/config")) return route.fallback();
         return route.fulfill({ json: { started: true } });
       });
+      // Finish the complete settings load before applying the test's provider
+      // draft. Its deferred provider initialization must not overwrite the
+      // draft while the browser is interacting with the source panel.
+      await page.evaluate(() => fixtureApp.settings.settings.initialize());
       if (mobile) {
         await page.locator("#mobile-more-toggle").tap();
         await page.locator('[data-tab="einstellungen"]:visible').tap();
@@ -70,7 +74,7 @@ const { fixture } = require("./performance-fixture.cjs");
       assert.equal(await page.locator("#settings-sources > .settings-card").first().getAttribute("id"), "provider-catalog", "Source catalog comes before availability");
       assert.equal(await page.locator("#settings-sources > .settings-card").nth(1).getAttribute("id"), "provider-monitor");
       const interact = mobile ? "tap" : "click";
-      await page.evaluate(async () => { await fixtureApp.settings.providers.initialize(); fixtureApp.settings.providers.apply({
+      await page.evaluate(() => { fixtureApp.settings.providers.apply({
         movies: ["filmpalast", "sflix"], series: ["serienstream", "sflix"], anime: ["aniworld", "mkissa"],
         enabled_movies: ["filmpalast", "sflix"], enabled_series: ["serienstream", "sflix"], enabled_anime: ["aniworld", "mkissa"],
         content_languages: ["de", "en"], languages: { de: "Deutsch", en: "English" },

@@ -17,13 +17,52 @@ function fixture(responses, waitForRetry = async () => {}) {
     updateSeriesInfiniteState:noop,showSeriesDetail:noop,firstEpisodeSlug:noop,updateSeriesStatus:noop,
     refreshSeriesJellyfinStatus:noop,recheckSeriesInfinite(){ rechecks += 1; },preloadSeriesPosterImages:noop,
     syncSeriesCatalogFromHome:noop,renderSeriesResults:noop,refreshSeriesCatalogInBackground:noop,
-    applySeriesResults(data) { applied.push(data); state.results.push(...data.results); state.page=data.page; state.lastPageFull=data.has_more; state.loadError=''; },
+    applySeriesResults(data) { applied.push(data); state.results.push(...data.results); state.page=data.page; state.partialPageCount=data.partialPageCount || 0; state.lastPageFull=data.has_more; state.loadError=''; },
     client:{ async get(url,options) { calls.push({url,options}); const result=responses.shift(); if (result instanceof Error) throw result; return result; } },
   });
   browse.mount(); return {browse,state,calls,applied,scheduled,get rechecks(){ return rechecks; }};
 }
 const pending=()=>Object.assign(new Error('Dieser Serienabschnitt wird vorbereitet'),{status:409,code:'series_catalog_pending'});
 const page2={page:2,has_more:false,results:[{base_slug:'series-32'}]};
+
+test('visible series end recovers when browser observers and scroll events do not fire', async t => {
+  const previousFrame = globalThis.requestAnimationFrame;
+  const previousCancel = globalThis.cancelAnimationFrame;
+  globalThis.requestAnimationFrame = callback => setTimeout(callback, 0);
+  globalThis.cancelAnimationFrame = clearTimeout;
+  t.after(() => {
+    globalThis.requestAnimationFrame = previousFrame;
+    globalThis.cancelAnimationFrame = previousCancel;
+  });
+  class SilentObserver { observe() {} disconnect() {} }
+  const win = Object.assign(new EventTarget(), {
+    innerHeight: 800, scrollY: 0, getComputedStyle: () => ({ overflowY: 'visible' }),
+    IntersectionObserver: SilentObserver, ResizeObserver: SilentObserver,
+  });
+  const root = Object.assign(new EventTarget(), { scrollTop: 0, ownerDocument: { defaultView: win } });
+  let top = 1100;
+  const sentinel = { classList: { contains: () => false }, getBoundingClientRect: () => ({ top, bottom: top + 60 }) };
+  const reveals = [];
+  let resolve;
+  const revealed = new Promise(done => { resolve = done; });
+  const infinite = createInfiniteScroll(root, {
+    sentinel, revealAtEnd: true, loadNext({ reveal }) { reveals.push(reveal); if (reveal) resolve(); },
+  });
+  infinite.mount();
+  try {
+    await new Promise(done => setTimeout(done, 20));
+    assert.deepEqual(reveals, [false]);
+    top = 850; // The footer may sit just beyond the viewport behind the dock.
+    await Promise.race([
+      revealed,
+      new Promise((_, reject) => {
+        const timer = setTimeout(() => reject(new Error('Visible end was never rechecked')), 3000);
+        t.after(() => clearTimeout(timer));
+      }),
+    ]);
+    assert.equal(reveals.at(-1), true);
+  } finally { infinite.unmount(); }
+});
 
 test('only downward input reveals buffered pages, including wheel and touch at the bottom',t=>{
   const frames=new Map(); let frameId=0;
@@ -95,6 +134,26 @@ test('downward demand survives transient warmup retries', async()=>{
     assert.equal(h.state.results.length,33);
     assert.equal(h.applied.length,1);
   } finally {h.browse.unmount();}
+});
+
+test('partial follow-up appears immediately and resumes the same page without another gesture', async () => {
+  const partial = { ...page2, has_more: true, partial_page: true };
+  const tail = { ...page2, results: [{ base_slug: 'series-33' }] };
+  const h = fixture([partial, tail]);
+  try {
+    await h.browse.next({ reveal: true });
+    assert.equal(h.state.results.length, 33);
+    assert.equal(h.state.page, 1);
+    assert.equal(h.state.waitingForNextPage, true);
+    h.scheduled.shift()();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(h.calls.map(({ url }) => new URL(url, 'http://rd').searchParams.get('received')), ['0', '1']);
+    assert.ok(h.calls.every(({ url }) => url.includes('page=2')));
+    assert.equal(h.state.page, 2);
+    assert.equal(h.state.partialPageCount, 0);
+    assert.equal(h.state.waitingForNextPage, false);
+    assert.equal(h.state.results.length, 34);
+  } finally { h.browse.unmount(); }
 });
 
 test('switching catalogs discards a late prefetched response',async()=>{

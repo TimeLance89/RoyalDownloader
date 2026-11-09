@@ -10,6 +10,41 @@ import integrations.jellyfin_client as jellyfin_client
 from integrations.jellyfin_client import JellyfinClient
 
 
+def test_movie_title_normalization_strips_only_trailing_years():
+    for title in ["Dune (2021)", "Dune [2021]  ", "Dune 2021", "Dune\t(2021)\n"]:
+        assert jellyfin_client._normalize(title) == "dune"
+    assert jellyfin_client._normalize("Dune 2021 Extended") == "dune2021extended"
+    assert jellyfin_client._normalize("Dune" + " " * 100_000 + "X") == "dunex"
+
+
+def test_series_page_already_contains_cached_library_matches(monkeypatch):
+    calls = []
+
+    class CachedClient:
+        configured = True
+
+        def series_ids_for(self, title, **kwargs):
+            calls.append(title)
+            assert kwargs["items"] == [{"id": "existing-series"}]
+            return {"existing-series"} if title == "Owned" else set()
+
+    monkeypatch.setattr(api_discovery_router, "get_jellyfin_client", CachedClient)
+    monkeypatch.setattr(api_discovery_router, "state", SimpleNamespace(
+        jellyfin_cache_lock=threading.RLock(), jellyfin_series_available=True,
+        jellyfin_series=[{"id": "existing-series"}],
+    ))
+    monkeypatch.setattr(api_discovery_router, "series_catalog_page", lambda *_args: {
+        "entries": ["Owned", "Missing"], "page": 1, "has_more": True, "sources": [],
+    })
+    monkeypatch.setattr(api_discovery_router, "_series_entry_to_dict", lambda title: {"title": title})
+    monkeypatch.setattr(api_discovery_router, "get_jellyfin_series", lambda: (_ for _ in ()).throw(
+        AssertionError("Der Seitenabruf darf keine Jellyfin-Netzabfrage starten"),
+    ))
+    result = asyncio.run(api_discovery_router.api_series(mode="discover"))
+    assert [item["jellyfin_status"] for item in result["results"]] == ["owned", "missing"]
+    assert calls == ["Owned", "Missing"]
+
+
 class _Response:
     def __init__(self, payload):
         self.payload = payload

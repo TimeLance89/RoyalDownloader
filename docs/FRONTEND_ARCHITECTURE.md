@@ -3,7 +3,7 @@
 ## Aufbau und Einstieg
 
 RoyalDownloader verwendet HTML, CSS und Vanilla JavaScript mit nativen ES Modules.
-Es gibt keinen Bundler, keine neue Laufzeitabhängigkeit und keinen Build-Schritt.
+Es gibt keinen Bundler und keinen Build-Schritt.
 `web/index.html` lädt ausschließlich `web/app.js` als Modul. Dieser Einstieg
 initialisiert Übersetzung, Anmeldung, Setup und die Anwendung.
 
@@ -336,3 +336,11 @@ die Workflowdatei auch auf dem Default-Branch vorhanden ist.
 
 Messungen und bewusst unveränderte Effekte/Fonts:
 [Baseline](FRONTEND_PERFORMANCE_BASELINE.md), [Ergebnis](FRONTEND_PERFORMANCE_RESULT.md).
+
+## Jellyfin-Videotransport
+
+Der Player lädt die unveränderte, lokal mitgelieferte Bibliothek Hls.js 1.7.4
+unter `web/vendor/hls/hls.min.js`; ihre Lizenz liegt daneben. Nur diese
+Fremdbibliothek ist vom HTTP-Eigentümertest ausgenommen: Sie lädt HLS-Listen
+und Segmente über authentifizierte Royal-Playback-Endpunkte desselben Ursprungs.
+Anwendungsanfragen bleiben ausschließlich bei `web/js/core/api.js`.

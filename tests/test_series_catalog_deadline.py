@@ -166,6 +166,35 @@ def test_series_pending_response_has_retry_contract(monkeypatch):
     assert captured.value.headers["Retry-After"] == "1"
 
 
+def test_partial_followup_returns_available_titles_then_only_the_missing_tail(monkeypatch, clean_catalog_cache):
+    items = series_items("partial", 5)
+    available = 3
+
+    def load_pages(_mode, _letter, _requests, _budget, _deadline, timed_out):
+        timed_out[0] = available < len(items)
+        return {("filmpalast", 1): items[:available]}
+
+    monkeypatch.setattr(server, "provider_priority", lambda _kind: ["filmpalast"])
+    monkeypatch.setattr(series_catalog, "SERIES_BROWSE_PAGE_SIZE", 2)
+    monkeypatch.setattr(server, "_load_series_provider_pages", load_pages)
+    monkeypatch.setattr(server, "_series_provider_is_paginated", lambda *_args: False)
+    first = series_catalog.series_catalog_page("discover", 1)
+    partial = series_catalog.series_catalog_page("discover", 2, received=0)
+    assert partial["partial_page"] and partial["has_more"]
+    assert [entry.result.base_slug for entry in partial["entries"]] == ["partial-2"]
+    with pytest.raises(server.SeriesCatalogColdLoadLimit):
+        series_catalog.series_catalog_page("discover", 2, received=1)
+
+    available = len(items)
+    tail = series_catalog.series_catalog_page("discover", 2, received=1)
+    final = series_catalog.series_catalog_page("discover", 3, received=0)
+    assert not tail["partial_page"] and tail["has_more"]
+    assert not final["has_more"]
+    assert [entry.result.base_slug for part in (first, partial, tail, final) for entry in part["entries"]] == [
+        item.base_slug for item in items
+    ]
+
+
 def test_slow_series_provider_continues_after_request_deadline(monkeypatch):
     release = threading.Event()
 

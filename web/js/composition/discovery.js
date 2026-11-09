@@ -53,7 +53,7 @@ import { createCatalogArtwork } from "../features/discovery/artwork.js";
 
 import { createMovieHero } from "../features/discovery/movie-hero.js";
 
-export function composeDiscovery({ movieState, seriesState, artworkUrls, i18n, state, getCore, getIntegrations, getDownloads, getSubscriptions, getHome, getSettings }) {
+export function composeDiscovery({ movieState, seriesState, artworkUrls, i18n, state, getCore, getIntegrations, getDownloads, getSubscriptions, getHome, getSettings, getProfile }) {
   const services = {
   movieState,
   seriesState,
@@ -73,6 +73,11 @@ export function composeDiscovery({ movieState, seriesState, artworkUrls, i18n, s
         kind: "series", coverUrl: url => artworkUrls.coverUrl(url), selectFpRow: (...args) => services.movieActions.selectFpRow(...args), loadSeries: (...args) => services.seriesActions.loadSeries(...args), fpTrailerYoutubeKey: (...args) => services.movieActions.fpTrailerYoutubeKey(...args), openFpTrailerModal: (...args) => services.movieActions.openFpTrailerModal(...args),
       }),
   moviePresentation: createMoviePresentation(document.getElementById("tab-filme"), document.getElementById("fp-detail-modal"), {
+        isAdministrator: () => getProfile().auth.get().user?.role === "admin",
+        stopFpDetailHeroTrailer: () => {
+          services.movieActions.stopFpDetailHeroTrailer();
+          services.seriesActions.stopSeriesDetailHeroTrailer();
+        },
         locale: () => i18n.locale(), movieState, getQueuedSlugs: () => state.queuedSlugs, coverUrl: url => artworkUrls.coverUrl(url),
         subscriptionFor: (...args) => getSubscriptions().movieSubscriptionFor(...args),
         openSubscription: (...args) => getSubscriptions().movieSubscriptionRules.open(...args),
@@ -97,9 +102,11 @@ export function composeDiscovery({ movieState, seriesState, artworkUrls, i18n, s
   seriesPresentation: createSeriesPresentation(document.getElementById("tab-serien"), document.getElementById("series-detail-modal"), {
         watchModeLabel: mode => WATCH_MODE_LABELS[mode] || WATCH_MODE_LABELS[WATCH_MODE_DEFAULT],
         seriesState, getHomeData: () => getHome().homeData.get(), coverUrl: url => artworkUrls.coverUrl(url),
-        activateResultCard: (...args) => services.movieActions.activateResultCard(...args), configureSeriesTrailer: (...args) => services.seriesActions.configureSeriesTrailer(...args), createResultCardVisual: (...args) => services.movieActions.createResultCardVisual(...args), dedupeCatalogMedia: (...args) => getSubscriptions().actions.dedupeCatalogMedia(...args), discardObservedResultPosters: (...args) => services.movieActions.discardObservedResultPosters(...args), homeSeriesEntry: (...args) => getHome().actions.homeSeriesEntry(...args), hydrateHomeSeriesArtwork: (...args) => getHome().actions.hydrateHomeSeriesArtwork(...args), isEpisodeEligible: (...args) => services.seriesActions.isEpisodeEligible(...args), loadSeries: (...args) => services.seriesActions.loadSeries(...args), mediaJellyfinStatus: (...args) => getHome().actions.mediaJellyfinStatus(...args), mergeCatalogItems: (...args) => services.movieActions.mergeCatalogItems(...args), mergeCatalogSources: (...args) => services.movieActions.mergeCatalogSources(...args), openMediaModal: (...args) => getCore().actions.openMediaModal(...args), recheckSeriesInfinite: (...args) => getCore().actions.recheckSeriesInfinite(...args), refreshCatalogJellyfinStatus: (...args) => getHome().actions.refreshCatalogJellyfinStatus(...args), renderSeriesDetailDiscovery: (...args) => services.seriesActions.renderSeriesDetailDiscovery(...args), renderSeriesTiles: (...args) => services.seriesActions.renderSeriesTiles(...args), setFpJellyfinBadge: (...args) => services.movieActions.setFpJellyfinBadge(...args), setFpPosterJellyfinBadge: (...args) => services.movieActions.setFpPosterJellyfinBadge(...args), syncResultCardPoster: (...args) => services.movieActions.syncResultCardPoster(...args), syncSeriesQueueFlags: (...args) => services.seriesActions.syncSeriesQueueFlags(...args), updateSeriesJellyfinBadge: (...args) => services.movieActions.updateSeriesJellyfinBadge(...args), updateSeriesStatus: (...args) => services.movieActions.updateSeriesStatus(...args), updateTasteFeedbackButtons: (...args) => getHome().actions.updateTasteFeedbackButtons(...args), verifyHuhuEpisodeLanguages: (...args) => services.seriesActions.verifyHuhuEpisodeLanguages(...args),
+        activateResultCard: (...args) => services.movieActions.activateResultCard(...args), configureSeriesTrailer: (...args) => { if (!services.moviePresentation.isPlaybackOpen()) services.seriesActions.configureSeriesTrailer(...args); }, createResultCardVisual: (...args) => services.movieActions.createResultCardVisual(...args), dedupeCatalogMedia: (...args) => getSubscriptions().actions.dedupeCatalogMedia(...args), discardObservedResultPosters: (...args) => services.movieActions.discardObservedResultPosters(...args), homeSeriesEntry: (...args) => getHome().actions.homeSeriesEntry(...args), hydrateHomeSeriesArtwork: (...args) => getHome().actions.hydrateHomeSeriesArtwork(...args), isEpisodeEligible: (...args) => services.seriesActions.isEpisodeEligible(...args), loadSeries: (...args) => services.seriesActions.loadSeries(...args), mediaJellyfinStatus: (...args) => getHome().actions.mediaJellyfinStatus(...args), mergeCatalogItems: (...args) => services.movieActions.mergeCatalogItems(...args), mergeCatalogSources: (...args) => services.movieActions.mergeCatalogSources(...args), openMediaModal: (...args) => getCore().actions.openMediaModal(...args), recheckSeriesInfinite: (...args) => getCore().actions.recheckSeriesInfinite(...args), refreshCatalogJellyfinStatus: (...args) => getHome().actions.refreshCatalogJellyfinStatus(...args), renderSeriesDetailDiscovery: (...args) => services.seriesActions.renderSeriesDetailDiscovery(...args), renderSeriesTiles: (...args) => services.seriesActions.renderSeriesTiles(...args), setFpJellyfinBadge: (...args) => services.movieActions.setFpJellyfinBadge(...args), setFpPosterJellyfinBadge: (...args) => services.movieActions.setFpPosterJellyfinBadge(...args), syncResultCardPoster: (...args) => services.movieActions.syncResultCardPoster(...args), syncSeriesQueueFlags: (...args) => services.seriesActions.syncSeriesQueueFlags(...args), updateSeriesJellyfinBadge: (...args) => services.movieActions.updateSeriesJellyfinBadge(...args), updateSeriesStatus: (...args) => services.movieActions.updateSeriesStatus(...args), updateTasteFeedbackButtons: (...args) => getHome().actions.updateTasteFeedbackButtons(...args), verifyHuhuEpisodeLanguages: (...args) => services.seriesActions.verifyHuhuEpisodeLanguages(...args),
       }),
   seriesEpisodes: createSeriesEpisodes(document.getElementById("series-detail-modal"), {
+        canPlaySeries: () => getProfile().auth.get().user?.role === "admin",
+        openPlaybackItem: (...args) => services.moviePresentation.openPlaybackItem(...args),
         isQueueLoaded: () => state.queue.loaded, status: document.getElementById("series-status"), seriesState, getQueuedSlugs: () => state.queuedSlugs,
         getEnabledLanguages: () => getSettings().providers.get()?.contentLanguages,
         verifyHuhuEpisodeLanguages: (...args) => services.seriesActions.verifyHuhuEpisodeLanguages(...args), trackDiscoveryPreference: (...args) => getHome().actions.trackDiscoveryPreference(...args), refreshQueueUiAfterChange: (...args) => getCore().actions.refreshQueueUiAfterChange(...args),
@@ -130,7 +137,10 @@ export function composeDiscovery({ movieState, seriesState, artworkUrls, i18n, s
         verifyHuhuEpisodeLanguages: (...args) => services.seriesActions.verifyHuhuEpisodeLanguages(...args),
         updateSeriesOverview: (...args) => services.seriesActions.updateSeriesOverview(...args),
         updateSeriesJellyfinBadge: (...args) => services.movieActions.updateSeriesJellyfinBadge(...args),
-        seriesState, trackDiscoveryPreference: (...args) => getHome().actions.trackDiscoveryPreference(...args), updateSeriesResultSelection: (...args) => services.seriesActions.updateSeriesResultSelection(...args), showSeriesLoading: (...args) => services.seriesActions.showSeriesLoading(...args),
+        seriesState, trackDiscoveryPreference: (...args) => getHome().actions.trackDiscoveryPreference(...args), updateSeriesResultSelection: (...args) => services.seriesActions.updateSeriesResultSelection(...args), showSeriesLoading: result => {
+          services.seriesActions.showSeriesLoading(result);
+          services.seriesEpisodes.preview(result);
+        },
         openMediaModal: (...args) => getCore().actions.openMediaModal(...args), findSeriesResultCard: (...args) => services.seriesActions.findSeriesResultCard(...args), showSeriesDetail: (...args) => services.seriesActions.showSeriesDetail(...args), updateSeriesStatus: (...args) => services.movieActions.updateSeriesStatus(...args),
         refreshSeriesJellyfinStatus: (...args) => services.movieActions.refreshSeriesJellyfinStatus(...args), switchTab: (...args) => getCore().actions.switchTab(...args), firstEpisodeSlug: (...args) => services.seriesActions.firstEpisodeSlug(...args), seriesEpisodes: (...args) => services.seriesActions.seriesEpisodes(...args), isEpisodeSelectable: (...args) => services.seriesActions.isEpisodeSelectable(...args),
         renderSeriesTiles: (...args) => services.seriesActions.renderSeriesTiles(...args), syncWatchlistSnapshot: (...args) => getCore().actions.syncWatchlistSnapshot(...args),
@@ -203,6 +213,7 @@ export function composeDiscovery({ movieState, seriesState, artworkUrls, i18n, s
         }),
         series: createInfiniteScroll(document.getElementById("tab-serien"), {
           trackScrollIntent: true,
+          revealAtEnd: true,
           sentinel: document.getElementById("series-infinite"), retryButton: document.getElementById("series-infinite-retry"),
           loadNext: options => services.seriesActions.loadNextSeriesPage(options), retry() {
             const mode = seriesState.browseMode;

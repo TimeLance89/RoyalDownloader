@@ -401,7 +401,8 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
     assert.match(html, new RegExp(`id=["']${id}["']`));
   }
   assert.match(app, /scope\.listen\(win, "scroll", onScroll, \{ passive: true \}\)/);
-  assert.match(app, /sentinel\.getBoundingClientRect\(\)\.top/);
+  assert.match(app, /const end = sentinel\.getBoundingClientRect\(\)/);
+  assert.match(app, /end\.top <= viewportBottom \+ preload/);
   assert.match(app, /if \(!scope\?\.active \|\| scheduled\) return/);
   assert.match(app, /createInfiniteScroll\(document.getElementById\("tab-filme"\)/);
   assert.match(app, /createInfiniteScroll\(document.getElementById\("tab-serien"\)/);
@@ -1118,7 +1119,7 @@ test("Royal archive behaves like a searchable media center", () => {
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {
-  assert.match(html, /is-scheduled[^\n]*Terminiert/);
+  assert.match(html, /is-scheduled[^\n]*Angekündigt/);
   assert.match(app, /ep\.unreleased \? `Folge \$\{ep\.episode\}, verfügbar ab/);
   assert.match(app, /completedSeriesHeroTrailers\.add/);
   assert.match(app, /playerState === 0/);

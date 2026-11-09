@@ -3,7 +3,6 @@ import re
 from html.parser import HTMLParser
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "web"
 
@@ -37,6 +36,9 @@ def test_script_inventory_handles_html_case_quotes_and_comments():
 
 def test_http_and_websocket_have_single_owners():
     for path in WEB.rglob("*.js"):
+        # Hls.js owns media segment loading; application HTTP stays in core/api.js.
+        if path == WEB / "vendor/hls/hls.min.js":
+            continue
         source = path.read_text(encoding="utf-8")
         if path != WEB / "js/core/api.js":
             assert not re.search(r"\bfetch\s*\(", source), path

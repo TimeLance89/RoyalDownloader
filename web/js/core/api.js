@@ -26,6 +26,7 @@ export function createApi({ fetchImpl = (...args) => fetch(...args), timeoutMs =
       const response = await fetchImpl(url, {
         method, headers, credentials: "same-origin", signal: controller.signal,
         ...(options.cache ? { cache: options.cache } : {}),
+        ...(options.keepalive ? { keepalive: true } : {}),
         ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
       });
       if (response.ok && options.responseType === "blob") return await response.blob();

@@ -85,7 +85,7 @@ export function createSeriesChecks(status, {
   async function refreshSeriesJellyfinStatus(force = false) {
     if (!isVisible()) return false;
     const current = seriesState.current;
-    if (!current) return false;
+    if (!current || current.jellyfin_inventory) return false;
     refreshScope?.dispose();
     const owner = createScope();
     refreshScope = owner;

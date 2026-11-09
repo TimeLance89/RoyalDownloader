@@ -26,11 +26,32 @@ import { createDailyTop } from "../features/home/daily-top.js";
 import { createHomeData } from "../features/home/data.js";
 
 import { createCarousel } from "../shared/components/carousel.js";
+import { createContinueWatching } from "../features/home/continue-watching.js";
 
 export function composeHome({ discoveryPolicy, movieState, artworkUrls, recommendations, getDiscovery, getIntegrations, getCore, getSearch, getProfile }) {
   const services = {
   seasonalEvents: createSeasonalEvents(document.getElementById("tab-home")),
   discoveryPolicy,
+  continueWatching: createContinueWatching(document.getElementById("home-continue-watching"), {
+    openItem: (...args) => getDiscovery().moviePresentation.openPlaybackItem(...args),
+    openDetails(item, details) {
+      const tmdb_id = Number(details.tmdb_id) || null;
+      const title = details.title || item.title;
+      const media = { title, tmdb_id, year: details.year || item.year || "",
+        description: details.description, genres: details.genres, metadata_source: "Jellyfin" };
+      if (item.kind === "episode") {
+        void getDiscovery().seriesActions.loadSeries({
+          ...media, base_slug: `jellyfin:${details.series_id}`, jellyfin_episode_id: item.id,
+          jellyfin_inventory: details.inventory,
+        });
+      } else {
+        const slug = `jellyfin:${item.id}`;
+        const backdrop_url = item.has_image ? `/api/media-center/continue-watching/${item.id}/image` : "";
+        void getDiscovery().movieActions.selectFpRow(slug, { ...media, slug, backdrop_url, jellyfin_item_id: item.id });
+      }
+    },
+    updateNavigation: track => services.carousel.updateHomeRailNavigation(track),
+  }),
   exposureVisibility: createHomeExposureVisibility(document.getElementById("tab-home"), {
     record: (lane, entries) => discoveryPolicy.recordDiscoveryExposureV2(lane, entries),
     logicalKey: entry => discoveryPolicy.discoveryV2LogicalKey(entry),
