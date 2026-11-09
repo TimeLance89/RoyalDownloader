@@ -13,6 +13,7 @@
 | [Architecture boundaries](ARCHITECTURE.md) | Dependency direction, module ownership, and lock order |
 | [Completed modularization](MODULARIZATION.md) | Large backend/frontend refactor, compatibility guarantees, and extension guide |
 | [Dependency updates](DEPENDENCY_UPDATES.md) | Reviewed dependency and image update policy |
+| [Fire TV app](FIRE_TV.md) | TV APK download, separate app version, installation and checksum/signing details |
 | [Media center and playback](MEDIA_CENTER.md) | Set up Jellyfin streaming, household profiles, Continue watching and series navigation |
 | [Jellyfin segment metadata](JELLYFIN_MEDIA_SEGMENTS.md) | Authenticated Intro/Outro metadata API and compatibility boundaries |
 | [Jellyfin recommendations](JELLYFIN_RECOMMENDER.md) | Automatically maintained recommendation collection |
