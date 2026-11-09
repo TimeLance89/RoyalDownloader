@@ -164,9 +164,15 @@ benötigt keine Dateien, Datenbankmigrationen, Timer oder Hintergrundjobs.
 | Segment-Endpunkt nicht verfügbar | 60 Sekunden |
 | Fehler beim Segmentabruf | 5 Sekunden |
 
-Schlüssel enthalten Verbindung, einen Digest des API-Schlüssels, Konfigurations-
-Generation, Jellyfin-Profil, Item-ID und aktuelle Laufzeit. Zugangsdaten werden
-nicht im Klartext in Cache-Schlüsseln oder API-Fehlern veröffentlicht.
+Ein opaker, prozessinterner Namespace trennt die Verbindung einschließlich
+Zugangsdaten und Konfigurations-Generation. Bei Server-, Schlüssel- oder
+Generationswechsel wird er erneuert, auch wenn später eine frühere Verbindung
+wiederhergestellt wird. Cache-Schlüssel enthalten nur diesen Namespace,
+Jellyfin-Profil, Item-ID und aktuelle Laufzeit. API-Schlüssel werden nicht gehasht
+oder in Cache-Schlüsseln abgelegt. Der Verbindungsvergleich ist ausschließlich
+Cache-Verwaltung, keine Passwortprüfung; Zugangsdaten bleiben wie in der
+bestehenden Verbindung im privaten Prozessspeicher und sind in deren Darstellung
+und in API-Fehlern ausgeblendet.
 
 Profilsperre und Inhaltsberechtigungen werden **vor jeder Antwort** erneut in
 Jellyfin geprüft, auch bei einem Cache-Treffer. Diese Berechtigungsdaten werden

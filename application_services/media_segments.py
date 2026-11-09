@@ -6,8 +6,7 @@ or analyzed, and no scheduler, persistent data or background thread is created.
 
 from collections import OrderedDict
 from concurrent.futures import Future, TimeoutError
-from dataclasses import dataclass
-from hashlib import sha256
+from dataclasses import dataclass, field
 from threading import Lock
 from time import monotonic
 
@@ -54,6 +53,13 @@ class SegmentError(Exception):
     def __init__(self, http_status, code, message, status="error"):
         super().__init__(message)
         self.result = SegmentResult(status, http_status=http_status, code=code, message=message)
+
+
+@dataclass(frozen=True)
+class _Connection:
+    base_url: str
+    generation: int
+    api_key: str = field(repr=False)
 
 
 def _invalid_response():
@@ -187,9 +193,22 @@ class MediaSegments:
     def __init__(self, *, cache=None, client_factory=JellyfinClient):
         self.cache = cache if cache is not None else SegmentCache()
         self.client_factory = client_factory
+        self._connection_lock = Lock()
+        self._connection = None
+        self._namespace = None
+
+    def _connection_namespace(self, base_url, api_key, generation):
+        """Opaque cache identity, not a credential verifier or stored key hash."""
+        connection = _Connection(base_url, generation, api_key)
+        with self._connection_lock:
+            if connection != self._connection:
+                self._connection = connection
+                self._namespace = object()
+            return self._namespace
 
     def read(self, base_url, api_key, generation, profile_id, item_id, *, refresh=False):
         profile_id, item_id = jellyfin_id(profile_id), jellyfin_id(item_id)
+        namespace = self._connection_namespace(base_url, api_key, generation)
         client = self.client_factory(base_url, api_key, timeout=5)
         user = _read(lambda: client.media_segment_user(profile_id), stage="user")
         try:
@@ -216,6 +235,6 @@ class MediaSegments:
         duration = video.get("RunTimeTicks")
         if duration is not None and (not _ticks(duration) or duration == 0):
             raise _invalid_response()
-        key = (base_url, sha256(api_key.encode()).digest(), generation, profile_id, item_id, duration)
+        key = (namespace, profile_id, item_id, duration)
         return self.cache.get(key, lambda: normalize_segments(item_id,
             _read(lambda: client.media_segments(item_id), stage="segments"), duration), refresh=refresh)

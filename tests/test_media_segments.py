@@ -246,3 +246,37 @@ def test_upstream_exceptions_do_not_leak_private_details(error, code):
         service.read("http://jf", "secret", 1, PROFILE, ITEM)
     assert failure.value.result.code == code
     assert str(error) not in str(failure.value.result.payload(ITEM))
+
+
+def test_cache_namespaces_rotate_without_hashing_or_exposing_credentials():
+    calls = []
+
+    def client_factory(base_url, api_key, **options):
+        def segments(item_id):
+            calls.append(item_id)
+            return {"Items": [row()]}
+
+        return SimpleNamespace(
+            media_segment_user=lambda _: {"Id": PROFILE, "Policy": {"IsDisabled": False}},
+            media_segment_video=lambda *_: {"Items": [{"Id": ITEM, "Type": "Movie", "RunTimeTicks": 1000}]},
+            media_segments=segments,
+        )
+
+    service = MediaSegments(client_factory=client_factory)
+    credential = "sensitive-key-never-used-as-cache-key"
+    first = service.read("http://jf", credential, 1, PROFILE, ITEM)
+    first_key = next(iter(service.cache._entries))
+    assert not isinstance(first_key[0], (str, bytes))
+    assert credential not in repr(first_key)
+    assert credential not in repr(service._connection)
+    assert service.read("http://jf", credential, 1, PROFILE, ITEM) is first
+    assert len(calls) == 1
+    for base, key, generation in [
+        ("http://jf", "rotated-key", 1),
+        ("http://jf", credential, 1),
+        ("http://other", credential, 1),
+        ("http://other", credential, 2),
+    ]:
+        assert service.read(base, key, generation, PROFILE, ITEM).status == "available"
+    namespaces = [key[0] for key in service.cache._entries]
+    assert len(calls) == len(set(namespaces)) == 5
