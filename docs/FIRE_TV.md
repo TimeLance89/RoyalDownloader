@@ -20,6 +20,9 @@ APK, published without modifying, rebuilding or re-signing it.
    server address must be reachable from the Fire TV.
 
 The APK declares minimum Android API level **25** and a TV launcher entry.
+Its manifest disables cleartext traffic: use a reachable **HTTPS** Royal server
+address with a certificate trusted by the TV device.
+
 Keep your existing server accounts and configuration. An app update must be
 signed by the same certificate as the installed app to update it in place.
 
