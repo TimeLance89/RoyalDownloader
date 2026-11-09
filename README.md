@@ -19,6 +19,7 @@
 <p align="center">
   <a href="#watch-directly-in-royal"><strong>Watch in Royal</strong></a> ·
   <a href="#quick-start">Get started</a> ·
+  <a href="#fire-tv-app">Fire TV app</a> ·
   <a href="#a-look-inside">Screenshots</a> ·
   <a href="#whats-new-in-21">Version 2.1</a> ·
   <a href="#documentation">Documentation</a>
@@ -264,6 +265,17 @@ Download sources and metadata services are external and may change independently
 Availability checks do not guarantee that a source exists or that it carries the
 requested spoken language. A subtitle label is not evidence of an audio track.
 
+## Fire TV app
+
+**[Download the Fire TV APK · v2.0.49](https://github.com/TimeLance89/RoyalDownloader/releases/download/v2.1.0/RoyalDownloader-TV-2.0.49-native.apk)**
+
+Use the RoyalDownloader TV client on your Fire TV and connect it to your running
+Royal server. The APK is provided as a release download (about 4 MB).
+
+**TV app v2.0.49 and server v2.1.0 are versioned separately.** The download is the
+supplied native APK, unchanged. See the [installation notes and signing details](docs/FIRE_TV.md)
+and its [SHA-256 checksum](https://github.com/TimeLance89/RoyalDownloader/releases/download/v2.1.0/RoyalDownloader-TV-2.0.49-native.apk.sha256).
+
 ## Quick start
 
 ### Docker Compose · recommended for NAS and home servers
@@ -437,6 +449,7 @@ providers and enabled integrations still make outbound requests.
 
 | I want to… | Read |
 | --- | --- |
+| **Download the Fire TV app** | [APK download and installation notes](docs/FIRE_TV.md) |
 | **Play films and series in Royal** | [Media center and Jellyfin playback](docs/MEDIA_CENTER.md) |
 | **Read existing intro/outro metadata** | [Jellyfin segment API](docs/JELLYFIN_MEDIA_SEGMENTS.md) |
 | **Deploy on a NAS or configure Docker** | [Docker & NAS guide](docs/DOCKER.md) |
