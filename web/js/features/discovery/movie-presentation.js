@@ -4,7 +4,7 @@ import { createSavedMediaAction } from "../media-details/saved-media.js";
 import { createMoviePlayback } from "../media-details/movie-playback.js";
 
 export function createMoviePresentation(catalogRoot, detailRoot, {
-  locale, movieState, getQueuedSlugs, coverUrl, subscriptionFor, openSubscription, isAdministrator, stopFpDetailHeroTrailer,
+  locale, movieState, getQueuedSlugs, coverUrl, subscriptionFor, openSubscription, canPlay, stopFpDetailHeroTrailer,
   activateResultCard, applyFpSmartFilters, configureFpDetailAction, configureFpTrailer, createResultCardVisual, dedupeCatalogMedia, discardObservedResultPosters, fpMetadataPreloadItems, fpSmartFilteredResults, fpSmartFilters, homeMovieBySlug, mediaJellyfinStatus, mergeFpMetadata, preloadTmdbMetadata, refreshFpJellyfinStatus, refreshMovieFeatureCandidates, renderFpAbout, renderFpExtras, renderFpSimilarTitles, scheduleFpCatalogRefresh, selectFpRow, setCatalogJellyfinBadge, syncResultCardPoster, toggleFpPick, updateTasteFeedbackButtons,
 }) {
   const document = catalogRoot.ownerDocument;
@@ -12,7 +12,7 @@ export function createMoviePresentation(catalogRoot, detailRoot, {
   const actions = new WeakMap();
   const savedMedia = createSavedMediaAction(byId("fp-detail-save"), byId("fp-detail-save-note"));
   const playback = createMoviePlayback(detailRoot, {
-    canPlay: () => isAdministrator() && mediaCenterName() === "Jellyfin",
+    canPlay: () => canPlay() && mediaCenterName() === "Jellyfin",
     stopTrailer: stopFpDetailHeroTrailer,
   });
   let scope = null, detailScope = null;

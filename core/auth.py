@@ -363,8 +363,10 @@ class SessionStore:
                 return False
             previous_user = str(entry.get("user_id") or "")
             previous_admin_unlock = bool(entry.get("household_unlocked"))
+            previous_context = entry.get("_authorization_context")
             previous_epoch = entry.get("auth_epoch", "")
             entry["user_id"] = target
+            entry["_authorization_context"] = object()
             entry["auth_epoch"] = str(auth_epoch or "")
             # Profile switching may stay unlocked for the browser session, but
             # privileged profile administration must be confirmed again after
@@ -375,9 +377,24 @@ class SessionStore:
             except SessionPersistenceError:
                 entry["user_id"] = previous_user
                 entry["household_unlocked"] = previous_admin_unlock
+                if previous_context is None:
+                    entry.pop("_authorization_context", None)
+                else:
+                    entry["_authorization_context"] = previous_context
                 entry["auth_epoch"] = previous_epoch
                 raise
             return True
+
+    def authorization_context(self, token: str, kind: Optional[str] = None):
+        """Validated, process-local session identity; never expose or persist it."""
+        if not self.validate(token, kind, touch=False):
+            return None
+        with self._lock:
+            entry = self._sessions.get(_token_fingerprint(token))
+            if entry is None:
+                return None
+            context = entry.setdefault("_authorization_context", object())
+            return context, str(entry.get("user_id") or "")
 
     def user_id(self, token: str, kind: Optional[str] = None, *, touch: bool = True) -> str:
         """Return the authenticated session owner without exposing token state."""

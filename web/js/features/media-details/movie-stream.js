@@ -1,3 +1,4 @@
+import { playbackDenied } from "../../shared/playback-access.js";
 let hlsLibrary;
 
 function loadHls(document) {
@@ -128,8 +129,8 @@ export function createMovieStream(video, { document, client, failed, prepared, s
         video.load();
       }
       if (autoplay) { watch(); if (pendingSeek === null) void video.play().catch(() => {}); }
-    } catch {
-      if (current === sequence) failed();
+    } catch (error) {
+      if (current === sequence) { close(); failed(error); }
     }
   }
 
@@ -169,7 +170,10 @@ export function createMovieStream(video, { document, client, failed, prepared, s
       if (video.readyState > 0) video.currentTime = seconds;
     },
     heartbeat() {
-      if (session) void client.post(`/api/media-center/playback/${session.id}/heartbeat`, {}, { timeoutMs: 5_000 }).catch(() => {});
+      const active = session;
+      if (active) void client.post(`/api/media-center/playback/${active.id}/heartbeat`, {}, { timeoutMs: 5_000 }).catch(error => {
+        if (session === active && playbackDenied(error)) { close(); failed(error); }
+      });
     },
   };
 }

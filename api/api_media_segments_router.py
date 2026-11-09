@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request
 from starlette.responses import JSONResponse
 
+from api.playback_access import PlaybackAccess
 from application_services.media_segments import MediaSegments, SegmentError
 from integrations.jellyfin_saved import jellyfin_id
 from integrations.media_center import profile_identity, validate_server_url
@@ -24,9 +25,11 @@ class _Context:
 
 def create_media_segments_router(backend, *, service=None):
     service = service if service is not None else MediaSegments()
+    access = PlaybackAccess(backend, None)
     router = APIRouter(tags=["media-segments"])
 
     def owner(request: Request):
+        request.state.playback_context = access.snapshot(request)
         user = backend.current_user(request.headers, request.cookies)
         if not user or not user.get("enabled", True):
             raise HTTPException(401, "Anmeldung erforderlich.")
@@ -57,12 +60,14 @@ def create_media_segments_router(backend, *, service=None):
 
     def read(request, item_id, user, *, refresh=False):
         try:
+            binding = access.context(request)
             before = context(user)
             result = service.read(before.base_url, before.api_key, before.generation, before.profile_id,
                                   item_id.hex, refresh=refresh)
             # A connection/profile change during network I/O must not return data
             # prepared for the previous identity, even when it came from cache.
             try:
+                access.assert_current(request, binding)
                 unchanged = context(owner(request)) == before
             except (SegmentError, HTTPException):
                 unchanged = False
