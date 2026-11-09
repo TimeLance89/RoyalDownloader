@@ -48,7 +48,8 @@ export function createCatalogSeed({
     // further pages are appended only by the catalog infinite-scroll path.
     const incoming = reservoir.slice(0, CATALOG_SEED_PAGE_SIZE);
     if (
-      !incoming.length || (!fresh && seriesState.results.length)
+      !incoming.length || seriesState.waitingForNextPage || seriesState.partialPageCount
+      || (!fresh && seriesState.results.length)
       || (fresh && seriesState.results.length && !seriesState.previewFromHome)
     ) return false;
     seriesState.results = incoming.slice();

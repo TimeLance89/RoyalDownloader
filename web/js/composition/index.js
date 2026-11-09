@@ -50,6 +50,7 @@ export function preparePresentation() {
     getSubscriptions: () => subscriptionsDomain,
     getHome: () => homeDomain,
     getSettings: () => settingsDomain,
+    getProfile: () => profileDomain,
   });
   downloadsDomain = composeDownloads({
     movieState,

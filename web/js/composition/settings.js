@@ -36,6 +36,7 @@ export function composeSettings({ i18n, movieState, seriesState, intelligence, s
         async onLanguageReady({ signal }) {
           movieState.results = []; movieState.moviesCache = {}; movieState.metadataCache = {}; movieState.sources = [];
           seriesState.results = []; seriesState.sources = []; seriesState.cache = {}; seriesState.browseMode = null; seriesState.page = 1;
+          seriesState.partialPageCount = 0;
           await getDiscovery().genres.refresh();
           if (signal.aborted) return;
           getHome().hero.reset();
@@ -52,6 +53,7 @@ export function composeSettings({ i18n, movieState, seriesState, intelligence, s
       seriesState.sources = [];
       seriesState.browseMode = null;
       seriesState.page = 1;
+      seriesState.partialPageCount = 0;
       seriesState.cache = {};
       await getDiscovery().genres.refresh().catch((error) => {
         console.error("Genres konnten nach dem Quellenwechsel nicht geladen werden:", error);

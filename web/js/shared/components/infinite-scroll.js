@@ -1,21 +1,30 @@
 import { createScope } from "../../core/lifecycle.js";
 
 /** One viewport look-ahead; observes only the currently mounted catalog. */
-export function createInfiniteScroll(root, { sentinel, loadNext, retry, retryButton, preload = 1200, trackScrollIntent = false }) {
+export function createInfiniteScroll(root, {
+  sentinel, loadNext, retry, retryButton, preload = 1200, trackScrollIntent = false, revealAtEnd = false,
+}) {
   let scope, scheduled = false;
   let reveal = false, lastWindowTop = 0, lastRootTop = 0;
   let touchY = null;
   const win = root.ownerDocument.defaultView;
   function run() {
     scheduled = false;
-    const options = { reveal };
+    const downward = reveal;
     reveal = false;
     if (!scope?.active || sentinel.classList.contains("hidden")) return;
+    if (root.ownerDocument.hidden) return;
     const overflow = win.getComputedStyle(root).overflowY;
     const internal = /(auto|scroll|overlay)/.test(overflow) && root.scrollHeight > root.clientHeight + 1;
-    if (internal) {
-      if (root.scrollHeight - root.scrollTop - root.clientHeight <= preload) loadNext(options);
-    } else if (sentinel.getBoundingClientRect().top <= (win.innerHeight || root.ownerDocument.documentElement.clientHeight) + preload) loadNext(options);
+    const viewportBottom = win.innerHeight || root.ownerDocument.documentElement.clientHeight;
+    const end = sentinel.getBoundingClientRect();
+    const remaining = internal ? root.scrollHeight - root.scrollTop - root.clientHeight : Infinity;
+    const bottom = internal && revealAtEnd ? Math.min(viewportBottom, root.getBoundingClientRect().bottom) : viewportBottom;
+    // Leave room for the fixed download dock and rounding at nested scrollers.
+    const visible = end.top <= bottom + 200 && end.bottom > 0;
+    const reachedEnd = revealAtEnd && (remaining <= 200 || visible);
+    const nearEnd = internal ? remaining <= preload : end.top <= viewportBottom + preload;
+    if (nearEnd || reachedEnd) loadNext({ reveal: downward || reachedEnd });
   }
   function onScroll() {
     const windowTop = win.scrollY || 0, rootTop = root.scrollTop || 0;
@@ -62,6 +71,26 @@ export function createInfiniteScroll(root, { sentinel, loadNext, retry, retryBut
       }
       scope.listen(win, "resize", refresh, { passive: true });
       if (retryButton) scope.listen(retryButton, "click", retry);
+      if (revealAtEnd && win.IntersectionObserver) {
+        const owner = scope;
+        const observer = new win.IntersectionObserver(() => {
+          if (!owner.active) return;
+          refresh();
+        });
+        observer.observe(sentinel);
+        scope.observe(observer);
+      }
+      if (revealAtEnd) {
+        // Restored nested scrollers can miss an intersection/scroll
+        // notification. Recheck geometry while mounted.
+        scope.interval(refresh, 1000);
+        if (win.ResizeObserver) {
+          const observer = new win.ResizeObserver(refresh);
+          observer.observe(root);
+          observer.observe(sentinel);
+          scope.observe(observer);
+        }
+      }
       refresh();
     },
     unmount() { scope?.dispose(); scope = null; scheduled = false; reveal = false; touchY = null; },

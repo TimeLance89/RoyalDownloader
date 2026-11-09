@@ -13,8 +13,11 @@ from datetime import datetime
 import json
 import logging
 import re
+import threading
+from time import monotonic
 import unicodedata
 import urllib.error
+from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import List, Optional
 from urllib.error import HTTPError
@@ -23,11 +26,47 @@ from urllib.parse import quote, urlencode
 from core import egress_urllib
 from integrations.jellyfin_auth import jellyfin_auth_headers
 from integrations.jellyfin_saved import JellyfinSavedMixin
+from integrations.jellyfin_segments import JellyfinSegmentsMixin
 
 urllib = SimpleNamespace(request=egress_urllib, error=urllib.error)
 
 logger = logging.getLogger(__name__)
 MAX_ITEM_PAGES = 10_000
+_rd_stream_lock = threading.Lock()
+_rd_stream_count = 0
+_rd_playbacks = {}
+
+
+def touch_rd_playback(token):
+    with _rd_stream_lock:
+        _rd_playbacks[token] = monotonic() + 90
+
+
+def forget_rd_playback(token):
+    with _rd_stream_lock:
+        _rd_playbacks.pop(token, None)
+
+
+@contextmanager
+def track_rd_movie_stream():
+    """Let storage automation see streams started with RD's server API key."""
+    global _rd_stream_count
+    with _rd_stream_lock:
+        _rd_stream_count += 1
+    try:
+        yield
+    finally:
+        with _rd_stream_lock:
+            _rd_stream_count -= 1
+
+
+def has_rd_movie_streams() -> bool:
+    with _rd_stream_lock:
+        now = monotonic()
+        for token, expires in list(_rd_playbacks.items()):
+            if expires <= now:
+                del _rd_playbacks[token]
+        return _rd_stream_count > 0 or bool(_rd_playbacks)
 
 
 def _movie_quality_rank(item: dict) -> int:
@@ -44,7 +83,9 @@ def _movie_quality_rank(item: dict) -> int:
 
 
 def _normalize(title: str) -> str:
-    title = re.sub(r"\s*[\(\[]?(?:19|20)\d{2}[\)\]]?\s*$", "", title or "")
+    # Whitespace is discarded below; trim it once instead of backtracking over
+    # every possible whitespace prefix in an untrusted library title.
+    title = re.sub(r"[\(\[]?(?:19|20)\d{2}[\)\]]?$", "", (title or "").rstrip())
     ascii_title = unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode("ascii")
     return re.sub(r"[^a-z0-9]+", "", ascii_title.casefold())
 
@@ -87,7 +128,7 @@ def _same_installment_title(wanted: str, candidate: str) -> bool:
     )
 
 
-class JellyfinClient(JellyfinSavedMixin):
+class JellyfinClient(JellyfinSegmentsMixin, JellyfinSavedMixin):
     def __init__(self, base_url: str = "", api_key: str = "", timeout: float = 5.0):
         self.base_url = (base_url or "").rstrip("/")
         self.api_key = (api_key or "").strip()

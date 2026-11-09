@@ -107,7 +107,11 @@ const {fixture} = require('./performance-fixture.cjs');
         const shortDock = await page.locator('.series-selection-dock').boundingBox();
         assert.equal(Math.round(shortDock.y+shortDock.height),420);
       } else {
-        assert.equal(await page.locator('.series-selection-dock').evaluate(e => getComputedStyle(e).display),'contents');
+        assert.equal(await page.locator('.series-selection-dock').evaluate(e => getComputedStyle(e).position),'sticky');
+        const panel = await page.locator('#series-detail-modal .media-modal-panel').boundingBox();
+        const dock = await page.locator('.series-selection-dock').boundingBox();
+        assert.ok(dock && dock.x >= panel.x && dock.x+dock.width <= panel.x+panel.width+1,
+          'desktop download action stays inside the detail panel');
         assert.equal(await page.locator('#series-detail-close .modal-back-icon').isVisible(),false);
       }
       // Verified TMDB trailer opens the existing full player rather than

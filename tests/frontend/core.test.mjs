@@ -84,7 +84,8 @@ test("series detail publishes fresh episode inventory without treating unknown o
 });
 
 test("catalog posters mark confirmed Jellyfin ownership and remove stale markers for every other state", () => {
-  const root = { ownerDocument: {}, querySelector: () => null };
+  const root = { ownerDocument: {}, querySelector: selector => selector === "#fp-movie-player"
+    ? { querySelector: () => null } : null };
   const presentation = createMoviePresentation(root, root, { movieState: {}, setCatalogJellyfinBadge });
   const attributes = {};
   const badge = { className: "", classList: { add(name) { badge.className += ` ${name}`; } },

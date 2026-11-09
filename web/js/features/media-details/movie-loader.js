@@ -18,6 +18,7 @@ export function createMovieDetailsLoader({
     const current = () => scope === owner && owner.active && movieState.selectedSlug === slug;
     const item = initialItem || movieState.results.find(r => r.slug === slug) || homeMovieBySlug(slug);
     if (!item) { owner.dispose(); return; }
+    const libraryItem = Boolean(item.jellyfin_item_id);
     movieState.selectedSlug = slug;
     updateFpResultSelection();
     let metadata = mergeDetailMetadata(basicMovieMetadata({ ...item, slug }), movieState.metadataCache[slug]);
@@ -28,7 +29,8 @@ export function createMovieDetailsLoader({
       updateFpResultCard(slug);
     }
     const detail = { slug, metadataState: metadata.details_loaded ? "ready" : "loading",
-      availabilityState: provider ? (provider.hosters?.length ? "available" : "unavailable") : "checking" };
+      availabilityState: libraryItem ? "owned"
+        : provider ? (provider.hosters?.length ? "available" : "unavailable") : "checking" };
     movieState.detail = detail;
     const render = () => {
       if (!current()) return;
@@ -107,9 +109,9 @@ export function createMovieDetailsLoader({
       render();
     }
     // The catalog service owns library state and its 15-second timeout.
-    const library = refreshFpJellyfinStatus([metadata], { signal: owner.signal });
+    const library = libraryItem ? null : refreshFpJellyfinStatus([metadata], { signal: owner.signal });
     const metadataWork = loadMetadata();
-    await Promise.all([metadataWork, loadProvider(), library]);
+    await Promise.all([metadataWork, libraryItem ? null : loadProvider(), library]);
   }
   return { open: selectFpRow, unmount() { scope?.dispose(); scope = null; movieState.detail = null; } };
 }

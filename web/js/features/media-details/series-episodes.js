@@ -1,12 +1,13 @@
 import { mediaCenterText } from "../../shared/media-center.js";
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
+import { createSeriesBrowser } from "./series-browser.js";
 import { needsEpisodeLanguageProof, seriesDownloadLanguages, episodeLanguageChecked as checkedForProfile } from "./series-language-policy.js";
 
 /** Episode eligibility, selection and queue commands share the series detail lifecycle. */
 export function createSeriesEpisodes(root, {
   status, seriesState, getQueuedSlugs, isQueueLoaded = () => false, getEnabledLanguages, verifyHuhuEpisodeLanguages,
-  trackDiscoveryPreference, refreshQueueUiAfterChange, client = api,
+  trackDiscoveryPreference, refreshQueueUiAfterChange, canPlaySeries, openPlaybackItem, client = api,
 }) {
   const document = root.ownerDocument;
   const byId = id => id === "series-status" ? status : root.querySelector(`#${id}`);
@@ -14,6 +15,13 @@ export function createSeriesEpisodes(root, {
   const pendingSelections = new Map();
   let scope = createScope(), bound = false, queuePending = false;
   const bind = (node, action) => actions.set(node, action);
+  const browser = canPlaySeries ? createSeriesBrowser(root, {
+    client, canPlay: canPlaySeries, openItem: openPlaybackItem, canDownload: isEpisodeActionable,
+    chooseDownload(slug) {
+      if (!seriesState.epPicked.has(slug) && !pendingSelections.has(slug)) void toggleEpisodeTile(slug);
+      byId("series-tiles").querySelector(`[data-episode-slug="${CSS.escape(slug)}"]`)?.focus();
+    },
+  }) : null;
   function firstEpisodeSlug(series) {
     for (const s of series.seasons) if (s.episodes.length) return s.episodes[0].slug;
     return "";
@@ -145,8 +153,11 @@ export function createSeriesEpisodes(root, {
     const count = downloadSelectionSlugs().length;
     byId("series-pick-count").textContent = pending
       ? `${count} ausgewählt · ${pending} in Prüfung …` : `${count} ausgewählt`;
-    byId("series-add-btn").disabled = count === 0 || queuePending;
-    byId("series-add-btn").title = pending
+    const button = byId("series-add-btn");
+    button.disabled = count === 0 || queuePending;
+    button.textContent = count ? `↓ ${count} ${count === 1 ? "Folge" : "Folgen"} herunterladen` : "↓ Auswahl herunterladen";
+    if (browser) byId("series-download-dock").dataset.hasSelection = String(Boolean(count || pending));
+    button.title = pending
       ? "Nur bestätigte Folgen herunterladen · weitere Folgen werden unabhängig geprüft" : "";
   }
 
@@ -208,6 +219,7 @@ export function createSeriesEpisodes(root, {
     const pending = pendingSelections.get(episode.slug)?.generation === seriesState.viewGeneration
       && !episodeLanguageChecked(episode) && !isEpisodeQueued(episode);
     tile.setAttribute("aria-busy", String(pending));
+    tile.setAttribute("aria-pressed", String(seriesState.epPicked.has(episode.slug)));
     tile.classList?.toggle("selection-pending", pending);
     const releaseText = episode.unreleased ? episodeReleaseText(episode) : "";
     const languagePending = providerNeedsExactEpisodeLanguage(series) && !episodeLanguageChecked(episode)
@@ -216,6 +228,15 @@ export function createSeriesEpisodes(root, {
     const languageLock = isEpisodeQueued(episode) ? "" : episodeLanguageLockLabel(episode, series);
     const languageText = languageLock || (languagePending
       ? (offered.length === 1 ? `NUR ${String(offered[0]).toUpperCase()}` : "PRÜFUNG") : "");
+    const stateLabel = tile.querySelector(".ep-download-state");
+    if (stateLabel) {
+      stateLabel.textContent = episode.in_jellyfin ? mediaCenterText("In Jellyfin")
+        : episode.downloaded ? "Geladen"
+          : isEpisodeQueued(episode) ? "Vorgemerkt"
+            : episode.unreleased ? releaseText
+              : pending ? "Wird geprüft"
+                : languageText ? "" : seriesState.epPicked.has(episode.slug) ? "Ausgewählt" : "Verfügbar";
+    }
     let languageNotice = tile.querySelector(".ep-language-lock");
     if (languageText) {
       if (!languageNotice) {
@@ -279,9 +300,13 @@ export function createSeriesEpisodes(root, {
       const pickedCount = season.episodes.filter((episode) => seriesState.epPicked.has(episode.slug)).length;
       const button = row.querySelector(".season-btn");
       const count = button?.querySelector("small");
-      if (button) button.disabled = !season.episodes.some(
-        (episode) => isEpisodeActionable(episode, series)
-      );
+      const label = button?.querySelector("span");
+      const selectable = season.episodes.filter(episode => isEpisodeActionable(episode, series));
+      if (button) button.disabled = !selectable.length;
+      if (browser && label) {
+        label.textContent = seasonSelectionLabel(selectable);
+        button.setAttribute("aria-label", `Staffel ${season.season}: ${label.textContent}. ${pickedCount} ausgewählt.`);
+      }
       const pendingCount = season.episodes.filter(ep => pendingSelections.has(ep.slug) && !episodeLanguageChecked(ep)).length;
       button?.setAttribute("aria-busy", String(pendingCount > 0));
       if (count) count.textContent = pendingCount ? `${pickedCount} gewählt · ${pendingCount} prüfen …` : `${pickedCount}/${season.episodes.length} gewählt`;
@@ -292,10 +317,20 @@ export function createSeriesEpisodes(root, {
     updateDownloadSelectionControls();
     byId("series-select-all").disabled = selectableCount === 0;
     byId("series-select-none").disabled = (seriesState.epPicked.size === 0 && pendingSelections.size === 0) || queuePending;
+    browser?.update(series);
+  }
+
+  function seasonSelectionLabel(selectable) {
+    const allSelected = selectable.length && selectable.every(episode =>
+      seriesState.epPicked.has(episode.slug) || pendingSelections.has(episode.slug));
+    return allSelected ? "Staffelauswahl löschen" : "Fehlende auswählen";
   }
 
   function renderSeriesTiles() {
     const container = byId("series-tiles");
+    const active = browser && container.contains(document.activeElement) ? document.activeElement : null;
+    const focusedTile = active?.dataset.episodeSlug;
+    const focusedSeason = active?.closest(".season-btn")?.closest(".season-row")?.dataset.season;
     container.innerHTML = "";
     const series = seriesState.current;
     if (!series) { byId("series-pick-count").textContent = "0 ausgewählt"; return; }
@@ -312,19 +347,18 @@ export function createSeriesEpisodes(root, {
       row.dataset.season = seasonObj.season;
       const seasonBtn = document.createElement("button");
       seasonBtn.className = "season-btn";
-      seasonBtn.setAttribute("aria-label", `Staffel ${seasonObj.season}: ${pickedCount} von ${seasonObj.episodes.length} ausgewählt`);
+      const selectable = seasonObj.episodes.filter(episode => isEpisodeActionable(episode, series));
       const seasonLabel = document.createElement("span");
-      seasonLabel.textContent = "STAFFEL";
+      seasonLabel.textContent = browser ? seasonSelectionLabel(selectable) : "Staffel";
+      seasonBtn.setAttribute("aria-label", `Staffel ${seasonObj.season}: ${seasonLabel.textContent}. ${pickedCount} ausgewählt.`);
       const seasonNumber = document.createElement("strong");
-      seasonNumber.textContent = String(seasonObj.season).padStart(2, "0");
+      seasonNumber.textContent = browser ? `Staffel ${seasonObj.season}` : String(seasonObj.season).padStart(2, "0");
       const seasonCount = document.createElement("small");
       const pendingCount = seasonObj.episodes.filter(ep => pendingSelections.has(ep.slug) && !episodeLanguageChecked(ep)).length;
       seasonBtn.setAttribute("aria-busy", String(pendingCount > 0));
       seasonCount.textContent = pendingCount ? `${pickedCount} gewählt · ${pendingCount} prüfen …` : `${pickedCount}/${seasonObj.episodes.length} gewählt`;
       seasonBtn.append(seasonLabel, seasonNumber, seasonCount);
-      seasonBtn.disabled = !seasonObj.episodes.some(
-        (episode) => isEpisodeActionable(episode, series)
-      );
+      seasonBtn.disabled = !selectable.length;
       bind(seasonBtn, () => toggleSeasonTiles(seasonObj.season));
       row.appendChild(seasonBtn);
       const tiles = document.createElement("div");
@@ -341,11 +375,16 @@ export function createSeriesEpisodes(root, {
               : `Folge ${ep.episode}`,
         );
         const episodeLabel = document.createElement("span");
-        episodeLabel.textContent = "FOLGE";
+        episodeLabel.className = "ep-download-number";
+        episodeLabel.textContent = browser ? `E${String(ep.episode).padStart(2, "0")}` : "FOLGE";
         const episodeNumber = document.createElement("strong");
-        episodeNumber.textContent = String(ep.episode).padStart(2, "0");
+        episodeNumber.textContent = browser ? (ep.title || ep.name || `Folge ${ep.episode}`) : String(ep.episode).padStart(2, "0");
         tile.append(episodeLabel, episodeNumber);
-        if (ep.unreleased) {
+        if (browser) {
+          const state = document.createElement("small");
+          state.className = "ep-download-state";
+          tile.append(state);
+        } else if (ep.unreleased) {
           const release = document.createElement("small");
           release.className = "ep-release";
           release.textContent = releaseText;
@@ -361,6 +400,9 @@ export function createSeriesEpisodes(root, {
     updateDownloadSelectionControls();
     byId("series-select-all").disabled = selectableCount === 0;
     byId("series-select-none").disabled = (seriesState.epPicked.size === 0 && pendingSelections.size === 0) || queuePending;
+    browser?.update(series);
+    if (focusedTile) container.querySelector(`[data-episode-slug="${CSS.escape(focusedTile)}"]`)?.focus({ preventScroll: true });
+    else if (focusedSeason) container.querySelector(`[data-season="${CSS.escape(focusedSeason)}"] .season-btn`)?.focus({ preventScroll: true });
   }
 
   function applyPendingSelections() {
@@ -375,6 +417,7 @@ export function createSeriesEpisodes(root, {
   }
 
   async function selectEpisodes(episodes, select) {
+    browser?.keepDownloads();
     const series = seriesState.current;
     const generation = seriesState.viewGeneration;
     const intent = { generation };
@@ -487,6 +530,7 @@ export function createSeriesEpisodes(root, {
     if (bound) return;
     if (!scope.active) scope = createScope();
     bound = true;
+    browser?.mount(scope);
     scope.listen(root, "click", event => {
       for (let node = event.target; node && node !== root; node = node.parentElement) {
         const action = actions.get(node);
@@ -497,6 +541,6 @@ export function createSeriesEpisodes(root, {
     scope.listen(byId("series-select-none"), "click", () => { pendingSelections.clear(); seriesState.epPicked.clear(); renderSeriesTiles(); });
     scope.listen(byId("series-add-btn"), "click", seriesAddSelected);
   }
-  function unmount() { scope.dispose(); pendingSelections.clear(); bound = false; queuePending = false; }
-  return { mount, unmount, firstEpisodeSlug, seriesEpisodes, isEpisodeQueued, episodeHasEnabledStreamLanguage, episodeLanguageLockLabel, isEpisodeEligible, isEpisodeSelectable, isEpisodeActionable, syncSeriesQueueFlags, pruneSeriesEpisodeSelection, findCurrentEpisode, tileClass, episodeReleaseText, seriesAvailabilityNotice, syncSeriesAvailabilityNotice, applySeriesEpisodeTileState, refreshSeriesTileStates, renderSeriesTiles, toggleEpisodeTile, toggleSeasonTiles, selectAllSeriesEpisodes, markSeriesSlugDownloaded, seriesAddSelected };
+  function unmount() { scope.dispose(); browser?.close(); pendingSelections.clear(); bound = false; queuePending = false; }
+  return { mount, unmount, preview: browser?.update, closeBrowser: browser?.close, firstEpisodeSlug, seriesEpisodes, isEpisodeQueued, episodeHasEnabledStreamLanguage, episodeLanguageLockLabel, isEpisodeEligible, isEpisodeSelectable, isEpisodeActionable, syncSeriesQueueFlags, pruneSeriesEpisodeSelection, findCurrentEpisode, tileClass, episodeReleaseText, seriesAvailabilityNotice, syncSeriesAvailabilityNotice, applySeriesEpisodeTileState, refreshSeriesTileStates, renderSeriesTiles, toggleEpisodeTile, toggleSeasonTiles, selectAllSeriesEpisodes, markSeriesSlugDownloaded, seriesAddSelected };
 }
