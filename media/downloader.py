@@ -813,9 +813,15 @@ class DownloadJob:
 
     @staticmethod
     def _make_published_media_readable(path: Path) -> None:
-        """Stellt sicher, dass ein separater Jellyfin-Benutzer lesen darf."""
+        """Erhaelt NAS-ACLs und gibt POSIX-Medien fuer Jellyfin zum Lesen frei."""
         try:
-            path.chmod(path.stat().st_mode | 0o044)
+            mode = path.stat().st_mode
+            # UGOS Pro stellt geerbte UGREEN-ACLs mit POSIX-Modus 000 dar.
+            # chmod loescht auf diesen Dateien die UGREEN-ACL und kann dadurch
+            # Jellyfin die Wiedergabe verweigern (Permission denied).
+            if (mode & 0o777) == 0:
+                return
+            path.chmod(mode | 0o044)
         except OSError:
             # Manche NAS-Dateisysteme verwalten Zugriffe ausschließlich über
             # ACLs und verweigern chmod. Die erfolgreiche Veröffentlichung
