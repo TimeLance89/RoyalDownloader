@@ -62,20 +62,16 @@ const { fixture } = require("./performance-fixture.cjs");
         const button = targets.first().locator('[data-autopilot-action="mount"]');
         await button.click();
         assert.equal(writes.length, 0, "cancelling confirmation must not authorize a changed mount");
+        const originalButton = await button.elementHandle();
+        // An unchanged poll must retain the control and its event target.
+        await page.evaluate(() => fixtureApp.settings.storage.refresh());
+        assert.equal(await originalButton.evaluate(node => node.isConnected), true,
+          "unchanged polling must preserve the mount confirmation button");
+        await originalButton.dispose();
         accept = true;
-        await button.scrollIntoViewIfNeeded();
-        const pressed = await button.elementHandle();
-        const box = await button.boundingBox();
-        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-        await page.mouse.down();
-        try {
-          // The five-second poll can complete between pointerdown and pointerup.
-          await page.evaluate(() => fixtureApp.settings.storage.refresh());
-          assert.equal(await pressed.evaluate(node => node.isConnected), true,
-            "unchanged polling must preserve the pressed mount confirmation button");
-        } finally {
-          await page.mouse.up();
-        }
+        // Re-check actionability after the refresh instead of reusing old
+        // screen coordinates while the overview may still be settling.
+        await button.click();
         await page.waitForFunction(() => document.querySelector("#storage-standard-target-list .storage-standard-target-note strong")?.textContent === "Verfügbar");
         assert.equal(writes.length, 1);
         assert.match(await page.locator("#storage-autopilot-health").innerText(), /Ein Volume ist stark belegt/);

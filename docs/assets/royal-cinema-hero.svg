@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1280 424" width="1280" height="424" role="img" aria-labelledby="title description">
-<title id="title">RoyalDownloader 2.0 — Your media. Your kingdom.</title>
-<desc id="description">Cinematic black and burgundy banner with a gold crown, RoyalDownloader wordmark, abstract media artwork and download queue visual.</desc>
+<title id="title">RoyalDownloader 2.1 — Discover. Download. Press play.</title>
+<desc id="description">Cinematic black and burgundy banner with a gold crown, RoyalDownloader wordmark, abstract library artwork and a continue-watching player visual.</desc>
 <defs>
   <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
     <stop offset="0" stop-color="#080a0e"/><stop offset=".54" stop-color="#151018"/><stop offset="1" stop-color="#220c12"/>
@@ -41,16 +41,16 @@
     <path d="M0 26 20 43 36 8 55 42 75 25 68 69H8Z" fill="url(#gold)"/>
     <circle cx="0" cy="23" r="5" fill="#f6d592"/><circle cx="36" cy="6" r="5" fill="#fff0bb"/><circle cx="75" cy="22" r="5" fill="#f6d592"/>
     <rect x="8" y="74" width="60" height="7" rx="3.5" fill="url(#gold)"/>
-    <text x="101" y="35" font-family="Segoe UI,Arial,sans-serif" font-weight="700" font-size="14" letter-spacing="4" fill="#ddb981">THE SELF-HOSTED MEDIA EXPERIENCE</text>
+    <text x="101" y="35" font-family="Segoe UI,Arial,sans-serif" font-weight="700" font-size="14" letter-spacing="4" fill="#ddb981">YOUR SELF-HOSTED MEDIA CENTER</text>
     <line x1="101" x2="478" y1="55" y2="55" stroke="#c69a61" stroke-opacity=".33"/>
   </g>
   <g font-family="Segoe UI,Arial,sans-serif">
     <text x="52" y="214" font-size="103" letter-spacing="-6" font-weight="900" fill="#faf4eb">ROYAL</text>
     <text x="54" y="287" font-size="69" letter-spacing="-3" font-weight="800" fill="url(#gold)">DOWNLOADER</text>
-    <text x="57" y="333" font-size="20" letter-spacing=".4" fill="#c4b7b7">Discover more. Download smarter. Own the experience.</text>
+    <text x="57" y="333" font-size="20" letter-spacing=".4" fill="#c4b7b7">Discover. Download. Watch. Your media, together.</text>
     <rect x="55" y="360" width="132" height="30" rx="15" fill="#76222d" stroke="#c25153" stroke-opacity=".55"/>
     <circle cx="73" cy="375" r="4" fill="#f6ce8c"/>
-    <text x="87" y="379" font-size="13" font-weight="700" letter-spacing="1" fill="#fff3db">ROYAL 2.0</text>
+    <text x="87" y="379" font-size="13" font-weight="700" letter-spacing="1" fill="#fff3db">ROYAL 2.1</text>
   </g>
   <g filter="url(#shadow)">
     <g transform="translate(748 87) rotate(-9 112 142)">
@@ -79,9 +79,9 @@
   <g filter="url(#shadow)" font-family="Segoe UI,Arial,sans-serif">
     <rect x="811" y="330" width="397" height="68" rx="16" fill="#16161c" stroke="#af7852" stroke-opacity=".67"/>
     <rect x="831" y="345" width="37" height="37" rx="11" fill="#6f2938"/>
-    <path d="M849 353V371M841 363 849 372 857 363" stroke="#f7d496" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-    <text x="885" y="354" font-size="13" font-weight="700" fill="#f6eee8">DOWNLOAD CENTER</text>
-    <text x="885" y="372" font-size="11" fill="#c8b8b3">Verified • Queued • Recoverable</text>
+    <path d="M844 352 858 363 844 374Z" fill="#f7d496"/>
+    <text x="885" y="354" font-size="13" font-weight="700" fill="#f6eee8">CONTINUE WATCHING</text>
+    <text x="885" y="372" font-size="11" fill="#c8b8b3">Your library • Your profile • Your place</text>
     <rect x="885" y="381" width="293" height="5" rx="2.5" fill="#3c3539"/>
     <rect x="885" y="381" width="212" height="5" rx="2.5" fill="url(#gold)"/>
   </g>

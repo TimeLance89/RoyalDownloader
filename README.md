@@ -1,49 +1,112 @@
 <p align="center">
-  <img src="docs/assets/royal-cinema-hero.svg" alt="RoyalDownloader 2.0 — a cinematic, self-hosted media control center" width="100%" />
+  <img src="docs/assets/royal-cinema-hero.svg" alt="RoyalDownloader 2.1 — discover, download and watch in your self-hosted media center" width="100%" />
 </p>
 
-<h3 align="center">Your media. Your rules. One beautiful control center.</h3>
+<h3 align="center">Discover. Download. Press play.</h3>
 
 <p align="center">
-  Discover movies and series, manage download requests, automate what comes next,<br />
-  and keep your Jellyfin library connected — from your browser, phone or NAS.
+  Your self-hosted media center for movies, series and anime.<br />
+  Find something to watch, bring it into your library and play it directly in Royal.
 </p>
 
 <p align="center">
-  <a href="https://github.com/TimeLance89/RoyalDownloader/releases/tag/v2.0.4"><img alt="Latest release: v2.0.4" src="docs/assets/release-version-v2.svg" /></a>
+  <a href="https://github.com/TimeLance89/RoyalDownloader/releases/tag/v2.1.0"><img alt="Latest release: v2.1.0" src="docs/assets/release-version-v2.svg" /></a>
   <a href="https://github.com/TimeLance89/RoyalDownloader/actions/workflows/quality.yml"><img alt="Quality checks" src="https://github.com/TimeLance89/RoyalDownloader/actions/workflows/quality.yml/badge.svg?branch=main" /></a>
   <a href="docs/DOCKER.md"><img alt="Docker Compose" src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&amp;logoColor=white" /></a>
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/License-Apache%202.0-bb8852" /></a>
 </p>
 
 <p align="center">
-  <a href="#quick-start"><strong>Get started</strong></a> ·
-  <a href="#explore-royal">Explore Royal</a> ·
+  <a href="#watch-directly-in-royal"><strong>Watch in Royal</strong></a> ·
+  <a href="#quick-start">Get started</a> ·
   <a href="#a-look-inside">Screenshots</a> ·
-  <a href="#whats-new-in-20">Version 2.0</a> ·
+  <a href="#whats-new-in-21">Version 2.1</a> ·
   <a href="#documentation">Documentation</a>
 </p>
 
 ---
 
-## Meet your new media command center
+## Your library, from discovery to playback
 
-RoyalDownloader is a **self-hosted media discovery and download manager** built for
-people who want one place to browse, request, track and organize their movie and
-series library. It combines a responsive web interface, a restart-aware download
-queue, configurable source resolution and deep Jellyfin integration.
+RoyalDownloader is a **self-hosted media center** that brings discovery,
+downloads, personal libraries and **direct browser playback** together. Run it
+on your NAS or home server and use the same web interface from your computer,
+phone or tablet.
 
-**One app, from discovery to library.** Browse with TMDB metadata, verify what
-is already available in Jellyfin, select an eligible source, follow progress,
-and keep the result in your own storage.
+**Version 2.1 completes the journey.** Royal helps you find a film or series,
+check your existing library, acquire missing content and then watch available
+Jellyfin media without leaving Royal. The download queue, subscriptions,
+language checks and storage automation remain part of that experience.
+
+Jellyfin supplies the library, media streams, transcoding and personal watched
+state. Royal supplies the interface that connects discovering, downloading and
+watching. Each household member can use their own linked Jellyfin profile.
 
 <p align="center">
-  <a href="docs/assets/screenshots/home-desktop.webp">
-    <img src="docs/assets/screenshots/home-desktop.webp" alt="RoyalDownloader desktop home screen showing media discovery" width="100%" />
+  <a href="docs/assets/screenshots/player-v2.1.png">
+    <img src="docs/assets/screenshots/player-v2.1.png" alt="RoyalDownloader player with series and episode title, timeline, season navigation and fullscreen controls" width="100%" />
   </a>
   <br />
-  <sub>RoyalDownloader home screen · real project screenshot</sub>
+  <sub>The Royal player · captured from the real interface with deterministic offline demo artwork and episode data</sub>
 </p>
+
+## Watch directly in Royal
+
+### Open a title. Start watching.
+
+An available film gets a play button in its detail view. Partly watched titles
+show **Continue watching with the saved time**, so you can pick up where you
+left off. Playback opens in Royal's own player, with the film title or the
+series name, season and episode shown above the video.
+
+The player includes a seekable timeline with elapsed and total time,
+10-second skips, volume and speed controls, keyboard shortcuts and a dedicated
+fullscreen presentation. Fullscreen controls fade during playback and return
+when you move the pointer or use the keyboard. Picture-in-picture is available
+where the browser supports it.
+
+### Your next episode is already there
+
+Series details bring the **available Jellyfin seasons and episodes** into one
+view, alongside the download experience for missing content. Choose a season,
+inspect episode progress and start an available episode directly.
+
+While watching, move to the previous or next available episode, open the episode
+menu and switch between seasons. Navigation uses your linked profile's library;
+a missing episode is not silently replaced by a different one.
+
+### Continue watching, your way
+
+A personal **Continue watching** carousel sits at the top of Home. Each card
+shows the saved position; series cards also identify the episode. Start it with
+one click, or open its action menu:
+
+| Action | What happens |
+| --- | --- |
+| **Continue watching** | Opens the player at your saved Jellyfin position |
+| **Open details** | Opens the matching movie or series with its available library content |
+| **Remove from Continue watching** | Hides the entry from your Royal list and keeps the saved position |
+| **Mark as watched** | Updates your linked Jellyfin profile's watched state |
+| **Undo** | Reverses a recent supported list action while its undo option is available |
+
+Removing a card does not delete the media file. Progress is saved to the linked
+Jellyfin profile, so playback and the personal list use that profile's state.
+
+### A player for your household
+
+Both enabled **members and administrators** can watch. Each Royal account needs
+a linked Jellyfin profile with playback permission and access to the chosen
+film or episode. Use separate Jellyfin profiles for separate progress; two Royal
+accounts linked to the same Jellyfin profile share that profile's watched state.
+
+Server credentials stay on the Royal server. Playback requests, stream resources
+and progress updates are checked against the current account and linked profile.
+Changing accounts or the media-center connection clears the previous player's
+personal context.
+
+**Ready to watch?** Follow [the media-center setup guide](docs/MEDIA_CENTER.md).
+Direct browser playback in this release uses **Jellyfin**. The optional Plex
+integration continues to cover supported library and request workflows.
 
 ## Explore Royal
 
@@ -71,10 +134,10 @@ and keep the result in your own storage.
   actual download jobs and media storage are shared by the server.</p>
 </td>
 <td valign="top">
-  <p><strong>📺 Connect Jellyfin</strong></p>
-  <p>Check library availability before requesting media, show owned titles
-  in the catalog, reconcile watched content and keep personal Jellyfin lists
-  in sync with playable files.</p>
+  <p><strong>▶️ Watch in Royal</strong></p>
+  <p>Play available Jellyfin films and episodes in Royal, resume your own
+  progress, navigate seasons and keep <strong>Continue watching</strong>
+  personal to your linked profile.</p>
 </td>
 </tr>
 <tr>
@@ -150,41 +213,56 @@ inbox stays accessible from the mobile navigation.
 
 <sub>Gallery images come from checked-in browser captures. The mobile examples use deterministic offline content and artwork fixtures; actual content and appearance may differ.</sub>
 
-## What's new in 2.0
+## What's new in 2.1
 
-RoyalDownloader 2.0 is a major **product milestone**, not an intentional
-breaking API or stored-data migration.
+**v2.1.0 is the media-center release:** Royal now connects browsing and acquiring
+content with watching your own library. The version introduces no intentional
+breaking change to the existing API or persistent-data contracts.
 
-| Experience | Improvements |
+| Experience | New in this release |
 | --- | --- |
-| **Smoother navigation** | More responsive browsing, bounded background work and improved series catalog loading |
-| **Modern mobile experience** | Cinematic Download Center, clearer transfer states, faster-feeling navigation and subscription inbox access |
-| **More reliable downloads** | Resume-safe direct HTTP/MP4 checkpoints, robust queue persistence, provider retries and worker recovery |
-| **Jellyfin clarity** | Catalog ownership ribbons, episode-inventory checks, per-profile saved media and better library status |
-| **Safer upgrades** | Revision verification, independent Docker startup guard, recoverable versioned runtime and rollback |
-| **More confidence** | Expanded browser, WebKit, security, performance and persistence regression coverage |
+| **Watch in the browser** | Integrated film and episode player, Jellyfin-negotiated direct play or HLS, seeking, fullscreen and supported picture-in-picture |
+| **Pick up where you stopped** | Saved-time play buttons, personal Continue watching carousel and progress written back to Jellyfin |
+| **Browse your series** | Library-aware series details, seasons, episodes and in-player previous/next navigation |
+| **Manage the list** | Open details, hide an entry, mark it watched and undo recent supported actions |
+| **Share Royal with your household** | Playback for members and administrators, checked against each account's linked Jellyfin profile |
+| **Keep playback isolated** | Private stream sessions and resources, permission checks and account/profile-change handling |
+| **Read existing segment metadata** | Authenticated backend access to Jellyfin Intro/Outro markers for clients; no new skip controls in the web player |
+| **Reliable storage confirmation** | Unchanged storage polling preserves the button being clicked instead of losing the confirmation |
 
-Read the [v2.0.4 release notes](docs/releases/v2.0.4.md) or the
-[full changelog](CHANGELOG.md).
+Read the [v2.1.0 release notes](docs/releases/v2.1.0.md),
+[media-center guide](docs/MEDIA_CENTER.md) or [full changelog](CHANGELOG.md).
 
 ## How it works
 
 ```text
-       DISCOVER              VERIFY                 DOWNLOAD
-  Movies · Series      TMDB · Jellyfin         Resolve · Queue
-      · Anime             · Sources            Transfer · Check
-          │                   │                      │
-          └───────────────────┴──────────────────────┘
-                              │
-                      YOUR MEDIA LIBRARY
-                              │
-                Jellyfin · Profiles · Automation
+                    DISCOVER IN ROYAL
+           Movies · Series · Anime · Recommendations
+                             |
+                    CHECK YOUR LIBRARY
+                             |
+                 +-----------+------------+
+                 |                        |
+          Already available          Still missing
+                 |                        |
+          WATCH IN ROYAL          REQUEST / DOWNLOAD
+                 |                        |
+                 |                 JELLYFIN LIBRARY
+                 |                        |
+                 +------------+-----------+
+                              |
+                 YOUR LINKED JELLYFIN PROFILE
+                  Progress · Watched · Resume
 ```
 
-RoyalDownloader does not guarantee a stream exists, is reachable, or has a
-requested audio track. Source providers and metadata services are external
-and can change independently. A subtitle label is **not** evidence of
-spoken German audio.
+Royal's browser player streams media already available in your Jellyfin library.
+Jellyfin must be reachable from Royal, and your linked profile must be allowed
+to play the selected item. Server capacity, media format, browser support and
+network conditions affect playback and seeking.
+
+Download sources and metadata services are external and may change independently.
+Availability checks do not guarantee that a source exists or that it carries the
+requested spoken language. A subtitle label is not evidence of an audio track.
 
 ## Quick start
 
@@ -193,18 +271,18 @@ spoken German audio.
 You'll need **Docker Engine**, **Docker Compose v2**, a **TMDB API key/read
 token** for first-run setup, and writable persistent movie and series folders.
 
-**1. Clone the Stable branch and prepare the environment.**
+**1. Clone the v2.1.0 Stable release and prepare the environment.**
 
 ```bash
-git clone https://github.com/TimeLance89/RoyalDownloader.git
+git clone --branch v2.1.0 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
 cd RoyalDownloader
 cp .env.example .env
 mkdir -p data runtime
 ```
 
-For a reproducible, version-pinned installation, use an
-[official release tag](https://github.com/TimeLance89/RoyalDownloader/releases)
-rather than following `main`.
+The release tag keeps this installation pinned to a known version. Stable
+updates follow `main`; Overnight is an explicit development-channel opt-in.
+[Understand update channels](docs/UPDATE_CHANNELS.md).
 
 **2. Edit `.env` and set your actual host storage paths.**
 
@@ -223,7 +301,7 @@ settings when upgrading an existing installation.
 
 ```bash
 docker compose config --quiet
-docker compose up -d --build
+APP_COMMIT_SHA="$(git rev-parse HEAD)" docker compose up -d --build
 docker compose logs --tail=50 seriendownloader
 curl --fail http://127.0.0.1:8765/api/health
 ```
@@ -264,7 +342,7 @@ With Python 3.12+, Chrome/Chromium and the platform's media dependencies
 available:
 
 ```bash
-git clone https://github.com/TimeLance89/RoyalDownloader.git
+git clone --branch v2.1.0 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
 cd RoyalDownloader
 python3 -m pip install -r requirements.lock
 python3 server.py
@@ -285,11 +363,39 @@ for the correct image, mounts and startup command.
 
 </details>
 
+## Set up your first playback
+
+1. **Connect Jellyfin.** An administrator opens the media-center settings, enters
+   the server address and API key, and verifies the connection.
+2. **Link household profiles.** Assign the appropriate Jellyfin profile to each
+   Royal account in household settings. Confirm that the profile can play media.
+3. **Open something in your library.** Use an available film's detail page, the
+   series season/episode view or Home's Continue watching row.
+4. **Press play.** Royal opens its player and saves progress to the linked profile.
+
+The Jellyfin address must be reachable from the Royal container or host. In a
+container, `localhost` refers to that container. Direct playback requires a
+working Jellyfin connection; browsing and download management remain useful
+without one. See [setup and troubleshooting](docs/MEDIA_CENTER.md).
+
+## Updating an existing installation
+
+Back up `.env`, `data/`, `runtime/` and your current revision before updating.
+Keep existing media mounts, accounts, integration credentials and queue state.
+Follow [the v2.1.0 upgrade notes](docs/releases/v2.1.0.md#upgrade) for a pinned
+Docker update or use the verified Stable updater.
+
+After updating, check your media-center connection and each household member's
+Jellyfin profile mapping. Confirm that the same title resumes independently
+under two different linked Jellyfin profiles. The existing player uses your
+Jellyfin server's streaming and transcoding resources; the release adds no
+separate media-server service to your stack.
+
 ## Built for the long run
 
 | | Desktop | NAS / home server |
 | --- | --- | --- |
-| **Typical use** | On-demand local use | Always-on home media management |
+| **Typical use** | Browse, download and watch locally | Always-on media center for the household |
 | **Interface** | Local browser | Web UI from devices on the LAN |
 | **Launcher** | Windows launcher or Python | Docker Compose or mounted-source `start.sh` |
 | **Storage** | Local folders | Explicit persistent media mounts |
@@ -316,7 +422,8 @@ For Stable / Overnight switching, backup procedures and rollback, see
 | Service | Role |
 | --- | --- |
 | [**TMDB**](https://www.themoviedb.org/) | Metadata, titles, artwork, cast and discovery; credentials required during setup |
-| **Jellyfin** | Library inventory, playback feedback, personal lists and scans |
+| **Jellyfin** | Browser playback, transcoding, library inventory, personal progress, watched state, lists and scans |
+| **Plex (optional)** | Supported library, profile and request integration; see [Plex guide](docs/PLEX.md) for its scope |
 | **Seerr / Moonfin** | Approved movie/series requests, including supported Fire TV workflows |
 | **Telegram** | Requests, queue status and notifications |
 | **Ollama (optional)** | Local ranking of existing discovery candidates |
@@ -330,6 +437,8 @@ providers and enabled integrations still make outbound requests.
 
 | I want to… | Read |
 | --- | --- |
+| **Play films and series in Royal** | [Media center and Jellyfin playback](docs/MEDIA_CENTER.md) |
+| **Read existing intro/outro metadata** | [Jellyfin segment API](docs/JELLYFIN_MEDIA_SEGMENTS.md) |
 | **Deploy on a NAS or configure Docker** | [Docker & NAS guide](docs/DOCKER.md) |
 | **Update safely or restore a previous version** | [Release & rollback guide](docs/RELEASE.md) |
 | **Switch between Stable and Overnight** | [Update channel guide](docs/UPDATE_CHANNELS.md) |
@@ -342,8 +451,8 @@ providers and enabled integrations still make outbound requests.
 
 ## Responsible use & security
 
-RoyalDownloader is a self-hosted **management tool**, not a catalog of
-guaranteed media. Access and store only content you have the right to use,
+RoyalDownloader is a self-hosted **media center and management tool**.
+Access, stream and store only content you have the right to use,
 and comply with applicable laws and third-party terms.
 
 For vulnerabilities, follow [SECURITY.md](SECURITY.md) rather than opening

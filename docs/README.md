@@ -13,6 +13,8 @@
 | [Architecture boundaries](ARCHITECTURE.md) | Dependency direction, module ownership, and lock order |
 | [Completed modularization](MODULARIZATION.md) | Large backend/frontend refactor, compatibility guarantees, and extension guide |
 | [Dependency updates](DEPENDENCY_UPDATES.md) | Reviewed dependency and image update policy |
+| [Media center and playback](MEDIA_CENTER.md) | Set up Jellyfin streaming, household profiles, Continue watching and series navigation |
+| [Jellyfin segment metadata](JELLYFIN_MEDIA_SEGMENTS.md) | Authenticated Intro/Outro metadata API and compatibility boundaries |
 | [Jellyfin recommendations](JELLYFIN_RECOMMENDER.md) | Automatically maintained recommendation collection |
 | [Personalization](PERSONALIZATION.md) | Cross-device taste signals, ranking, privacy, and controls |
 | [Local AI discovery](OLLAMA_DISCOVERY.md) | Optional Ollama ranking, privacy, configuration, and fallback behavior |
