@@ -8,7 +8,8 @@ from urllib.parse import urlencode, urljoin, urlsplit
 from uuid import uuid4
 
 from fastapi import HTTPException
-from starlette.responses import Response, StreamingResponse
+from starlette.responses import Response
+from api.guarded_stream import GuardedStream
 
 from core import egress_requests as requests
 from integrations.jellyfin_auth import jellyfin_auth_headers
@@ -51,7 +52,7 @@ def negotiate(base_url, key, item_id, profile_id, force_transcode=False):
     sources = [source for source in info.get("MediaSources") or [] if source.get("Protocol") == "File"]
     source = next((source for source in sources if source.get("SupportsDirectPlay") and not force_transcode), None)
     mode = "direct" if source else "hls"
-    source = source or next((source for source in sources if source.get("TranscodingUrl")), None)
+    source = source or next((source for source in sources if source.get("TranscodingUrl") and source.get("SupportsTranscoding", True)), None)
     if not source:
         raise HTTPException(502, "Jellyfin bietet keinen unterstützten Videostream an.")
     path = (f"{base_url}/Videos/{item_id}/stream.mp4?{urlencode({'Static': 'true', 'MediaSourceId': source['Id']})}"
@@ -79,7 +80,7 @@ class PlaybackSessions:
                 raise HTTPException(503, "Zu viele laufende Wiedergabesitzungen.")
             session = negotiated | {
                 "base": base_url, "key": key, "owner": owner, "profile_id": profile_id,
-                "generation": generation, "assets": {}, "used": monotonic(), "token": token,
+                "item_id": item_id, "generation": generation, "assets": {}, "used": monotonic(), "token": token,
             }
             url = self.asset(session, negotiated["path"], base_url + "/")
             self.sessions[token] = session
@@ -146,7 +147,7 @@ class PlaybackSessions:
         except requests.RequestException:
             pass
 
-    def response(self, session, name, range_header):
+    def response(self, session, name, range_header, *, guard=lambda: True):
         with self.lock:
             url = session["assets"].get(name)
         if not url:
@@ -192,6 +193,8 @@ class PlaybackSessions:
         def chunks():
             try:
                 for chunk in upstream.iter_content(64 * 1024):
+                    if not guard():
+                        return
                     touch_rd_playback(session["token"])
                     yield chunk
             finally:
@@ -201,5 +204,5 @@ class PlaybackSessions:
         for header in ("Content-Length", "Content-Range", "Accept-Ranges"):
             if header in upstream.headers:
                 response_headers[header] = upstream.headers[header]
-        return StreamingResponse(chunks(), status_code=upstream.status_code,
+        return GuardedStream(upstream, chunks(), status_code=upstream.status_code,
                                  media_type=mime or "application/octet-stream", headers=response_headers)

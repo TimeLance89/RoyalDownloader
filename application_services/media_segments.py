@@ -13,6 +13,7 @@ from time import monotonic
 from core import egress_requests as requests
 from integrations.jellyfin_client import JellyfinClient
 from integrations.jellyfin_saved import jellyfin_id
+from integrations.jellyfin_permissions import JellyfinPermissionError, require_jellyfin_profile, require_jellyfin_item
 
 TICKS_PER_SECOND = 10_000_000
 MAX_TICKS = 2**63 - 1
@@ -212,26 +213,11 @@ class MediaSegments:
         client = self.client_factory(base_url, api_key, timeout=5)
         user = _read(lambda: client.media_segment_user(profile_id), stage="user")
         try:
-            valid_user = isinstance(user, dict) and jellyfin_id(user.get("Id")) == profile_id
-        except (ValueError, TypeError, AttributeError):
-            valid_user = False
-        if not valid_user or not isinstance(user.get("Policy"), dict):
-            raise _invalid_response()
-        if user["Policy"].get("IsDisabled", True) is not False or user["Policy"].get("EnableMediaPlayback", True) is not True:
-            raise SegmentError(403, "profile_forbidden", "Das Jellyfin-Profil hat keinen Wiedergabezugriff.")
-        videos = _read(lambda: client.media_segment_video(profile_id, item_id), stage="video")
-        if not isinstance(videos, dict) or not isinstance(videos.get("Items"), list):
-            raise _invalid_response()
-        video = next(iter(videos["Items"]), None)
-        if video is None:
-            raise SegmentError(404, "media_not_found", "Dieser Inhalt ist im verknüpften Jellyfin-Profil nicht verfügbar.")
-        try:
-            matches = isinstance(video, dict) and jellyfin_id(video.get("Id")) == item_id
-        except (ValueError, TypeError, AttributeError):
-            matches = False
-        if (not matches or len(videos["Items"]) != 1 or video.get("Type") not in ("Movie", "Episode")
-                or video.get("LocationType") in ("Virtual", "Offline") or video.get("IsPlaceHolder") is True):
-            raise SegmentError(404, "media_not_found", "Dieser Inhalt ist im verknüpften Jellyfin-Profil nicht verfügbar.")
+            require_jellyfin_profile(user, profile_id)
+            videos = _read(lambda: client.media_segment_video(profile_id, item_id), stage="video")
+            video = require_jellyfin_item(videos, item_id)
+        except JellyfinPermissionError as error:
+            raise SegmentError(error.status, error.code, str(error)) from None
         duration = video.get("RunTimeTicks")
         if duration is not None and (not _ticks(duration) or duration == 0):
             raise _invalid_response()
