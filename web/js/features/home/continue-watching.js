@@ -1,3 +1,4 @@
+import { isPlaybackUser, playbackIdentity, playbackDenied } from "../../shared/playback-access.js";
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
 import { appStore } from "../../core/store.js";
@@ -129,6 +130,7 @@ export function createContinueWatching(section, { openItem, openDetails, updateN
       void refresh({ replace: true });
     } catch (error) {
       if (current()) {
+        if (playbackDenied(error)) reset();
         showFeedback(error.status === 409 ? "Der Eintrag hat sich geändert. Die Liste wird aktualisiert."
           : "Die Aktion ist fehlgeschlagen. Bitte erneut versuchen.");
         if (error.status === 409) void refresh({ replace: true });
@@ -167,7 +169,7 @@ export function createContinueWatching(section, { openItem, openDetails, updateN
   }
 
   async function refresh({ replace = false } = {}) {
-    if (!scope?.active || document.hidden || store.get().user?.role !== "admin") return;
+    if (!scope?.active || document.hidden || !isPlaybackUser(store.get().user)) return;
     if (request && !replace) return;
     request?.abort();
     const current = new AbortController();
@@ -177,7 +179,8 @@ export function createContinueWatching(section, { openItem, openDetails, updateN
       if (scope?.active && request === current) render(data?.items || [], {
         generation: data?.generation, profile_id: data?.profile_id,
       });
-    } catch {
+    } catch (error) {
+      if (request === current && playbackDenied(error)) reset();
       // Keep the previous rail on transient Jellyfin failures.
     } finally {
       if (request === current) request = null;
@@ -218,7 +221,7 @@ export function createContinueWatching(section, { openItem, openDetails, updateN
       scope.listen(document, "royal:playback-closed", () => { void refresh({ replace: true }); });
       scope.listen(document, "royal:media-center-changed", () => { reset(); void refresh(); });
       scope.add(store.subscribe((next, previous) => {
-        if (next.user?.id === previous.user?.id && next.user?.role === previous.user?.role) return;
+        if (playbackIdentity(next.user) === playbackIdentity(previous.user)) return;
         reset();
         void refresh();
       }));

@@ -1,3 +1,5 @@
+import { appStore } from "../../core/store.js";
+import { playbackIdentity, playbackDenied } from "../../shared/playback-access.js";
 import { formatMovieTime } from "./movie-player-controls.js";
 
 const ticksPerSecond = 10_000_000;
@@ -5,7 +7,7 @@ const keyOf = (season, episode) => `${season}:${episode}`;
 const episodeNumber = ({ season, episode }) => `S${season} E${episode}`;
 const watchedAt = item => Date.parse(item?.last_played) || 0;
 
-export function createSeriesBrowser(root, { client, canPlay, openItem, chooseDownload, canDownload }) {
+export function createSeriesBrowser(root, { client, canPlay, openItem, chooseDownload, canDownload, store = appStore }) {
   const document = root.ownerDocument;
   const switcher = root.querySelector("#series-view-switch");
   const picker = root.querySelector("#series-season-picker");
@@ -67,7 +69,7 @@ export function createSeriesBrowser(root, { client, canPlay, openItem, chooseDow
     button.dataset.episodeKey = `${keyOf(row.season, row.episode)}:${featured ? "featured" : "row"}`;
     button.setAttribute("aria-label", `${episodeNumber(row)} ${label}`);
     button.addEventListener("click", () => {
-      if (playable) {
+      if (playable && canPlay()) {
         modeChosen = seasonChosen = true;
         openItem({ ...item, ...context }, button);
       } else if (downloadable) {
@@ -210,7 +212,8 @@ export function createSeriesBrowser(root, { client, canPlay, openItem, chooseDow
       if (request !== current) return;
       acceptInventory(data);
       render();
-    } catch {
+    } catch (error) {
+      if (request === current && playbackDenied(error)) { inventory = new Map(); context = null; render(); }
       // Jellyfin failures leave the independent download controls usable.
     } finally {
       if (request === current) request = null;
@@ -253,6 +256,15 @@ export function createSeriesBrowser(root, { client, canPlay, openItem, chooseDow
     update, close: reset, keepDownloads() { if (mode === "downloads") modeChosen = true; },
     mount(owner) {
       scope = owner;
+      const clearPersonal = () => {
+        const next = series && { ...series, jellyfin_inventory: null, jellyfin_episode_id: null };
+        reset();
+        if (next) update(next);
+      };
+      owner.add(store.subscribe((next, previous) => {
+        if (playbackIdentity(next.user) !== playbackIdentity(previous.user)) clearPersonal();
+      }));
+      owner.listen(document, "royal:media-center-changed", clearPersonal);
       owner.listen(select, "change", () => { seasonChosen = true; season = Number(select.value); render(); });
       owner.listen(switcher, "click", event => {
         const choice = event.target.closest("[data-series-mode]")?.dataset.seriesMode;

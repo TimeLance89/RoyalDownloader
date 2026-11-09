@@ -1,3 +1,5 @@
+import { appStore } from "../../core/store.js";
+import { playbackIdentity, playbackDenied } from "../../shared/playback-access.js";
 import { api } from "../../core/api.js";
 import { createMoviePlayerControls, formatMovieTime } from "./movie-player-controls.js";
 import { createMoviePlayerEpisodes } from "./movie-player-episodes.js";
@@ -6,21 +8,21 @@ import { createMovieStream } from "./movie-stream.js";
 const TICKS_PER_SECOND = 10_000_000;
 const progressPath = "/api/media-center/movies/progress";
 
-export function createMoviePlayback(root, { canPlay, stopTrailer, client = api }) {
+export function createMoviePlayback(root, { canPlay, stopTrailer, client = api, store = appStore }) {
   const button = root.querySelector("#fp-detail-play");
   const dialog = root.querySelector("#fp-movie-player") || root.ownerDocument.getElementById("fp-movie-player");
   const video = dialog.querySelector("video");
   const title = dialog.querySelector("h2");
   let currentMovie, slug, owned;
   let progress, readController, playing, controls, episodes;
-  let writes = Promise.resolve();
+  let writes = Promise.resolve(), identityRevision = 0;
   const stream = createMovieStream(video, {
     document: root.ownerDocument, client,
     starting: position => {
       if (playing) { playing.target = position; playing.ready = false; playing.started = false; }
     },
     positionReady: () => { if (playing) { playing.ready = true; playing.started = true; } },
-    failed: () => { if (dialog.open) controls.message("Der Inhalt konnte nicht abgespielt werden.", { error: true }); },
+    failed: error => { if (playbackDenied(error)) { invalidate(); return; } if (dialog.open) controls.message("Der Inhalt konnte nicht abgespielt werden.", { error: true }); },
     prepared: result => { if (playing && result.duration_ticks) playing.entry.duration_ticks = result.duration_ticks; },
   });
 
@@ -44,7 +46,7 @@ export function createMoviePlayback(root, { canPlay, stopTrailer, client = api }
     }).then(result => {
       if (result && progress === entry) Object.assign(entry, result);
     }).catch(() => {
-      // A library film remains playable if its personal data is unavailable.
+      if (progress === entry) entry.unavailable = true;
     }).finally(() => {
       if (progress !== entry) return;
       entry.loading = false;
@@ -59,8 +61,8 @@ export function createMoviePlayback(root, { canPlay, stopTrailer, client = api }
       const key = params.get("tmdb_id") || params.toString();
       if (progress?.key !== key) readProgress(key, params.toString());
     }
-    button.disabled = !button.hidden && Boolean(progress?.loading);
-    button.textContent = progress?.position_ticks
+    button.disabled = !button.hidden && Boolean(progress?.loading || progress?.unavailable);
+    button.textContent = progress?.unavailable ? "Wiedergabe nicht verfügbar" : progress?.position_ticks
       ? `▶ Weiterschauen ${formatMovieTime(progress.position_ticks / TICKS_PER_SECOND)}`
       : "▶ Film ansehen";
   }
@@ -73,6 +75,7 @@ export function createMoviePlayback(root, { canPlay, stopTrailer, client = api }
   }
 
   function saveProgress(ended = false) {
+    const revision = identityRevision;
     if (!playing?.entry?.profile_id || !playing.started || playing.finished) return;
     const { entry } = playing;
     const position = Math.round(getPosition().elapsed * TICKS_PER_SECOND);
@@ -82,9 +85,10 @@ export function createMoviePlayback(root, { canPlay, stopTrailer, client = api }
     entry.position_ticks = positionTicks;
     const body = { profile_id: entry.profile_id, generation: entry.generation,
       position_ticks: positionTicks, ended: finished };
-    writes = writes.then(() => client.post(`${progressPath}?${entry.params}`, body, {
+    writes = writes.then(() => revision === identityRevision ? client.post(`${progressPath}?${entry.params}`, body, {
       keepalive: true, timeoutMs: 8_000,
-    })).catch(() => {
+    }) : undefined).catch(error => {
+      if (playbackDenied(error) && playing?.entry === entry) invalidate();
       if (playing?.entry === entry && dialog.open) controls.message("Wiedergabestand konnte nicht gespeichert werden.");
     });
     refresh();
@@ -160,6 +164,15 @@ export function createMoviePlayback(root, { canPlay, stopTrailer, client = api }
     readController = progress = null;
   }
 
+  function invalidate() {
+    identityRevision++;
+    playing = null; // Do not save the previous identity's position under a new cookie.
+    close();
+    resetProgress();
+    owned = false;
+    refresh();
+  }
+
   return {
     get active() { return dialog.open; },
     openItem,
@@ -219,6 +232,10 @@ export function createMoviePlayback(root, { canPlay, stopTrailer, client = api }
       scope.interval(() => { if (dialog.open) stream.heartbeat(); }, 30_000);
       scope.listen(root.ownerDocument.defaultView, "pagehide", () => { saveProgress(); stream.close(); });
       scope.add(() => { playing = null; stream.close(); });
+      scope.add(store.subscribe((next, previous) => {
+        if (playbackIdentity(next.user) !== playbackIdentity(previous.user)) invalidate();
+      }));
+      scope.listen(root.ownerDocument, "royal:media-center-changed", invalidate);
       controls.mount(scope);
       episodes.mount(scope);
     },

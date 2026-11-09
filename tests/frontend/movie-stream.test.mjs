@@ -77,3 +77,19 @@ test('unbuffered HLS seeks prime earlier keyframes then land at requested time',
     assert.equal(requests.filter(u=>u.includes('/movies/session')).length,1);
   } finally {stream.close();}
 });
+
+test('permission-denied heartbeat stops and releases the stream', async () => {
+  const calls = [], errors = [];
+  const video = {pause(){},load(){},removeAttribute(){},addEventListener(){},removeEventListener(){}};
+  const client = { post: async url => {
+    if (url.endsWith('/heartbeat')) throw {status:403};
+    return {id:'owned',mode:'direct',url:'/stream'};
+  }, delete: async url => calls.push(url) };
+  const stream = createMovieStream(video,{document:{},client,prepared(){},failed:e=>errors.push(e.status)});
+  await stream.open('item_id=one',0,false);
+  stream.heartbeat();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.deepEqual(errors,[403]);
+  assert.equal(stream.managesErrors,false);
+  assert.ok(calls.includes('/api/media-center/playback/owned'));
+});

@@ -2,6 +2,7 @@ from contextlib import nullcontext
 from threading import Lock
 from types import SimpleNamespace
 
+from core.auth import SessionStore
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -34,7 +35,7 @@ def test_ts_with_aac_is_converted_to_mp4_in_isolated_playback_sessions(monkeypat
     assert first["AudioCodec"] == "aac"
     assert first["StartTimeTicks"] == 9_790_000_000
     assert first["PlaySessionId"] != retry["PlaySessionId"]
-    assert first["DeviceId"] == retry["DeviceId"]
+    assert first["DeviceId"] != retry["DeviceId"]
 
 
 def test_compatible_mp4_can_still_stream_directly(monkeypatch):
@@ -51,11 +52,12 @@ def test_resume_actions_isolate_hide_and_restore_episode_progress(monkeypatch, t
     backend = SimpleNamespace(
         state=SimpleNamespace(jellyfin_cache_lock=Lock(), jellyfin_config_generation=1,
                               jellyfin_cfg={"url": "http://jellyfin", "api_key": "fixture"}),
-        current_user=lambda headers, cookies: {"id": headers.get("x-test-user", "a"), "jellyfin_user_id": profile},
+        current_user=lambda headers, cookies: {"id": headers.get("x-test-user", "a"), "role": "member", "jellyfin_user_id": profile},
     )
+    authenticate(backend)
     module = "api.api_movie_playback_router"
     monkeypatch.setattr(f"{module}.home_layout_file", lambda: tmp_path / "home_layout.json")
-    monkeypatch.setattr(f"{module}._jellyfin_json", lambda *_: {"Items": [item]})
+    monkeypatch.setattr(f"{module}._jellyfin_json", lambda _url, _key, path, _: {"Id": profile, "Policy": {"IsDisabled": False}} if path.startswith("/Users/") else {"Items": [item]})
 
     def save(_url, _key, owner, target, data):
         assert (owner, target) == (profile, episode)
@@ -101,16 +103,18 @@ def test_resume_series_details_use_linked_jellyfin_ids_without_catalog_match(mon
     backend = SimpleNamespace(
         state=SimpleNamespace(jellyfin_cache_lock=Lock(), jellyfin_config_generation=4,
                               jellyfin_cfg={"url": "http://jellyfin", "api_key": "fixture"}),
-        current_user=lambda *_: {"id": "a", "jellyfin_user_id": profile},
+        current_user=lambda *_: {"id": "a", "role": "member", "jellyfin_user_id": profile},
     )
+    authenticate(backend)
     paths = []
 
     def jellyfin(_url, _key, path, params):
         paths.append(path)
+        if path.startswith("/Users/"):
+            return {"Id": profile, "Policy": {"IsDisabled": False}}
         assert params.get("UserId", params.get("userId")) == profile
         if path == "/Items":
-            assert params["Ids"] == episode
-            return {"Items": [item]}
+            return {"Items": [item] if params["Ids"] == episode else [{"Id": series, "Type": "Series", "Name": "Demo", "Overview": "Aus der Bibliothek"}]}
         if path == f"/Shows/{series}/Episodes":
             return {"Items": []}  # The already validated episode remains playable.
         assert path == f"/Items/{series}"
@@ -126,4 +130,15 @@ def test_resume_series_details_use_linked_jellyfin_ids_without_catalog_match(mon
     assert details["description"] == "Aus der Bibliothek"
     assert details["inventory"]["profile_id"] == profile
     assert details["inventory"]["items"][0]["id"] == episode
-    assert paths == ["/Items", f"/Shows/{series}/Episodes", f"/Items/{series}"]
+    assert paths == [f"/Users/{profile}", "/Items", "/Items", f"/Shows/{series}/Episodes", "/Items"]
+
+
+def authenticate(backend):
+    backend.SESSION_STORE = SessionStore()
+    tokens = {owner: backend.SESSION_STORE.create(user_id=owner) for owner in ("a", "b")}
+    backend.authenticated_web_token = lambda cookies, **_: ""
+    backend.authenticated_mobile_token = lambda headers, **_: ""
+    # Existing isolation fixture selects an identity through a test-only header.
+    from core.auth import SESSION_KIND_MOBILE
+    mobile = {owner: backend.SESSION_STORE.create(kind=SESSION_KIND_MOBILE, user_id=owner) for owner in tokens}
+    backend.authenticated_mobile_token = lambda headers, **_: mobile[headers.get("x-test-user", "a")]

@@ -1,4 +1,4 @@
-"""Same-origin Jellyfin movie streaming for RD administrators."""
+"""Session- and profile-scoped Jellyfin playback for enabled household users."""
 
 import json
 from datetime import UTC, datetime
@@ -15,11 +15,13 @@ from pydantic import BaseModel, Field
 from starlette.responses import Response, StreamingResponse
 
 from api.jellyfin_playback import PlaybackSessions
+from api.playback_access import PlaybackAccess
 from core import egress_requests as requests
 from core.config import home_layout_file
 from integrations.jellyfin_auth import jellyfin_auth_headers
 from integrations.jellyfin_client import JellyfinClient, track_rd_movie_stream
-from integrations.media_center import profile_identity, validate_server_url
+from integrations.jellyfin_permissions import JellyfinPermissionError, require_jellyfin_item
+from integrations.media_center import validate_server_url
 
 MAX_POSITION_TICKS = 24 * 60 * 60 * 10_000_000
 RESUME_TYPES = {"Movie", "Episode"}
@@ -71,10 +73,18 @@ def _save_jellyfin_data(base_url, key, profile_id, item_id, data):
 
 
 class MovieStream(StreamingResponse):
-    def __init__(self, upstream, headers):
+    def __init__(self, upstream, headers, guard=lambda: True):
         self.upstream = upstream
-        super().__init__(upstream.iter_content(chunk_size=128 * 1024),
+        def chunks():
+            for chunk in upstream.iter_content(chunk_size=128 * 1024):
+                if not guard():
+                    return
+                yield chunk
+        super().__init__(chunks(),
                          status_code=upstream.status_code, headers=headers, media_type="video/mp4")
+
+    def close(self):
+        self.upstream.close()
 
     async def __call__(self, scope, receive, send):
         with track_rd_movie_stream():
@@ -93,7 +103,15 @@ def _jellyfin_json(base_url, key, endpoint, params):
                 result = response.json()
                 if isinstance(result, dict):
                     return result
-    except (requests.RequestException, ValueError):
+            if response.status_code in (403, 404):
+                if endpoint.startswith("/Users/"):
+                    raise HTTPException(403, "Das verknüpfte Jellyfin-Profil ist nicht verfügbar.")
+                raise HTTPException(404, "Dieser Inhalt ist im Jellyfin-Profil nicht verfügbar.")
+            if response.status_code == 429 or response.status_code >= 500:
+                raise HTTPException(503, "Jellyfin ist vorübergehend nicht erreichbar.")
+    except requests.RequestException:
+        raise HTTPException(503, "Jellyfin ist vorübergehend nicht erreichbar.") from None
+    except ValueError:
         pass
     raise HTTPException(502, "Jellyfin konnte die Wiedergabedaten nicht liefern.")
 
@@ -158,8 +176,9 @@ def _episode_cards(items):
     return episodes
 
 
-def _stream_options(base_url, headers, item_id, start_ticks=0):
+def _stream_options(base_url, headers, item_id, start_ticks=0, profile_id=None):
     with requests.get(f"{base_url}/Items/{item_id}/PlaybackInfo", headers=headers,
+                      params={"UserId": profile_id} if profile_id else {},
                       timeout=10, allow_redirects=False) as info:
         if info.status_code == 404:
             raise HTTPException(404, "Der Film ist in Jellyfin nicht mehr vorhanden.")
@@ -178,14 +197,18 @@ def _stream_options(base_url, headers, item_id, start_ticks=0):
     if (not start_ticks and "mp4" in (source.get("Container") or "").split(",")
             and video.get("Codec") == "h264" and video.get("BitDepth") == 8
             and (not audio or (len(audio) == 1 and audio[0].get("Codec") == "aac"))):
+        if source.get("SupportsDirectPlay", True) is not True:
+            raise HTTPException(403, "Direkte Wiedergabe ist für dieses Profil nicht verfügbar.")
         return options | {"Static": "true"}
+    if source.get("SupportsTranscoding", True) is not True:
+        raise HTTPException(403, "Transkodierung ist für dieses Profil nicht verfügbar.")
     options.update({
         "Static": "false", "VideoCodec": "h264", "AudioCodec": "aac",
         # AAC from downloaded TS sources can contain ADTS headers. Copying it
         # into progressive MP4 may abort the muxer after the first video frame.
         "AllowAudioStreamCopy": "false",
         # Keep retries and simultaneous viewers out of a failed transcode file.
-        "PlaySessionId": uuid4().hex, "DeviceId": "RoyalDownloader",
+        "PlaySessionId": uuid4().hex, "DeviceId": f"RoyalDownloader-{uuid4().hex}",
         "MaxVideoBitDepth": 8, "MaxWidth": 1920, "VideoBitRate": 8_000_000,
         "AudioBitRate": 192_000, "MaxAudioChannels": 2, "RequireAvc": "true",
     })
@@ -197,15 +220,18 @@ def _stream_options(base_url, headers, item_id, start_ticks=0):
     return options
 
 
-def create_movie_playback_router(backend, administrator):
-    router = APIRouter(tags=["media-center"], dependencies=[Depends(administrator)])
+def create_movie_playback_router(backend, administrator=None):
+    # The optional legacy argument remains source-compatible, but no longer
+    # grants or restricts playback. Every playback route uses household auth.
+    access = PlaybackAccess(backend, _jellyfin_json)
+    router = APIRouter(tags=["media-center"], dependencies=[Depends(access.enabled_user)],
+                       route_class=access.route_class())
     resume_lock = Lock()
     undo_actions = {}
     playback_sessions = PlaybackSessions()
 
     def resume_path(request, base_url, profile_id):
-        user = backend.current_user(request.headers, request.cookies) or {}
-        owner = sha256(json.dumps([base_url, user.get("id"), profile_id]).encode()).hexdigest()
+        owner = sha256(json.dumps([base_url, access.context(request).owner, profile_id]).encode()).hexdigest()
         return home_layout_file().with_name("continue-watching") / f"{owner}.json"
 
     def read_hidden(path):
@@ -214,11 +240,9 @@ def create_movie_playback_router(backend, administrator):
         except FileNotFoundError:
             return {}
 
-    def connection():
-        state = backend.state
-        with state.jellyfin_cache_lock:
-            config = dict(state.jellyfin_cfg)
-            generation = state.jellyfin_config_generation
+    def connection(request):
+        context = access.context(request)
+        config, generation = context.config, context.generation
         if config.get("provider", "jellyfin") != "jellyfin" or not config.get("api_key") or not config.get("url"):
             return None
         try:
@@ -228,14 +252,7 @@ def create_movie_playback_router(backend, administrator):
         return config, generation, base_url
 
     def linked_profile(request, config):
-        user = backend.current_user(request.headers, request.cookies) or {}
-        user_id, _ = profile_identity(user, config)
-        if not user_id and user.get("id") == "admin-legacy":
-            user_id = config.get("user_id")
-        try:
-            return UUID(user_id).hex if user_id else None
-        except ValueError:
-            return None
+        return access.profile(request, validate_server_url(config["url"]))
 
     def profile_video(base_url, config, profile_id, item_id):
         if not profile_id:
@@ -243,14 +260,25 @@ def create_movie_playback_router(backend, administrator):
         result = _jellyfin_json(base_url, config["api_key"], "/Items", {
             "UserId": profile_id, "Ids": item_id, "IncludeItemTypes": "Movie,Episode",
             "Recursive": "true", "Limit": 1, "EnableUserData": "true", "Fields": "Overview,ProviderIds,Genres",
+            "ExcludeLocationTypes": "Virtual,Offline", "IsMissing": "false", "IsPlaceHolder": "false",
         })
-        item = next(iter(result.get("Items") or []), {})
-        if (not isinstance(item, dict) or item.get("Type") not in RESUME_TYPES
-                or str(item.get("Id", "")).replace("-", "").lower() != item_id):
-            raise HTTPException(404, "Dieser Inhalt ist im verknüpften Jellyfin-Profil nicht verfügbar.")
-        return item
+        try:
+            return require_jellyfin_item(result, item_id)
+        except JellyfinPermissionError as error:
+            raise HTTPException(error.status, str(error)) from None
+
+    def profile_series(base_url, config, profile_id, series_id):
+        result = _jellyfin_json(base_url, config["api_key"], "/Items", {
+            "UserId": profile_id, "Ids": series_id, "IncludeItemTypes": "Series",
+            "Recursive": "true", "Limit": 1, "Fields": "Overview,ProviderIds,Genres",
+        })
+        try:
+            return require_jellyfin_item(result, series_id, types=("Series",))
+        except JellyfinPermissionError as error:
+            raise HTTPException(error.status, str(error)) from None
 
     def series_inventory(base_url, config, profile_id, series_id):
+        profile_series(base_url, config, profile_id, series_id)
         result = _jellyfin_json(base_url, config["api_key"], f"/Shows/{series_id}/Episodes", {
             "UserId": profile_id, "IsMissing": "false", "EnableUserData": "true",
             "ImageTypeLimit": 1, "EnableImageTypes": "Primary",
@@ -261,7 +289,7 @@ def create_movie_playback_router(backend, administrator):
     def series_episodes(request: Request, title: str = Query(min_length=1, max_length=400),
                         tmdb_id: int | None = Query(default=None, gt=0),
                         aliases: Annotated[list[str] | None, Query(max_length=8)] = None):
-        active = connection()
+        active = connection(request)
         if active is None:
             return {"items": []}
         config, generation, base_url = active
@@ -284,7 +312,7 @@ def create_movie_playback_router(backend, administrator):
 
     @router.get("/api/media-center/episodes/{item_id}/navigation")
     def episode_navigation(request: Request, item_id: UUID):
-        active = connection()
+        active = connection(request)
         if active is None:
             raise HTTPException(404)
         config, generation, base_url = active
@@ -303,7 +331,7 @@ def create_movie_playback_router(backend, administrator):
 
     @router.get("/api/media-center/continue-watching")
     def continue_watching(request: Request):
-        active = connection()
+        active = connection(request)
         if active is None:
             return {"items": []}
         config, generation, base_url = active
@@ -325,7 +353,7 @@ def create_movie_playback_router(backend, administrator):
 
     @router.post("/api/media-center/continue-watching/{item_id}/action")
     def resume_action(request: Request, item_id: UUID, body: ResumeAction):
-        active = connection()
+        active = connection(request)
         if active is None:
             raise HTTPException(404)
         config, generation, base_url = active
@@ -340,6 +368,7 @@ def create_movie_playback_router(backend, administrator):
                 if expires <= now:
                     del undo_actions[token]
             item = profile_video(base_url, config, profile_id, item_key)
+            access.assert_current(request)
             stamp = _resume_stamp(item)
             if body.action == "undo":
                 entry = undo_actions.get(body.undo_token)
@@ -383,7 +412,7 @@ def create_movie_playback_router(backend, administrator):
 
     @router.get("/api/media-center/continue-watching/{item_id}/details")
     def resume_details(request: Request, item_id: UUID):
-        active = connection()
+        active = connection(request)
         if active is None:
             raise HTTPException(404)
         config, generation, base_url = active
@@ -402,7 +431,7 @@ def create_movie_playback_router(backend, administrator):
                 "series_id": series_id,
                 "inventory": {"items": episodes, "profile_id": profile_id, "generation": generation},
             }
-            item = _jellyfin_json(base_url, config["api_key"], f"/Items/{series_id}", {"userId": profile_id})
+            item = profile_series(base_url, config, profile_id, series_id)
         return {
             "title": item.get("Name"), "year": item.get("ProductionYear"),
             "description": item.get("Overview"), "tmdb_id": (item.get("ProviderIds") or {}).get("Tmdb"),
@@ -411,7 +440,7 @@ def create_movie_playback_router(backend, administrator):
 
     @router.get("/api/media-center/continue-watching/{item_id}/image")
     def continue_watching_image(request: Request, item_id: UUID):
-        active = connection()
+        active = connection(request)
         if active is None:
             raise HTTPException(404)
         config, _, base_url = active
@@ -437,7 +466,7 @@ def create_movie_playback_router(backend, administrator):
     def resolve_movie(request: Request, title: str = Query(default="", max_length=400),
                       year: str = Query(default="", max_length=10),
                       tmdb_id: int | None = Query(default=None, gt=0), item_id: UUID | None = None):
-        active = connection()
+        active = connection(request)
         if active is None:
             raise HTTPException(404, "Jellyfin ist nicht als Mediencenter eingerichtet.")
         config, generation, base_url = active
@@ -456,17 +485,17 @@ def create_movie_playback_router(backend, administrator):
         if items is None:
             raise HTTPException(503, "Die Jellyfin-Filmbibliothek ist nicht erreichbar.")
         matched_id = _movie_id(client, items, backend.clean_movie_title(title), year, tmdb_id)
-        return config, generation, base_url, matched_id, None
+        return config, generation, base_url, matched_id, profile_video(
+            base_url, config, linked_profile(request, config), matched_id)
 
     movie_dependency = Annotated[tuple[dict, int, str, str, dict | None], Depends(resolve_movie)]
 
     def playback_context(request):
-        active = connection()
+        active = connection(request)
         if active is None:
             raise HTTPException(404)
         config, generation, _ = active
-        user = backend.current_user(request.headers, request.cookies) or {}
-        return str(user.get("id") or ""), linked_profile(request, config), generation
+        return access.context(request), linked_profile(request, config), generation
 
     @router.post("/api/media-center/movies/session")
     def prepare_playback(request: Request, movie: movie_dependency, force_transcode: bool = False):
@@ -475,26 +504,47 @@ def create_movie_playback_router(backend, administrator):
         if generation != active_generation:
             raise HTTPException(409, "Die Jellyfin-Verbindung wurde geändert.")
         profile_video(base_url, config, profile_id, item_id)
-        return playback_sessions.open(base_url, config["api_key"], item_id, profile_id, generation, owner, force_transcode)
+        result = playback_sessions.open(base_url, config["api_key"], item_id, profile_id, generation, owner, force_transcode)
+        try:
+            access.assert_current(request)
+        except HTTPException:
+            playback_sessions.close(result["id"])
+            raise
+        return result
+
+    def checked_session(request, token):
+        session = playback_sessions.get(token, *playback_context(request))
+        context = access.context(request)
+        try:
+            profile_video(session["base"], context.config, context.profile_id, session["item_id"])
+            access.assert_current(request)
+        except HTTPException:
+            playback_sessions.close(token)
+            raise
+        return session
 
     @router.get("/api/media-center/playback/{token}/asset/{name}")
     def playback_asset(request: Request, token: str, name: str):
-        session = playback_sessions.get(token, *playback_context(request))
-        return playback_sessions.response(session, name, request.headers.get("range"))
+        session = checked_session(request, token)
+        def verify():
+            access.profile(request, session["base"], force=True)
+            profile_video(session["base"], access.context(request).config, session["profile_id"], session["item_id"])
+        guard = access.stream_guard(request, verify, invalidate=lambda: playback_sessions.close(token))
+        return playback_sessions.response(session, name, request.headers.get("range"), guard=guard)
 
     @router.post("/api/media-center/playback/{token}/seek", status_code=204)
     def interrupt_playback(request: Request, token: str):
-        playback_sessions.interrupt(playback_sessions.get(token, *playback_context(request)))
+        playback_sessions.interrupt(checked_session(request, token))
         return Response(status_code=204)
 
     @router.post("/api/media-center/playback/{token}/heartbeat", status_code=204)
     def playback_heartbeat(request: Request, token: str):
-        playback_sessions.get(token, *playback_context(request))
+        checked_session(request, token)
         return Response(status_code=204)
 
     @router.delete("/api/media-center/playback/{token}", status_code=204)
     def stop_playback(request: Request, token: str):
-        playback_sessions.get(token, *playback_context(request))
+        checked_session(request, token)
         playback_sessions.close(token)
         return Response(status_code=204)
 
@@ -502,18 +552,9 @@ def create_movie_playback_router(backend, administrator):
     def read_progress(request: Request, movie: movie_dependency):
         config, generation, base_url, item_id, item = movie
         profile_id = linked_profile(request, config)
-        endpoint = f"/Items/{item_id}" if profile_id else "/Items"
-        params = {"userId": profile_id} if profile_id else {
-            "Ids": item_id, "IncludeItemTypes": "Movie", "Recursive": "true",
-            "Limit": 1, "EnableImages": "false",
-        }
         try:
-            if item is None:
-                item = _jellyfin_json(base_url, config["api_key"], endpoint, params)
-                if not profile_id:
-                    item = next(iter(item.get("Items") or []), {})
             duration = int(item.get("RunTimeTicks") or 0)
-            position = int((item.get("UserData") or {}).get("PlaybackPositionTicks") or 0) if profile_id else 0
+            position = int((item.get("UserData") or {}).get("PlaybackPositionTicks") or 0)
         except (ValueError, TypeError, AttributeError):
             raise HTTPException(502, "Jellyfin konnte den Wiedergabestand nicht laden.") from None
         if not 0 < position <= MAX_POSITION_TICKS or (duration and position >= duration):
@@ -533,6 +574,8 @@ def create_movie_playback_router(backend, administrator):
         }
         if progress.ended:
             data["Played"] = True
+        profile_video(base_url, config, profile_id, item_id)
+        access.assert_current(request)
         _save_jellyfin_data(base_url, config["api_key"], profile_id, item_id, data)
         return Response(status_code=204)
 
@@ -540,9 +583,10 @@ def create_movie_playback_router(backend, administrator):
     def stream_movie(request: Request, movie: movie_dependency,
                      start_ticks: int = Query(default=0, ge=0, le=MAX_POSITION_TICKS)):
         config, _, base_url, item_id, _ = movie
+        profile_id = linked_profile(request, config)
         headers = jellyfin_auth_headers(config["api_key"])
         try:
-            options = _stream_options(base_url, headers, item_id, start_ticks)
+            options = _stream_options(base_url, headers, item_id, start_ticks, profile_id)
             headers["Accept-Encoding"] = "identity"
             if options["Static"] == "true" and request.headers.get("range"):
                 headers["Range"] = request.headers["range"]
@@ -557,7 +601,10 @@ def create_movie_playback_router(backend, administrator):
             if name in upstream.headers:
                 response_headers[name] = upstream.headers[name]
         if upstream.status_code in (200, 206) and upstream.headers.get("Content-Type", "").split(";")[0] == "video/mp4":
-            return MovieStream(upstream, response_headers)
+            def verify():
+                access.profile(request, base_url, force=True)
+                profile_video(base_url, config, profile_id, item_id)
+            return MovieStream(upstream, response_headers, access.stream_guard(request, verify))
         upstream.close()
         if upstream.status_code == 416:
             response_headers.pop("Content-Length", None)
