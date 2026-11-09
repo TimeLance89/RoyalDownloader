@@ -393,6 +393,7 @@ jobs:
           tests/test_household_playback.py tests/test_movie_playback_stream.py
           tests/test_jellyfin_playback.py tests/test_media_segments.py tests/test_media_segments_api.py
           tests/test_account_sessions.py tests/test_totp_api.py
+          tests/test_storage_autopilot_runtime.py
 
       - name: Delete-before-download movie replacement and queue safeguards
         if: ${{ steps.change-scope.outputs.backend == 'true' }}

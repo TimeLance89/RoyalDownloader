@@ -71,6 +71,8 @@ def household(monkeypatch, tmp_path):
         return SimpleNamespace(status_code=200, headers={"Content-Type": "application/vnd.apple.mpegurl" if ".m3u8" in url else "video/mp2t"},
                                iter_content=lambda *_a, **_kw: iter([content]), close=lambda: closed.append(url))
     monkeypatch.setattr(jellyfin_playback.requests, "get", upstream)
+    manager = jellyfin_playback.PlaybackSessions()
+    monkeypatch.setattr('api.api_movie_playback_router.PlaybackSessions', lambda: manager)
     app = FastAPI(); app.include_router(create_media_center_router(backend))
     clients = {name: TestClient(app) for name in users}
     for name, client in clients.items(): client.cookies.set(SESSION_COOKIE_NAME, tokens[name])
@@ -79,8 +81,15 @@ def household(monkeypatch, tmp_path):
         assert response.status_code == 200, response.text
         return response.json()
     env = SimpleNamespace(**locals())
-    yield env
-    for client in clients.values(): client.close()
+    try:
+        yield env
+    finally:
+        # Revoked/profile-switched clients cannot close their old session via HTTP.
+        # Release real session timers and playback leases even after a failed test.
+        for token in list(manager.sessions):
+            manager.close(token)
+        for client in clients.values():
+            client.close()
 
 
 def test_members_progress_and_actions_are_profile_scoped(household):
