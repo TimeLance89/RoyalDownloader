@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+## v2.1.0 – 2026-11-09
+
+### Royal becomes a media center
+
+- Play available Jellyfin films and episodes directly in Royal's browser player,
+  alongside discovery, downloads, subscriptions and personal recommendations.
+- Add saved-time play buttons and a personal Continue watching carousel with
+  direct resume, details, hide, watched and short-lived undo actions.
+- Bring library-aware season and episode browsing into series details, with
+  previous/next episode controls and a season-selectable episode menu in the player.
+- Add a dedicated fullscreen presentation, elapsed/total time, seek controls,
+  10-second skips, speed, volume, keyboard shortcuts and supported picture-in-picture.
+- Negotiate direct play or HLS with Jellyfin and use a consistent server timeline
+  for seeking, private stream resources and isolated playback sessions.
+
+### Household playback and permissions
+
+- Enable playback for active members and administrators through each account's
+  linked Jellyfin profile, checking profile policy and exact item visibility.
+- Scope streams, progress, Continue watching actions, details, images and episode
+  navigation to the current account/session, connection and linked profile.
+- Clear old personal player state on account/connection changes and invalidate
+  old stream sessions; keep media-center management administrator-only.
+- Read existing Jellyfin Intro/Outro markers through an authenticated backend
+  API with permission checks and bounded caching. Analysis remains external;
+  no new intro-skip controls are added to the web player.
+
+### Reliability and documentation
+
+- Preserve Mount confirmation buttons during unchanged storage polling so
+  an intervening status refresh does not swallow a pressed button's click.
+- Expand household, HLS, progress-isolation, session, browser and storage regression
+  coverage; clean up test playback sessions and leases deterministically.
+- Rework the README around the discover/download/watch workflow and add a
+  media-center setup guide, playback requirements and v2.1.0 upgrade notes.
+
 ## v2.0.4 – 2026-11-05
 
 ### Royal Charts and film discovery
