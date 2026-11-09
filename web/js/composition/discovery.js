@@ -1,3 +1,4 @@
+import { isPlaybackUser } from "../shared/playback-access.js";
 import { createSeriesState } from "../features/discovery/series-state.js";
 import { createMovieState } from "../features/discovery/movie-state.js";
 import { createCollectionActions } from "../features/collections/actions.js";
@@ -73,7 +74,7 @@ export function composeDiscovery({ movieState, seriesState, artworkUrls, i18n, s
         kind: "series", coverUrl: url => artworkUrls.coverUrl(url), selectFpRow: (...args) => services.movieActions.selectFpRow(...args), loadSeries: (...args) => services.seriesActions.loadSeries(...args), fpTrailerYoutubeKey: (...args) => services.movieActions.fpTrailerYoutubeKey(...args), openFpTrailerModal: (...args) => services.movieActions.openFpTrailerModal(...args),
       }),
   moviePresentation: createMoviePresentation(document.getElementById("tab-filme"), document.getElementById("fp-detail-modal"), {
-        isAdministrator: () => getProfile().auth.get().user?.role === "admin",
+        canPlay: () => isPlaybackUser(getProfile().auth.get().user),
         stopFpDetailHeroTrailer: () => {
           services.movieActions.stopFpDetailHeroTrailer();
           services.seriesActions.stopSeriesDetailHeroTrailer();
@@ -105,7 +106,7 @@ export function composeDiscovery({ movieState, seriesState, artworkUrls, i18n, s
         activateResultCard: (...args) => services.movieActions.activateResultCard(...args), configureSeriesTrailer: (...args) => { if (!services.moviePresentation.isPlaybackOpen()) services.seriesActions.configureSeriesTrailer(...args); }, createResultCardVisual: (...args) => services.movieActions.createResultCardVisual(...args), dedupeCatalogMedia: (...args) => getSubscriptions().actions.dedupeCatalogMedia(...args), discardObservedResultPosters: (...args) => services.movieActions.discardObservedResultPosters(...args), homeSeriesEntry: (...args) => getHome().actions.homeSeriesEntry(...args), hydrateHomeSeriesArtwork: (...args) => getHome().actions.hydrateHomeSeriesArtwork(...args), isEpisodeEligible: (...args) => services.seriesActions.isEpisodeEligible(...args), loadSeries: (...args) => services.seriesActions.loadSeries(...args), mediaJellyfinStatus: (...args) => getHome().actions.mediaJellyfinStatus(...args), mergeCatalogItems: (...args) => services.movieActions.mergeCatalogItems(...args), mergeCatalogSources: (...args) => services.movieActions.mergeCatalogSources(...args), openMediaModal: (...args) => getCore().actions.openMediaModal(...args), recheckSeriesInfinite: (...args) => getCore().actions.recheckSeriesInfinite(...args), refreshCatalogJellyfinStatus: (...args) => getHome().actions.refreshCatalogJellyfinStatus(...args), renderSeriesDetailDiscovery: (...args) => services.seriesActions.renderSeriesDetailDiscovery(...args), renderSeriesTiles: (...args) => services.seriesActions.renderSeriesTiles(...args), setFpJellyfinBadge: (...args) => services.movieActions.setFpJellyfinBadge(...args), setFpPosterJellyfinBadge: (...args) => services.movieActions.setFpPosterJellyfinBadge(...args), syncResultCardPoster: (...args) => services.movieActions.syncResultCardPoster(...args), syncSeriesQueueFlags: (...args) => services.seriesActions.syncSeriesQueueFlags(...args), updateSeriesJellyfinBadge: (...args) => services.movieActions.updateSeriesJellyfinBadge(...args), updateSeriesStatus: (...args) => services.movieActions.updateSeriesStatus(...args), updateTasteFeedbackButtons: (...args) => getHome().actions.updateTasteFeedbackButtons(...args), verifyHuhuEpisodeLanguages: (...args) => services.seriesActions.verifyHuhuEpisodeLanguages(...args),
       }),
   seriesEpisodes: createSeriesEpisodes(document.getElementById("series-detail-modal"), {
-        canPlaySeries: () => getProfile().auth.get().user?.role === "admin",
+        canPlaySeries: () => isPlaybackUser(getProfile().auth.get().user),
         openPlaybackItem: (...args) => services.moviePresentation.openPlaybackItem(...args),
         isQueueLoaded: () => state.queue.loaded, status: document.getElementById("series-status"), seriesState, getQueuedSlugs: () => state.queuedSlugs,
         getEnabledLanguages: () => getSettings().providers.get()?.contentLanguages,

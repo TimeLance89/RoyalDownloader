@@ -9,6 +9,7 @@ from api.api_media_center_router import create_media_center_router
 from api.api_media_segments_router import create_media_segments_router
 from application_services.media_segments import MediaSegments
 from core import egress_requests as requests
+from core.auth import SessionStore, SESSION_COOKIE_NAME
 from integrations.jellyfin_client import JellyfinClient
 
 ITEM = "1" * 32
@@ -23,6 +24,10 @@ def setup_api(monkeypatch):
     state = SimpleNamespace(jellyfin_cache_lock=Lock(), jellyfin_config_generation=1,
                             jellyfin_cfg={"provider": "jellyfin", "url": "http://jellyfin/base", "api_key": "private-key"})
     backend = SimpleNamespace(state=state, current_user=lambda headers, cookies: user if user else None)
+    backend.SESSION_STORE = SessionStore()
+    token = backend.SESSION_STORE.create(user_id="reader")
+    backend.authenticated_mobile_token = lambda *_a, **_kw: ""
+    backend.authenticated_web_token = lambda cookies, **_: cookies.get(SESSION_COOKIE_NAME, "")
     calls = []
     payload = {"Items": [{"ItemId": ITEM, "Type": "Intro", "StartTicks": 0, "EndTicks": 900_000_000}]}
     flags = {"visible": True, "disabled": False, "playback": True, "duration": 30_000_000_000}
@@ -43,7 +48,9 @@ def setup_api(monkeypatch):
     monkeypatch.setattr(JellyfinClient, "_saved_request", read)
     app = FastAPI()
     app.include_router(create_media_center_router(backend))
-    return SimpleNamespace(client=TestClient(app), user=user, state=state, backend=backend,
+    client = TestClient(app)
+    client.cookies.set(SESSION_COOKIE_NAME, token)
+    return SimpleNamespace(client=client, user=user, state=state, backend=backend,
                            calls=calls, payload=payload, flags=flags)
 
 
@@ -79,6 +86,8 @@ def test_unlinked_profiles_never_fall_back_to_the_server_administrator(setup_api
     assert env.client.get(PATH).status_code == 403
     assert not env.calls
     env.user["id"] = "admin-legacy"
+    token = env.backend.SESSION_STORE.create(user_id="admin-legacy")
+    env.client.cookies.set(SESSION_COOKIE_NAME, token)
     assert env.client.get(PATH).status_code == 200
     assert env.calls[1][3]["UserId"] == OTHER
 

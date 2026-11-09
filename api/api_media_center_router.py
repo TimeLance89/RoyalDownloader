@@ -28,11 +28,11 @@ class ConnectionBody(BaseModel):
 def create_media_center_router(backend):
     def administrator(request: Request):
         user = backend.current_user(request.headers, request.cookies)
-        if not user or user.get("role") != "admin":
+        if not user or not user.get("enabled", True) or user.get("role") != "admin":
             raise HTTPException(403, "Administratorrechte erforderlich.")
 
     router = APIRouter(tags=["media-center"])
-    router.routes.extend(create_movie_playback_router(backend, administrator).routes)
+    router.routes.extend(create_movie_playback_router(backend).routes)
     router.routes.extend(create_media_segments_router(backend).routes)
 
     def config_payload():
