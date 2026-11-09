@@ -26,6 +26,7 @@ from urllib.parse import quote, urlencode
 from core import egress_urllib
 from integrations.jellyfin_auth import jellyfin_auth_headers
 from integrations.jellyfin_saved import JellyfinSavedMixin
+from integrations.jellyfin_segments import JellyfinSegmentsMixin
 
 urllib = SimpleNamespace(request=egress_urllib, error=urllib.error)
 
@@ -127,7 +128,7 @@ def _same_installment_title(wanted: str, candidate: str) -> bool:
     )
 
 
-class JellyfinClient(JellyfinSavedMixin):
+class JellyfinClient(JellyfinSegmentsMixin, JellyfinSavedMixin):
     def __init__(self, base_url: str = "", api_key: str = "", timeout: float = 5.0):
         self.base_url = (base_url or "").rstrip("/")
         self.api_key = (api_key or "").strip()
