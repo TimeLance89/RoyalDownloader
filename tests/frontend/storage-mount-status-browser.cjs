@@ -63,7 +63,19 @@ const { fixture } = require("./performance-fixture.cjs");
         await button.click();
         assert.equal(writes.length, 0, "cancelling confirmation must not authorize a changed mount");
         accept = true;
-        await button.click();
+        await button.scrollIntoViewIfNeeded();
+        const pressed = await button.elementHandle();
+        const box = await button.boundingBox();
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await page.mouse.down();
+        try {
+          // The five-second poll can complete between pointerdown and pointerup.
+          await page.evaluate(() => fixtureApp.settings.storage.refresh());
+          assert.equal(await pressed.evaluate(node => node.isConnected), true,
+            "unchanged polling must preserve the pressed mount confirmation button");
+        } finally {
+          await page.mouse.up();
+        }
         await page.waitForFunction(() => document.querySelector("#storage-standard-target-list .storage-standard-target-note strong")?.textContent === "Verfügbar");
         assert.equal(writes.length, 1);
         assert.match(await page.locator("#storage-autopilot-health").innerText(), /Ein Volume ist stark belegt/);

@@ -5,6 +5,14 @@ import { escapeHtml as html } from "../../shared/utils/escape-html.js";
 export function createStorageView(root) {
   const find = id => root.querySelector(`#${id}`);
   let autopilotRoots = [];
+  const standardTargetMarkup = new WeakMap();
+  function updateStandardTargets(list, markup) {
+    // Keep controls alive when polling returns the same state. Replacing a
+    // pressed button between pointerdown and pointerup swallows its click.
+    if (standardTargetMarkup.get(list) === markup) return;
+    list.innerHTML = markup;
+    standardTargetMarkup.set(list, markup);
+  }
   function formatPercent(value) {
     return `${Math.max(0, Math.min(100, Number(value) || 0)).toLocaleString("de-DE", { maximumFractionDigits: 1 })} %`;
   }
@@ -18,11 +26,11 @@ export function createStorageView(root) {
     if (!list) return;
     const standard = (Array.isArray(roots) ? roots : []).filter((root) => root.source === "media" && (root.key === "movies" || root.key === "series"));
     if (!standard.length) {
-      list.innerHTML = '<div class="storage-empty-state"><strong>Keine Standard-Zielordner gefunden</strong><span>Prüfe die Film- und Serienpfade unter „Basisordner ändern“.</span></div>';
+      updateStandardTargets(list, '<div class="storage-empty-state"><strong>Keine Standard-Zielordner gefunden</strong><span>Prüfe die Film- und Serienpfade unter „Basisordner ändern“.</span></div>');
       return;
     }
     const ordered = ["movies", "series"].map((key) => standard.find((item) => item.key === key)).filter(Boolean);
-    list.innerHTML = ordered.map((target) => {
+    updateStandardTargets(list, ordered.map((target) => {
       const kind = target.key === "movies" ? "Filme" : "Serien";
       const extra = target.key === "series" ? " · Anime nutzt diesen Serienpfad als Standard" : "";
       const available = Boolean(target.available);
@@ -42,7 +50,7 @@ export function createStorageView(root) {
           </div>
           <div class="storage-standard-target-note"><strong>${usable ? "Verfügbar" : confirmMount ? "Bestätigung erforderlich" : "Nicht verfügbar"}</strong><span>${usable ? "Standardziel &amp; Fallback" : "Derzeit kein sicheres Fallback"}</span>${confirmMount ? `<button type="button" class="btn btn-ghost btn-sm" data-autopilot-action="mount" data-root="${html(target.key)}">Mount prüfen und bestätigen</button>` : ""}</div>
         </article>`;
-    }).join("");
+    }).join(""));
   }
 
   function renderLocations(locations, roots) {
