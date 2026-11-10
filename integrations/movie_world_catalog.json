@@ -1,0 +1,1035 @@
+{
+  "groups": [
+    {
+      "id": "animation",
+      "de": "Disney & Animation",
+      "en": "Disney & animation"
+    },
+    {
+      "id": "heroes",
+      "de": "Helden & Universen",
+      "en": "Heroes & universes"
+    },
+    {
+      "id": "fantasy",
+      "de": "Fantasy & Magie",
+      "en": "Fantasy & magic"
+    },
+    {
+      "id": "action",
+      "de": "Action & Kultreihen",
+      "en": "Action & iconic franchises"
+    },
+    {
+      "id": "scifi",
+      "de": "Science-Fiction & Abenteuer",
+      "en": "Sci-fi & adventure"
+    },
+    {
+      "id": "horror",
+      "de": "Horror & Nervenkitzel",
+      "en": "Horror & suspense"
+    },
+    {
+      "id": "family",
+      "de": "Animationsreihen & Familie",
+      "en": "Animated franchises & family"
+    },
+    {
+      "id": "studios",
+      "de": "Filmstudios",
+      "en": "Film studios"
+    }
+  ],
+  "worlds": [
+    {
+      "id": "disney",
+      "group": "animation",
+      "type": "discover",
+      "de": "Disney Filme",
+      "en": "Disney movies",
+      "filters": {
+        "with_companies": "2|6125|3166|171656|5391|3475|177000|112779"
+      }
+    },
+    {
+      "id": "disney-classics",
+      "group": "animation",
+      "type": "discover",
+      "de": "Disney Classics",
+      "en": "Disney Classics",
+      "filters": {
+        "with_companies": "2|6125|3166|171656|5391|3475|177000|112779",
+        "with_genres": "16",
+        "without_companies": "3",
+        "with_runtime.gte": "40"
+      }
+    },
+    {
+      "id": "pixar",
+      "group": "animation",
+      "type": "discover",
+      "de": "Pixar",
+      "en": "Pixar",
+      "filters": {
+        "with_companies": "3"
+      }
+    },
+    {
+      "id": "dreamworks",
+      "group": "animation",
+      "type": "discover",
+      "de": "DreamWorks Animation",
+      "en": "DreamWorks Animation",
+      "filters": {
+        "with_companies": "521"
+      }
+    },
+    {
+      "id": "ghibli",
+      "group": "animation",
+      "type": "discover",
+      "de": "Studio Ghibli",
+      "en": "Studio Ghibli",
+      "filters": {
+        "with_companies": "10342"
+      }
+    },
+    {
+      "id": "marvel",
+      "group": "heroes",
+      "type": "discover",
+      "de": "Marvel",
+      "en": "Marvel",
+      "filters": {
+        "with_companies": "420|19551|7505"
+      }
+    },
+    {
+      "id": "dc",
+      "group": "heroes",
+      "type": "discover",
+      "de": "DC Universe",
+      "en": "DC Universe",
+      "filters": {
+        "with_companies": "9993|128064|429"
+      }
+    },
+    {
+      "id": "star-wars",
+      "group": "heroes",
+      "type": "collections",
+      "de": "Star Wars · Skywalker-Saga",
+      "en": "Star Wars · Skywalker saga",
+      "collections": [
+        {
+          "id": 10,
+          "query": "Star Wars"
+        }
+      ]
+    },
+    {
+      "id": "harry-potter",
+      "group": "fantasy",
+      "type": "collections",
+      "de": "Harry Potter",
+      "en": "Harry Potter",
+      "collections": [
+        {
+          "query": "Harry Potter"
+        }
+      ]
+    },
+    {
+      "id": "fantastic-beasts",
+      "group": "fantasy",
+      "type": "collections",
+      "de": "Phantastische Tierwesen",
+      "en": "Fantastic Beasts",
+      "collections": [
+        {
+          "query": "Fantastic Beasts"
+        }
+      ]
+    },
+    {
+      "id": "lord-of-the-rings",
+      "group": "fantasy",
+      "type": "collections",
+      "de": "Der Herr der Ringe",
+      "en": "The Lord of the Rings",
+      "collections": [
+        {
+          "query": "The Lord of the Rings"
+        }
+      ]
+    },
+    {
+      "id": "hobbit",
+      "group": "fantasy",
+      "type": "collections",
+      "de": "Der Hobbit",
+      "en": "The Hobbit",
+      "collections": [
+        {
+          "query": "The Hobbit"
+        }
+      ]
+    },
+    {
+      "id": "middle-earth",
+      "group": "fantasy",
+      "type": "collections",
+      "de": "Mittelerde · Alle Filme",
+      "en": "Middle-earth · All films",
+      "collections": [
+        {
+          "query": "The Lord of the Rings"
+        },
+        {
+          "query": "The Hobbit"
+        }
+      ]
+    },
+    {
+      "id": "pirates-caribbean",
+      "group": "fantasy",
+      "type": "collections",
+      "de": "Fluch der Karibik",
+      "en": "Pirates of the Caribbean",
+      "collections": [
+        {
+          "query": "Pirates of the Caribbean"
+        }
+      ]
+    },
+    {
+      "id": "hunger-games",
+      "group": "fantasy",
+      "type": "collections",
+      "de": "Die Tribute von Panem",
+      "en": "The Hunger Games",
+      "collections": [
+        {
+          "query": "The Hunger Games"
+        }
+      ]
+    },
+    {
+      "id": "twilight",
+      "group": "fantasy",
+      "type": "collections",
+      "de": "Twilight",
+      "en": "Twilight",
+      "collections": [
+        {
+          "query": "The Twilight Saga"
+        }
+      ]
+    },
+    {
+      "id": "narnia",
+      "group": "fantasy",
+      "type": "collections",
+      "de": "Die Chroniken von Narnia",
+      "en": "The Chronicles of Narnia",
+      "collections": [
+        {
+          "query": "The Chronicles of Narnia"
+        }
+      ]
+    },
+    {
+      "id": "maze-runner",
+      "group": "fantasy",
+      "type": "collections",
+      "de": "Maze Runner",
+      "en": "Maze Runner",
+      "collections": [
+        {
+          "query": "Maze Runner"
+        }
+      ]
+    },
+    {
+      "id": "james-bond",
+      "group": "action",
+      "type": "collections",
+      "de": "James Bond 007",
+      "en": "James Bond 007",
+      "collections": [
+        {
+          "query": "James Bond"
+        }
+      ]
+    },
+    {
+      "id": "mission-impossible",
+      "group": "action",
+      "type": "collections",
+      "de": "Mission: Impossible",
+      "en": "Mission: Impossible",
+      "collections": [
+        {
+          "query": "Mission: Impossible"
+        }
+      ]
+    },
+    {
+      "id": "fast-furious",
+      "group": "action",
+      "type": "collections",
+      "de": "Fast & Furious",
+      "en": "Fast & Furious",
+      "collections": [
+        {
+          "query": "Fast & Furious"
+        }
+      ]
+    },
+    {
+      "id": "john-wick",
+      "group": "action",
+      "type": "collections",
+      "de": "John Wick",
+      "en": "John Wick",
+      "collections": [
+        {
+          "query": "John Wick"
+        }
+      ]
+    },
+    {
+      "id": "rocky",
+      "group": "action",
+      "type": "collections",
+      "de": "Rocky",
+      "en": "Rocky",
+      "collections": [
+        {
+          "query": "Rocky"
+        }
+      ]
+    },
+    {
+      "id": "rambo",
+      "group": "action",
+      "type": "collections",
+      "de": "Rambo",
+      "en": "Rambo",
+      "collections": [
+        {
+          "query": "Rambo"
+        }
+      ]
+    },
+    {
+      "id": "indiana-jones",
+      "group": "action",
+      "type": "collections",
+      "de": "Indiana Jones",
+      "en": "Indiana Jones",
+      "collections": [
+        {
+          "query": "Indiana Jones"
+        }
+      ]
+    },
+    {
+      "id": "die-hard",
+      "group": "action",
+      "type": "collections",
+      "de": "Stirb langsam",
+      "en": "Die Hard",
+      "collections": [
+        {
+          "query": "Die Hard"
+        }
+      ]
+    },
+    {
+      "id": "bourne",
+      "group": "action",
+      "type": "collections",
+      "de": "Jason Bourne",
+      "en": "Jason Bourne",
+      "collections": [
+        {
+          "query": "Bourne"
+        }
+      ]
+    },
+    {
+      "id": "expendables",
+      "group": "action",
+      "type": "collections",
+      "de": "The Expendables",
+      "en": "The Expendables",
+      "collections": [
+        {
+          "query": "The Expendables"
+        }
+      ]
+    },
+    {
+      "id": "bad-boys",
+      "group": "action",
+      "type": "collections",
+      "de": "Bad Boys",
+      "en": "Bad Boys",
+      "collections": [
+        {
+          "query": "Bad Boys"
+        }
+      ]
+    },
+    {
+      "id": "kingsman",
+      "group": "action",
+      "type": "collections",
+      "de": "Kingsman",
+      "en": "Kingsman",
+      "collections": [
+        {
+          "query": "Kingsman"
+        }
+      ]
+    },
+    {
+      "id": "jurassic",
+      "group": "scifi",
+      "type": "collections",
+      "de": "Jurassic Park & World",
+      "en": "Jurassic Park & World",
+      "collections": [
+        {
+          "query": "Jurassic Park"
+        }
+      ]
+    },
+    {
+      "id": "matrix",
+      "group": "scifi",
+      "type": "collections",
+      "de": "Matrix",
+      "en": "The Matrix",
+      "collections": [
+        {
+          "query": "The Matrix"
+        }
+      ]
+    },
+    {
+      "id": "terminator",
+      "group": "scifi",
+      "type": "collections",
+      "de": "Terminator",
+      "en": "Terminator",
+      "collections": [
+        {
+          "query": "Terminator"
+        }
+      ]
+    },
+    {
+      "id": "alien",
+      "group": "scifi",
+      "type": "collections",
+      "de": "Alien",
+      "en": "Alien",
+      "collections": [
+        {
+          "query": "Alien"
+        }
+      ]
+    },
+    {
+      "id": "predator",
+      "group": "scifi",
+      "type": "collections",
+      "de": "Predator",
+      "en": "Predator",
+      "collections": [
+        {
+          "query": "Predator"
+        }
+      ]
+    },
+    {
+      "id": "transformers",
+      "group": "scifi",
+      "type": "collections",
+      "de": "Transformers",
+      "en": "Transformers",
+      "collections": [
+        {
+          "query": "Transformers"
+        }
+      ]
+    },
+    {
+      "id": "avatar",
+      "group": "scifi",
+      "type": "collections",
+      "de": "Avatar",
+      "en": "Avatar",
+      "collections": [
+        {
+          "query": "Avatar"
+        }
+      ]
+    },
+    {
+      "id": "dune",
+      "group": "scifi",
+      "type": "collections",
+      "de": "Dune",
+      "en": "Dune",
+      "collections": [
+        {
+          "query": "Dune"
+        }
+      ]
+    },
+    {
+      "id": "planet-apes",
+      "group": "scifi",
+      "type": "collections",
+      "de": "Planet der Affen",
+      "en": "Planet of the Apes",
+      "collections": [
+        {
+          "query": "Planet of the Apes"
+        }
+      ]
+    },
+    {
+      "id": "men-in-black",
+      "group": "scifi",
+      "type": "collections",
+      "de": "Men in Black",
+      "en": "Men in Black",
+      "collections": [
+        {
+          "query": "Men in Black"
+        }
+      ]
+    },
+    {
+      "id": "back-to-future",
+      "group": "scifi",
+      "type": "collections",
+      "de": "Zurück in die Zukunft",
+      "en": "Back to the Future",
+      "collections": [
+        {
+          "query": "Back to the Future"
+        }
+      ]
+    },
+    {
+      "id": "ghostbusters",
+      "group": "scifi",
+      "type": "collections",
+      "de": "Ghostbusters",
+      "en": "Ghostbusters",
+      "collections": [
+        {
+          "query": "Ghostbusters"
+        }
+      ]
+    },
+    {
+      "id": "scream",
+      "group": "horror",
+      "type": "collections",
+      "de": "Scream",
+      "en": "Scream",
+      "collections": [
+        {
+          "query": "Scream"
+        }
+      ]
+    },
+    {
+      "id": "halloween",
+      "group": "horror",
+      "type": "collections",
+      "de": "Halloween",
+      "en": "Halloween",
+      "collections": [
+        {
+          "query": "Halloween"
+        }
+      ]
+    },
+    {
+      "id": "saw",
+      "group": "horror",
+      "type": "collections",
+      "de": "Saw",
+      "en": "Saw",
+      "collections": [
+        {
+          "query": "Saw"
+        }
+      ]
+    },
+    {
+      "id": "conjuring",
+      "group": "horror",
+      "type": "collections",
+      "de": "Conjuring",
+      "en": "The Conjuring",
+      "collections": [
+        {
+          "query": "The Conjuring"
+        }
+      ]
+    },
+    {
+      "id": "final-destination",
+      "group": "horror",
+      "type": "collections",
+      "de": "Final Destination",
+      "en": "Final Destination",
+      "collections": [
+        {
+          "query": "Final Destination"
+        }
+      ]
+    },
+    {
+      "id": "insidious",
+      "group": "horror",
+      "type": "collections",
+      "de": "Insidious",
+      "en": "Insidious",
+      "collections": [
+        {
+          "query": "Insidious"
+        }
+      ]
+    },
+    {
+      "id": "paranormal-activity",
+      "group": "horror",
+      "type": "collections",
+      "de": "Paranormal Activity",
+      "en": "Paranormal Activity",
+      "collections": [
+        {
+          "query": "Paranormal Activity"
+        }
+      ]
+    },
+    {
+      "id": "friday-13",
+      "group": "horror",
+      "type": "collections",
+      "de": "Freitag der 13.",
+      "en": "Friday the 13th",
+      "collections": [
+        {
+          "query": "Friday the 13th"
+        }
+      ]
+    },
+    {
+      "id": "shrek",
+      "group": "family",
+      "type": "collections",
+      "de": "Shrek",
+      "en": "Shrek",
+      "collections": [
+        {
+          "query": "Shrek"
+        }
+      ]
+    },
+    {
+      "id": "kung-fu-panda",
+      "group": "family",
+      "type": "collections",
+      "de": "Kung Fu Panda",
+      "en": "Kung Fu Panda",
+      "collections": [
+        {
+          "query": "Kung Fu Panda"
+        }
+      ]
+    },
+    {
+      "id": "how-to-train-dragon",
+      "group": "family",
+      "type": "collections",
+      "de": "Drachenzähmen leicht gemacht",
+      "en": "How to Train Your Dragon",
+      "collections": [
+        {
+          "query": "How to Train Your Dragon"
+        }
+      ]
+    },
+    {
+      "id": "ice-age",
+      "group": "family",
+      "type": "collections",
+      "de": "Ice Age",
+      "en": "Ice Age",
+      "collections": [
+        {
+          "query": "Ice Age"
+        }
+      ]
+    },
+    {
+      "id": "toy-story",
+      "group": "family",
+      "type": "collections",
+      "de": "Toy Story",
+      "en": "Toy Story",
+      "collections": [
+        {
+          "query": "Toy Story"
+        }
+      ]
+    },
+    {
+      "id": "cars",
+      "group": "family",
+      "type": "collections",
+      "de": "Cars",
+      "en": "Cars",
+      "collections": [
+        {
+          "query": "Cars"
+        }
+      ]
+    },
+    {
+      "id": "despicable-me",
+      "group": "family",
+      "type": "collections",
+      "de": "Ich – Einfach unverbesserlich",
+      "en": "Despicable Me",
+      "collections": [
+        {
+          "query": "Despicable Me"
+        }
+      ]
+    },
+    {
+      "id": "minions",
+      "group": "family",
+      "type": "collections",
+      "de": "Minions",
+      "en": "Minions",
+      "collections": [
+        {
+          "query": "Minions"
+        }
+      ]
+    },
+    {
+      "id": "madagascar",
+      "group": "family",
+      "type": "collections",
+      "de": "Madagascar",
+      "en": "Madagascar",
+      "collections": [
+        {
+          "query": "Madagascar"
+        }
+      ]
+    },
+    {
+      "id": "monsters-inc",
+      "group": "family",
+      "type": "collections",
+      "de": "Die Monster AG",
+      "en": "Monsters, Inc.",
+      "collections": [
+        {
+          "query": "Monsters, Inc."
+        }
+      ]
+    },
+    {
+      "id": "finding-nemo",
+      "group": "family",
+      "type": "collections",
+      "de": "Findet Nemo & Dorie",
+      "en": "Finding Nemo & Dory",
+      "collections": [
+        {
+          "query": "Finding Nemo"
+        }
+      ]
+    },
+    {
+      "id": "incredibles",
+      "group": "family",
+      "type": "collections",
+      "de": "Die Unglaublichen",
+      "en": "The Incredibles",
+      "collections": [
+        {
+          "query": "The Incredibles"
+        }
+      ]
+    },
+    {
+      "id": "hotel-transylvania",
+      "group": "family",
+      "type": "collections",
+      "de": "Hotel Transsilvanien",
+      "en": "Hotel Transylvania",
+      "collections": [
+        {
+          "query": "Hotel Transylvania"
+        }
+      ]
+    },
+    {
+      "id": "warner-bros",
+      "group": "studios",
+      "type": "discover",
+      "de": "Warner Bros.",
+      "en": "Warner Bros.",
+      "filters": {
+        "with_companies": "174"
+      }
+    },
+    {
+      "id": "universal",
+      "group": "studios",
+      "type": "discover",
+      "de": "Universal Pictures",
+      "en": "Universal Pictures",
+      "filters": {
+        "with_companies": "33"
+      }
+    },
+    {
+      "id": "paramount",
+      "group": "studios",
+      "type": "discover",
+      "de": "Paramount Pictures",
+      "en": "Paramount Pictures",
+      "filters": {
+        "with_companies": "4"
+      }
+    },
+    {
+      "id": "columbia",
+      "group": "studios",
+      "type": "discover",
+      "de": "Columbia Pictures",
+      "en": "Columbia Pictures",
+      "filters": {
+        "with_companies": "5"
+      }
+    },
+    {
+      "id": "20th-century",
+      "group": "studios",
+      "type": "discover",
+      "de": "20th Century Studios",
+      "en": "20th Century Studios",
+      "filters": {
+        "with_companies": "25"
+      }
+    },
+    {
+      "id": "mgm",
+      "group": "studios",
+      "type": "discover",
+      "de": "Metro-Goldwyn-Mayer",
+      "en": "Metro-Goldwyn-Mayer",
+      "filters": {
+        "with_companies": "21"
+      }
+    },
+    {
+      "id": "lionsgate",
+      "group": "studios",
+      "type": "discover",
+      "de": "Lionsgate",
+      "en": "Lionsgate",
+      "filters": {
+        "with_companies": "35"
+      }
+    },
+    {
+      "id": "new-line",
+      "group": "studios",
+      "type": "discover",
+      "de": "New Line Cinema",
+      "en": "New Line Cinema",
+      "filters": {
+        "with_companies": "12"
+      }
+    },
+    {
+      "id": "a24",
+      "group": "studios",
+      "type": "discover",
+      "de": "A24",
+      "en": "A24",
+      "filters": {
+        "with_companies": "41077"
+      }
+    },
+    {
+      "id": "blumhouse",
+      "group": "studios",
+      "type": "discover",
+      "de": "Blumhouse Productions",
+      "en": "Blumhouse Productions",
+      "filters": {
+        "with_companies": "3172"
+      }
+    },
+    {
+      "id": "legendary",
+      "group": "studios",
+      "type": "discover",
+      "de": "Legendary Pictures",
+      "en": "Legendary Pictures",
+      "filters": {
+        "with_companies": "923"
+      }
+    },
+    {
+      "id": "illumination",
+      "group": "studios",
+      "type": "discover",
+      "de": "Illumination",
+      "en": "Illumination",
+      "filters": {
+        "with_companies": "6704"
+      }
+    },
+    {
+      "id": "amblin",
+      "group": "studios",
+      "type": "discover",
+      "de": "Amblin Entertainment",
+      "en": "Amblin Entertainment",
+      "filters": {
+        "with_companies": "56"
+      }
+    },
+    {
+      "id": "miramax",
+      "group": "studios",
+      "type": "discover",
+      "de": "Miramax",
+      "en": "Miramax",
+      "filters": {
+        "with_companies": "14"
+      }
+    },
+    {
+      "id": "tristar",
+      "group": "studios",
+      "type": "discover",
+      "de": "TriStar Pictures",
+      "en": "TriStar Pictures",
+      "filters": {
+        "with_companies": "559"
+      }
+    },
+    {
+      "id": "focus-features",
+      "group": "studios",
+      "type": "discover",
+      "de": "Focus Features",
+      "en": "Focus Features",
+      "filters": {
+        "with_companies": "10146"
+      }
+    },
+    {
+      "id": "constantin-film",
+      "group": "studios",
+      "type": "discover",
+      "de": "Constantin Film",
+      "en": "Constantin Film",
+      "filters": {
+        "with_companies": "47"
+      }
+    },
+    {
+      "id": "toho",
+      "group": "studios",
+      "type": "discover",
+      "de": "Toho",
+      "en": "Toho",
+      "filters": {
+        "with_companies": "882"
+      }
+    },
+    {
+      "id": "laika",
+      "group": "studios",
+      "type": "discover",
+      "de": "LAIKA",
+      "en": "LAIKA",
+      "filters": {
+        "with_companies": "11537"
+      }
+    },
+    {
+      "id": "blue-sky",
+      "group": "studios",
+      "type": "discover",
+      "de": "Blue Sky Studios",
+      "en": "Blue Sky Studios",
+      "filters": {
+        "with_companies": "9383"
+      }
+    },
+    {
+      "id": "sony-animation",
+      "group": "studios",
+      "type": "discover",
+      "de": "Sony Pictures Animation",
+      "en": "Sony Pictures Animation",
+      "filters": {
+        "with_companies": "2251"
+      }
+    },
+    {
+      "id": "gaumont",
+      "group": "studios",
+      "type": "discover",
+      "de": "Gaumont",
+      "en": "Gaumont",
+      "filters": {
+        "with_companies": "9"
+      }
+    },
+    {
+      "id": "working-title",
+      "group": "studios",
+      "type": "discover",
+      "de": "Working Title Films",
+      "en": "Working Title Films",
+      "filters": {
+        "with_companies": "10163"
+      }
+    },
+    {
+      "id": "studiocanal",
+      "group": "studios",
+      "type": "discover",
+      "de": "StudioCanal",
+      "en": "StudioCanal",
+      "filters": {
+        "with_companies": "694"
+      }
+    }
+  ]
+}
