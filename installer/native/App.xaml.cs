@@ -21,9 +21,10 @@ public partial class App : Application
             // and normalised Windows/NAS archives; no installation side effects.
             try
             {
-                var progress = new Progress<string>(_ => {});
-                var package = StableSource.FetchLatestAsync(
-                    progress, CancellationToken.None).GetAwaiter().GetResult();
+                using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+                var package = Task.Run(async () => await StableSource.FetchLatestAsync(
+                    new Progress<string>(_ => {}), timeout.Token), timeout.Token)
+                    .GetAwaiter().GetResult();
                 if (package.Zip.Length == 0 || package.Tar.Length == 0)
                     throw new InvalidDataException("Stable archive is empty.");
                 Shutdown(0);
