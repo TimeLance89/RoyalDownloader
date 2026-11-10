@@ -282,6 +282,7 @@ internal static class InstallerEngine
     public static string WindowsPreflight(WindowsOptions config)
     {
         ValidateWindows(config);
+        ManagerEngine.RequireFreePort();
         var drive = new DriveInfo(Path.GetPathRoot(Path.GetFullPath(config.Project))!);
         if (drive.AvailableFreeSpace < 2L * 1024 * 1024 * 1024)
             throw new InvalidOperationException("Auf dem Installationslaufwerk müssen mindestens 2 GiB frei sein.");

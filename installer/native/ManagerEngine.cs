@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Net.Http;
+using System.Net;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -104,6 +106,49 @@ internal static class ManagerEngine
     internal static string ArchiveName(string root, string suffix)
         => root + "." + suffix + "-" + DateTimeOffset.Now.ToString("yyyyMMdd-HHmmss") +
             "-" + Convert.ToHexString(RandomNumberGenerator.GetBytes(3)).ToLowerInvariant();
+
+    internal static void RequireFreePort()
+    {
+        var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 8765);
+        try { listener.Start(); }
+        catch (SocketException error)
+        {
+            throw new InvalidOperationException(
+                "Port 8765 ist bereits belegt. Bitte RoyalDownloader oder den betreffenden Dienst zuerst beenden.", error);
+        }
+        finally { listener.Stop(); }
+    }
+
+    private static async Task StartOwnedServer(string root, IProgress<string> log, CancellationToken cancel)
+    {
+        RequireFreePort();
+        string python = Path.Combine(root, ".venv", "Scripts", "python.exe");
+        if (!File.Exists(python))
+            throw new InvalidOperationException("Die private Python-Laufzeit ist nicht vorhanden.");
+        var info = new ProcessStartInfo(python)
+        {
+            WorkingDirectory = root, UseShellExecute = false, CreateNoWindow = true,
+        };
+        info.ArgumentList.Add(Path.Combine(root, "server.py"));
+        using var child = Process.Start(info) ??
+            throw new InvalidOperationException("RoyalDownloader-Server konnte nicht gestartet werden.");
+        RememberOwnedServer(root, child);
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
+        for (int attempt = 0; attempt < 30; attempt++)
+        {
+            cancel.ThrowIfCancellationRequested();
+            await Task.Delay(1000, cancel);
+            try
+            {
+                using var res = await http.GetAsync("http://127.0.0.1:8765/api/health", cancel);
+                if (res.IsSuccessStatusCode) { log.Report("RoyalDownloader wurde wieder gestartet."); return; }
+            }
+            catch (HttpRequestException) { }
+            catch (TaskCanceledException) when (!cancel.IsCancellationRequested) { }
+        }
+        StopOwnedServer(root, log);
+        throw new InvalidOperationException("Der RoyalDownloader-Server hat den Gesundheitscheck nicht bestanden.");
+    }
 
     private static void StopOwnedServer(string root, IProgress<string> log)
     {
@@ -241,6 +286,7 @@ internal static class ManagerEngine
         _ = CheckManagedWindows(options, operation);
         string root = Path.GetFullPath(options.Project);
         StopOwnedServer(root, log);
+        RequireFreePort();
         if (operation == ManagerAction.Uninstall)
         {
             string safeArchive = ArchiveName(root, "deinstalliert-daten-gesichert");
@@ -251,6 +297,7 @@ internal static class ManagerEngine
         if (operation == ManagerAction.Repair)
         {
             await SyncPython(root, log, cancel);
+            await StartOwnedServer(root, log, cancel);
             log.Report("Private Abhängigkeiten repariert. Persönliche Daten und App-Dateien unverändert.");
             return new InstallResult("http://127.0.0.1:8765", "", root);
         }
@@ -262,7 +309,7 @@ internal static class ManagerEngine
         try
         {
             cancel.ThrowIfCancellationRequested();
-            log.Report("Signiertes GitHub-Build-Artefakt wird nicht nachgeladen; der im Manager verifizierte Quellstand wird benutzt.");
+            log.Report("Das SHA-256-verifizierte Quellarchiv dieses Installers wird benutzt.");
             Directory.CreateDirectory(stage);
             await ExtractVerified(stage, cancel);
             Directory.CreateDirectory(Path.Combine(stage, ".tools"));
@@ -270,7 +317,6 @@ internal static class ManagerEngine
                 InstallerEngine.Resource("BundledUv.exe"), cancel);
             string oldEnv = Path.Combine(root, ".env");
             File.Copy(oldEnv, Path.Combine(stage, ".env"));
-            await SyncPython(stage, log, cancel);
             cancel.ThrowIfCancellationRequested();
             log.Report("Version geprüft. Programm wird atomar gewechselt; Daten bleiben erhalten …");
             Directory.Move(root, backup);
@@ -279,6 +325,10 @@ internal static class ManagerEngine
             swapped = true;
             MovePersistent(backup, root);
             SaveMarker(root, "windows");
+            // Python virtual environments must be created at their final path;
+            // moving a prepared .venv from a staging folder breaks Windows script paths.
+            await SyncPython(root, log, cancel);
+            await StartOwnedServer(root, log, cancel);
             log.Report("Update abgeschlossen. Vorige Version zur Wiederherstellung: " + backup);
             return new InstallResult("http://127.0.0.1:8765", "", root);
         }
@@ -288,9 +338,14 @@ internal static class ManagerEngine
             {
                 try
                 {
+                    try { StopOwnedServer(root, log); } catch (Exception stopError) {
+                        log.Report("Neuer Server konnte nicht automatisch beendet werden: " + stopError.Message);
+                        throw;
+                    }
                     MovePersistent(root, backup);
                     Directory.Move(root, ArchiveName(root, "fehlgeschlagen"));
                     Directory.Move(backup, root);
+                    await StartOwnedServer(root, log, CancellationToken.None);
                 }
                 catch (Exception ex) { log.Report("Automatisches Rollback benötigt Prüfung: " + ex.Message); }
             }
