@@ -20,7 +20,7 @@ export function savedHomeEntries(raw, max = MAX_CARDS) {
     .slice()
     .sort((a, b) => (Number(b.created_at) || 0) - (Number(a.created_at) || 0))
     .filter((wish) => {
-      const key = wish.media_type + ":" + wish.tmdb_id;
+      const key = wish.media_type + ":" + Number(wish.tmdb_id);
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -122,10 +122,13 @@ export function createHomeSavedMedia(root, {
           if (!isCurrent()) return;
           for (const { item } of movies) {
             const metadata = response?.movies?.[item.slug];
-            if (metadata) Object.assign(item, metadata, {
-              slug: "tmdb:" + item.tmdb_id, tmdb_id: item.tmdb_id,
-              saved_media: true, tmdb_discovery: true, metadata_source: "TMDB",
-            });
+            if (metadata) {
+              const identity = item.tmdb_id, savedTitle = item.title;
+              Object.assign(item, metadata, {
+                slug: "tmdb:" + identity, tmdb_id: identity, title: savedTitle,
+                saved_media: true, tmdb_discovery: true, metadata_source: "TMDB",
+              });
+            }
           }
         }));
         if (shows.length) tasks.push(client.post("/api/tmdb/series", {
@@ -136,10 +139,14 @@ export function createHomeSavedMedia(root, {
           if (!isCurrent()) return;
           for (const { item } of shows) {
             const metadata = response?.series?.[item.base_slug];
-            if (metadata) Object.assign(item, metadata, {
-              base_slug: "tmdb:" + item.tmdb_id, sample_slug: "tmdb:" + item.tmdb_id,
-              tmdb_id: item.tmdb_id, saved_media: true, tmdb_discovery: true, metadata_source: "TMDB",
-            });
+            if (metadata) {
+              const identity = item.tmdb_id, savedTitle = item.title;
+              Object.assign(item, metadata, {
+                base_slug: "tmdb:" + identity, sample_slug: "tmdb:" + identity,
+                tmdb_id: identity, title: savedTitle,
+                saved_media: true, tmdb_discovery: true, metadata_source: "TMDB",
+              });
+            }
           }
         }));
         const results = await Promise.allSettled(tasks);
