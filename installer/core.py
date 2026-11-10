@@ -219,8 +219,10 @@ def windows_env(template: str, cfg: WindowsConfig, token: str) -> str:
 
 def nas_env(template: str, cfg: NasConfig, token: str, uid: int, gid: int) -> str:
     return render_env(template, {
-        "ROYAL_DEPLOYMENT_MODE": "nas", "HOST": "0.0.0.0", "OPEN_BROWSER": "0",
-        "ROYAL_BIND_ADDRESS": "0.0.0.0", "PUID": str(uid), "PGID": str(gid),
+        "ROYAL_DEPLOYMENT_MODE": "nas", "HOST": "0.0.0.0",  # nosec B104
+        "OPEN_BROWSER": "0",
+        "ROYAL_BIND_ADDRESS": "0.0.0.0",  # nosec B104
+        "PUID": str(uid), "PGID": str(gid),
         "MOVIES_HOST_DIR": cfg.movies_path, "SERIES_HOST_DIR": cfg.series_path,
         "DOWNLOAD_DIR": "/movies", "SERIES_DIR": "/serien",
         "ROYAL_SETUP_TOKEN": token, **ENV_PATCH,

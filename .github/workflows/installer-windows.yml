@@ -63,8 +63,11 @@ jobs:
       - name: Offline executable smoke check (no NAS changes)
         shell: pwsh
         run: |
-          & 'dist/RoyalDownloader-Setup.exe' --self-test
-          if ($LASTEXITCODE -ne 0) { throw 'Installer self-test failed' }
+          # The windowed GUI executable can return control early when invoked directly.
+          # Wait for the real process exit; LASTEXITCODE is unreliable for GUI EXEs.
+          $exe = (Resolve-Path 'dist/RoyalDownloader-Setup.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--self-test' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Installer self-test failed (exit $($process.ExitCode))" }
       - name: Save checksum next to binary
         shell: pwsh
         run: |

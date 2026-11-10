@@ -283,7 +283,7 @@ and its [SHA-256 checksum](docs/checksums/RoyalDownloader-TV-2.0.54-native.apk.s
 A guided installer is available in the repository root as
 [`RoyalDownloader-Setup.pyw`](RoyalDownloader-Setup.pyw). The Windows CI builds
 the standalone **`RoyalDownloader-Setup.exe`** from that source. Download the
-EXE from a successful [Windows installer build](../../actions/workflows/installer-windows.yml)
+EXE from a successful [Windows installer build](https://github.com/TimeLance89/RoyalDownloader/actions/workflows/installer-windows.yml)
 after the build has completed; it does not require Python on the computer that
 runs the installer.
 
