@@ -1,4 +1,24 @@
 /* Filmwelten & Studios: progressive explorer, scoped to the existing film filters. */
+#tab-filme .movie-world-picker > .movie-filter-field { grid-column: 1; grid-row: 1; }
+#tab-filme .movie-world-picker > .movie-world-explore-toggle {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: end;
+  margin: 0;
+}
+#tab-filme .movie-world-picker > #movie-world-description,
+#tab-filme .movie-world-picker > .movie-world-completion,
+#tab-filme .movie-world-picker > .movie-world-explorer { grid-column: 1 / -1; }
+#tab-filme .movie-world-picker > .movie-world-explorer { width: 100%; }
+@media (max-width: 600px) {
+  #tab-filme .movie-world-picker > .movie-filter-field,
+  #tab-filme .movie-world-picker > .movie-world-explore-toggle {
+    grid-column: 1;
+    grid-row: auto;
+  }
+  #tab-filme .movie-world-picker > .movie-world-explore-toggle { margin: 0; }
+}
+
 .movie-world-explore-toggle {
   display: inline-flex;
   align-items: center;
