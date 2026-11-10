@@ -179,7 +179,7 @@ internal static class StableSource
                 var tarEntry = new PaxTarEntry(TarEntryType.RegularFile, path)
                 {
                     DataStream = bytes,
-                    Mode = unixMode == 0 ? 420 : unixMode, // 0644 fallback, preserve 0755 scripts
+                    Mode = (UnixFileMode)(unixMode == 0 ? 420 : unixMode), // 0644 fallback; preserve 0755 scripts
                 };
                 tarWriter.WriteEntry(tarEntry);
             }
@@ -198,10 +198,10 @@ internal static class StableSource
         using (var zip = new ZipArchive(sample, ZipArchiveMode.Create, leaveOpen: true))
             foreach (var path in new[] { ".env.example", "server.py", "requirements.lock", "docker-compose.yml" })
             {
-                var entry = zip.CreateEntry("repo-abc123/" + path);
+                var zipEntry = zip.CreateEntry("repo-abc123/" + path);
                 if (path == "server.py")
-                    entry.ExternalAttributes = unchecked((int)0x81ED0000); // regular file, 0755
-                using var stream = entry.Open();
+                    zipEntry.ExternalAttributes = unchecked((int)0x81ED0000); // regular file, 0755
+                using var stream = zipEntry.Open();
                 stream.WriteByte(49);
             }
         var (normalized, tar) = NormalizeGitHubZip(sample.ToArray(), CancellationToken.None);
@@ -215,7 +215,7 @@ internal static class StableSource
         bool foundExecutable = false;
         while ((entry = tarReader.GetNextEntry()) is not null)
             if (entry.Name == "server.py")
-                foundExecutable = (entry.Mode & 0x49) == 0x49;
+                foundExecutable = (((int)entry.Mode) & 0x49) == 0x49;
         if (!foundExecutable) throw new Exception("NAS executable permission preservation failed.");
     }
 }
