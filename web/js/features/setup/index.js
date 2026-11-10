@@ -6,7 +6,7 @@ import { setupStepCopy, setupEnglishStepCopy } from "./copy.js";
 export function createSetup(root, { providers, jellyfin, directory, i18n, onComplete,
   onRemoteAccess = () => {}, onVisibility = () => {}, onError = console.error, client = api }) {
   const byId = id => root.querySelector(`#${id}`);
-  let scope, saving = false, committed = false, loadFailed = false, existingSeriesCount = 0;
+  let scope, saving = false, committed = false, needsLogin = false, loadFailed = false, existingSeriesCount = 0;
 // ── Ersteinrichtung ─────────────────────────────────────────────────────────
 let setupStep = 1;
 let setupRequired = false;
@@ -251,6 +251,11 @@ function prepare(stage) {
 
 async function finishSetup() {
   if (!scope?.active || saving) return;
+  if (committed && needsLogin) {
+    // The configuration is already persisted; do not submit setup a second time.
+    window.location.reload();
+    return;
+  }
   const current = scope;
   if (!committed) {
     for (const step of [2, 3, 4, 5, 6]) {
@@ -304,6 +309,7 @@ async function finishSetup() {
     setupBootstrapToken = "";
     byId("setup-bootstrap-token").value = "";
     setupBootstrapRequired = false;
+    needsLogin = false;
     prepare(1);
     await onComplete();
     if (!current.active) return;
@@ -326,9 +332,18 @@ async function finishSetup() {
       byId("setup-bootstrap-token").value = "";
       showSetupStep(6); byId("setup-bootstrap-token").focus();
     }
-    const detail = /cloudflare|origin web|HTTP 5\d\d/i.test(e.message) ? text("Royal ist gerade nicht erreichbar. Bitte erneut versuchen.", "Royal is currently unavailable. Please try again.") : e.message;
-    setSetupStatus(`${committed ? text("Profil gespeichert. Vorbereitung noch nicht abgeschlossen: ", "Profile saved. Preparation is not finished: ") : text("Einrichtung fehlgeschlagen: ", "Setup failed: ")}${detail}`, true);
-    finish.textContent = text("Erneut versuchen", "Try again");
+    if (committed && (e.code === "setup_login_required" || [401, 403].includes(e.status))) {
+      needsLogin = true;
+      setSetupStatus(text(
+        "Dein Royal-Profil wurde erfolgreich gespeichert. Bitte melde dich jetzt mit deinem neuen Administratorkonto an.",
+        "Your Royal profile was saved successfully. Please sign in with your new administrator account."
+      ));
+      finish.textContent = text("Zur Anmeldung", "Go to sign in");
+    } else {
+      const detail = /cloudflare|origin web|HTTP 5\d\d/i.test(e.message) ? text("Royal ist gerade nicht erreichbar. Bitte erneut versuchen.", "Royal is currently unavailable. Please try again.") : e.message;
+      setSetupStatus(`${committed ? text("Profil gespeichert. Vorbereitung noch nicht abgeschlossen: ", "Profile saved. Preparation is not finished: ") : text("Einrichtung fehlgeschlagen: ", "Setup failed: ")}${detail}`, true);
+      finish.textContent = text("Erneut versuchen", "Try again");
+    }
   } finally {
     if (current.active) { saving = false; finish.disabled = false; back.disabled = committed; root.removeAttribute("aria-busy"); }
   }

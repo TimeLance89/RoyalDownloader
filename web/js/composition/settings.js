@@ -111,7 +111,11 @@ export function initializeSettings({ getSettings, getIntegrations, i18n, getCore
       onVisibility: visible => document.body.classList.toggle("setup-open", visible),
       async onComplete() {
         const session = await api.get("/api/auth/status");
-        if (session.configured && !session.authenticated) throw new Error("Die neue Sitzung ist noch nicht bereit. Bitte erneut versuchen.");
+        if (session.configured && (!session.authenticated || !session.user?.id || session.user.role !== "admin")) {
+          const error = new Error("Administratorsitzung noch nicht verfügbar.");
+          error.code = "setup_login_required";
+          throw error;
+        }
         getProfile().auth.accept(session);
         await getSettings().settings.initialize();
         await getHome().homeData.reloadForLanguage();
