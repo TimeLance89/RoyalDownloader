@@ -35,9 +35,9 @@ def public_movie_world_catalog():
 
 
 def _collection_identity(value):
-    value = re.sub(r"[^\\w]+", " ", str(value or "").casefold()).strip()
-    value = re.sub(r"^the\\s+", "", value)
-    return re.sub(r"\\s+collection$", "", value).strip()
+    value = re.sub(r"[^\w]+", " ", str(value or "").casefold()).strip()
+    value = re.sub(r"^the\s+", "", value)
+    return re.sub(r"\s+collection$", "", value).strip()
 
 
 GENRE_IDS = {
