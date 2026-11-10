@@ -43,7 +43,8 @@ test("old saved Home layout migrates and keeps an explicitly customized order", 
   assert.ok(HOME_RAIL_CATALOG.some(rail => rail.id === "discovered"));
   const oldOrder = ["personal", "top", "series", "genre", "explore", "gems",
     "fresh", "new_movies", "new_series", "high_rated", "movies", "library"];
-  assert.equal(normalizeHomeLayout({ rail_order: oldOrder }).rail_order[1], "discovered");
+  assert.deepEqual(normalizeHomeLayout({ rail_order: oldOrder }).rail_order.slice(1, 3),
+    ["saved", "discovered"]);
   const customOrder = ["library", "top", "personal"];
   assert.deepEqual(normalizeHomeLayout({ rail_order: customOrder }).rail_order.slice(0, 3), customOrder);
 });

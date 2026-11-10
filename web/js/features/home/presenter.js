@@ -66,6 +66,7 @@ export function createHomePresenter(root, {
         section?.setAttribute("aria-hidden", "true");
       }
       if (hidden.has(railId) || disabledDiscovery) return;
+      if (railId === "saved") return; // independently fetched, profile-scoped Merkliste
       if (railId === "top") return renderTop(lanes.top);
       const definition = homeRailDefinition(railId);
       if (!definition) return;

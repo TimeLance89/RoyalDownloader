@@ -54,7 +54,17 @@ export function createHomeCards({
     });
     markLanguage(card.querySelector(".home-card-type"), media);
     enhanceTaste(card, entry);
-    if (item.tmdb_discovery) {
+    if (item.saved_media) {
+      card.dataset.homeSaved = "true";
+      card.title = "In deiner Merkliste: " + media.title + ". Details öffnen.";
+      card.querySelector(".home-card-primary-action")?.setAttribute("aria-label",
+        media.title + ": aus deiner Merkliste, Details öffnen");
+      const ribbon = document.createElement("span");
+      ribbon.className = "royal-saved-ribbon";
+      ribbon.textContent = "♥ Gemerkt";
+      ribbon.setAttribute("aria-hidden", "true");
+      card.querySelector(".home-card-art")?.appendChild(ribbon);
+    } else if (item.tmdb_discovery) {
       card.dataset.homeDiscovery = "tmdb";
       const why = (item.discovery_reason || []).filter(reason => !["movie", "series", "tv", "anime"].includes(reason)).slice(0, 2).join(" · ");
       card.title = why ? `Royal empfiehlt diesen Titel wegen: ${why}. Details öffnen.`
