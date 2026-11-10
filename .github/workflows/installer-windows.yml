@@ -1,0 +1,80 @@
+name: Build Windows Easy Installer
+
+on:
+  pull_request:
+    paths:
+      - 'installer/**'
+      - 'RoyalDownloader-Setup.pyw'
+      - '.github/workflows/installer-windows.yml'
+      - 'README.md'
+  push:
+    branches: [overnight, main]
+    paths:
+      - 'installer/**'
+      - 'RoyalDownloader-Setup.pyw'
+      - '.github/workflows/installer-windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  installer-security-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: '3.12'
+      - name: Run pure installer tests
+        run: python -m unittest discover -s tests -p 'test_easy_installer.py' -v
+      - name: Check Windows entrypoint and package syntax
+        run: python -m compileall -q installer RoyalDownloader-Setup.pyw
+
+  build-windows:
+    needs: installer-security-tests
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: '3.12'
+      - name: Install standalone installer dependencies
+        shell: pwsh
+        run: python -m pip install -r installer/requirements-installer.txt
+      - name: Package current commit, verify archive and generate manifest
+        shell: pwsh
+        run: python -m installer.build_source
+      - name: Build standalone Windows executable
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --clean --onefile --windowed `
+            --name RoyalDownloader-Setup --add-data "installer/assets;installer/assets" `
+            --collect-all paramiko --hidden-import tkinter `
+            RoyalDownloader-Setup.pyw
+          if (!(Test-Path 'dist/RoyalDownloader-Setup.exe')) { throw 'Installer binary missing' }
+      - name: Offline executable smoke check (no NAS changes)
+        shell: pwsh
+        run: |
+          & 'dist/RoyalDownloader-Setup.exe' --self-test
+          if ($LASTEXITCODE -ne 0) { throw 'Installer self-test failed' }
+      - name: Save checksum next to binary
+        shell: pwsh
+        run: |
+          $hash=(Get-FileHash 'dist/RoyalDownloader-Setup.exe' -Algorithm SHA256).Hash.ToLower()
+          "$hash  RoyalDownloader-Setup.exe" | Set-Content -Encoding ascii 'dist/RoyalDownloader-Setup.exe.sha256'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: royaldownloader-easy-installer-windows
+          path: |
+            dist/RoyalDownloader-Setup.exe
+            dist/RoyalDownloader-Setup.exe.sha256
+          if-no-files-found: error
+          retention-days: 14

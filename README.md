@@ -278,6 +278,33 @@ and its [SHA-256 checksum](docs/checksums/RoyalDownloader-TV-2.0.54-native.apk.s
 
 ## Quick start
 
+### Easy Install — Windows & NAS (for first-time users)
+
+A guided installer is available in the repository root as
+[`RoyalDownloader-Setup.pyw`](RoyalDownloader-Setup.pyw). The Windows CI builds
+the standalone **`RoyalDownloader-Setup.exe`** from that source. Download the
+EXE from a successful [Windows installer build](../../actions/workflows/installer-windows.yml)
+after the build has completed; it does not require Python on the computer that
+runs the installer.
+
+The wizard offers **install locally on Windows** or **install on a NAS over SSH**.
+For NAS it verifies the server's SSH host key (confirm the SHA-256 fingerprint
+through a separate trusted channel), checks Docker Compose, mounted media
+folders, filesystem permissions and free space, and creates a **new, separate**
+Royal project. It does not overwrite running containers, delete media or run
+recursive `chown`. Local Windows installation uses an isolated Python 3.12
+environment. Missing tools can be installed via Windows Package Manager only
+when explicitly requested.
+
+**Important:** The EXE is not included in a source-code ZIP and is not yet a
+signed retail installer. Read the
+[Easy Install guide and security limitations](docs/EASY_INSTALL.md).
+A successful CI smoke test is not a substitute for a test on your Windows/NAS
+model.
+
+### Manual installation (advanced users)
+
+
 ### Docker Compose · recommended for NAS and home servers
 
 You'll need **Docker Engine**, **Docker Compose v2**, a **TMDB API key/read
