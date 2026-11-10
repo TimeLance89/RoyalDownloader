@@ -1,4 +1,6 @@
 import threading
+
+import pytest
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi.testclient import TestClient
@@ -108,3 +110,35 @@ def test_parallel_setup_completion_rejects_second_request(monkeypatch):
     assert second.status_code == 409
     assert second.json()["detail"]["code"] == "setup_in_progress"
     assert "set-cookie" not in second.headers
+
+
+def test_initial_setup_session_belongs_to_new_admin(monkeypatch):
+    """The first-run cookie must be authorized immediately after setup."""
+    from types import SimpleNamespace
+    from fastapi import HTTPException
+    from fastapi.responses import JSONResponse
+    from api import api_administration_router as administration
+
+    calls = []
+    admin = {"id": "admin-legacy", "username": "new-owner",
+             "enabled": True, "role": "admin", "setup_required": False}
+    monkeypatch.setattr(administration, "USER_STORE", SimpleNamespace(find=lambda name: admin if name == "new-owner" else None))
+    monkeypatch.setattr(administration, "SESSION_STORE", SimpleNamespace(create=lambda **kwargs: calls.append(kwargs) or "new-session"))
+    monkeypatch.setattr(administration, "_set_session_cookie",
+                        lambda response, request, token: response.set_cookie("royal_session", token, httponly=True))
+    response = administration._create_setup_admin_session_response(
+        {"saved": True}, SimpleNamespace(headers={"user-agent": "test-browser"}), "new-owner")
+    assert isinstance(response, JSONResponse)
+    assert response.status_code == 200
+    assert calls == [{"label": "test-browser", "kind": "web", "user_id": "admin-legacy"}]
+    assert "royal_session=new-session" in response.headers["set-cookie"]
+
+    # Refuse a cookie for an account with no admin identity.
+    calls.clear()
+    monkeypatch.setattr(administration, "USER_STORE",
+                        SimpleNamespace(find=lambda _: {"id": "", "role": "member", "enabled": True}))
+    with pytest.raises(HTTPException) as error:
+        administration._create_setup_admin_session_response(
+            {"saved": True}, SimpleNamespace(headers={}), "new-owner")
+    assert error.value.status_code == 500
+    assert calls == []

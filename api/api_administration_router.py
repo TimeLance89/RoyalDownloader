@@ -82,6 +82,7 @@ state: Any = None
 PROVIDER_LABELS: dict = {}
 PUBLIC_TRANSLATE_WORK_LIMITER: Any = None
 SESSION_STORE: Any = None
+USER_STORE: Any = None
 UI_TRANSLATOR: Any = None
 UPDATE_CHECKER: Any = None
 UPDATE_INSTALLER: Any = None
@@ -157,6 +158,7 @@ def create_administration_router(backend) -> APIRouter:
             backend, "PUBLIC_TRANSLATE_WORK_LIMITER",
         ),
         "SESSION_STORE": _DynamicObject(backend, "SESSION_STORE"),
+        "USER_STORE": _DynamicObject(backend, "USER_STORE"),
         "UI_TRANSLATOR": _DynamicObject(backend, "UI_TRANSLATOR"),
         "UPDATE_CHECKER": _DynamicObject(backend, "UPDATE_CHECKER"),
         "UPDATE_INSTALLER": _DynamicObject(backend, "UPDATE_INSTALLER"),
@@ -392,6 +394,36 @@ async def _validate_setup_tmdb_key(api_key: str, ui_language: str) -> None:
             400,
             "Der TMDB API-Key oder Read Access Token ist ungültig oder TMDB nicht erreichbar.",
         )
+
+
+
+def _create_setup_admin_session_response(payload: dict, request: Request, username: str) -> JSONResponse:
+    """Bind the first-run browser session to the persisted administrator."""
+    # auth_configured() during setup migrates the legacy credentials into the
+    # household user store. Never issue an ownerless, privileged setup cookie.
+    admin = USER_STORE.find(username)
+    if (
+        not admin
+        or admin.get("role") != "admin"
+        or not admin.get("enabled")
+        or admin.get("setup_required")
+        or not admin.get("id")
+    ):
+        raise HTTPException(
+            500,
+            "Das Administratorkonto wurde gespeichert, die Anmeldung konnte jedoch nicht erstellt werden. Bitte normal anmelden.",
+        )
+    response = JSONResponse(payload)
+    _set_session_cookie(
+        response,
+        request,
+        SESSION_STORE.create(
+            label=request.headers.get("user-agent", "")[:120],
+            kind=appauth.SESSION_KIND_WEB,
+            user_id=str(admin["id"]),
+        ),
+    )
+    return response
 
 
 async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
@@ -657,19 +689,7 @@ async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
         }
         if not account_hash:
             return payload
-        # Ab jetzt greift die Anmeldepflicht. Der Browser, der gerade die
-        # Einrichtung abgeschlossen hat, bekommt direkt eine Sitzung – sonst
-        # stünde der Nutzer unmittelbar nach dem Abschluss vor der Anmeldemaske.
-        response = JSONResponse(payload)
-        _set_session_cookie(
-            response,
-            request,
-            SESSION_STORE.create(
-                label=request.headers.get("user-agent", "")[:120],
-                kind=appauth.SESSION_KIND_WEB,
-            ),
-        )
-        return response
+        return _create_setup_admin_session_response(payload, request, account_user)
 
     return await run_in_threadpool(_apply)
 
