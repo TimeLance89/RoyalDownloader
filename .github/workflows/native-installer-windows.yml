@@ -82,6 +82,17 @@ jobs:
             throw "Native EXE self-test failed: $($p.ExitCode)"
           }
 
+      - name: Integration test latest public Stable source download
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path dist/native/RoyalDownloader-Setup.exe).Path
+          $p = Start-Process -FilePath $exe -ArgumentList '--stable-source-test' -Wait -PassThru
+          if ($p.ExitCode -ne 0) {
+            $errorPath = Join-Path $env:TEMP 'royal-stable-source-test-error.txt'
+            if (Test-Path $errorPath) { Get-Content $errorPath }
+            throw "Stable GitHub source integration test failed: $($p.ExitCode)"
+          }
+
       - name: Save portable EXE checksum
         shell: pwsh
         run: |

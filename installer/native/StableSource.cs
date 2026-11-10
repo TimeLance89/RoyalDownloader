@@ -165,13 +165,18 @@ internal static class StableSource
                 if (!paths.Add(path))
                     throw new InvalidDataException("GitHub-Archiv enthält doppelte Pfade.");
 
+                if (entry.Length > 100L * 1024 * 1024)
+                    throw new InvalidDataException("Ein einzelnes Quellarchiv-Element ist zu groß.");
+                using var sourceStream = entry.Open();
+                using var bytes = new MemoryStream();
+                sourceStream.CopyTo(bytes);
+                bytes.Position = 0;
                 var dest = outputZip.CreateEntry(path, CompressionLevel.Fastest);
-                using (var reader = entry.Open())
                 using (var writer = dest.Open())
-                    reader.CopyTo(writer);
-                using var tarStream = entry.Open();
+                    bytes.CopyTo(writer);
+                bytes.Position = 0;
                 var tarEntry = new PaxTarEntry(TarEntryType.RegularFile, path)
-                { DataStream = tarStream };
+                { DataStream = bytes };
                 tarWriter.WriteEntry(tarEntry);
             }
         }
