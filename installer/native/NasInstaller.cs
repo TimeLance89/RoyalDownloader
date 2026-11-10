@@ -39,7 +39,6 @@ internal static class NasInstaller
         };
         try { ssh.Connect(); }
         catch (SshException) { }
-        catch (SshConnectionException) { }
         if (fingerprint is null)
             throw new InvalidOperationException("SSH-Hostschlüssel konnte nicht abgefragt werden.");
         return fingerprint;
