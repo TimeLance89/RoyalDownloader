@@ -11,14 +11,14 @@ from typing import Any, Mapping
 
 SCHEMA_VERSION = 1
 HOME_RAIL_IDS = (
-    "personal", "discovered", "genre", "gems", "explore", "series", "top", "fresh",
+    "personal", "saved", "discovered", "genre", "gems", "explore", "series", "top", "fresh",
     "new_movies", "new_series", "high_rated", "movies", "library",
 )
 LEGACY_DEFAULT_RAIL_ORDER = (
     "personal", "top", "series", "genre", "explore", "gems", "fresh",
     "new_movies", "new_series", "high_rated", "movies", "library",
 )
-DEFAULT_VISIBLE_RAILS = HOME_RAIL_IDS[:8]
+DEFAULT_VISIBLE_RAILS = HOME_RAIL_IDS[:9]
 
 
 class HomeLayoutStore:
@@ -57,6 +57,11 @@ class HomeLayoutStore:
         # Keep the new discovery lane next to Personal for existing saved layouts.
         if "personal" in order and "discovered" not in order:
             order.insert(order.index("personal") + 1, "discovered")
+        # Newer personal wishlist inherits its place beside Discovery without
+        # overwriting a person's previously customized Home rail order.
+        if "saved" not in order:
+            index = order.index("discovered") if "discovered" in order else len(order)
+            order.insert(index, "saved")
         order.extend(rail_id for rail_id in HOME_RAIL_IDS if rail_id not in order)
         hidden = {
             str(raw or "").strip()
