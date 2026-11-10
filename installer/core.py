@@ -464,7 +464,10 @@ class NasSession:
     def exec(self, command: str, timeout: float = 60, sensitive: bool = False) -> str:
         if self.client is None:
             raise InstallError("Keine bestätigte SSH-Verbindung vorhanden.")
-        _stdin, stdout, stderr = self.client.exec_command(command, timeout=timeout)
+        # The SSH transport executes only installer-owned command templates.
+        # Paths are validated by validate_nas() and interpolated via shlex.quote().
+        # Paramiko SSH exec requires a remote shell; never pass raw user input.
+        _stdin, stdout, stderr = self.client.exec_command(command, timeout=timeout)  # nosec B601
         channel = stdout.channel
         output, errors = bytearray(), bytearray()
         deadline = time.monotonic() + timeout
