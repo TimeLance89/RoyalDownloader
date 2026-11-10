@@ -48,6 +48,7 @@ _PREFIXES = {
     "discovery": (
         "/api/genres", "/api/v1/genres", "/api/movies", "/api/v1/movies",
         "/api/movie-collections", "/api/v1/movie-collections",
+        "/api/movie-worlds", "/api/v1/movie-worlds",
         "/api/people", "/api/v1/people",
         "/api/movie", "/api/v1/movie", "/api/series", "/api/v1/series",
         "/api/series-calendar", "/api/v1/series-calendar",
