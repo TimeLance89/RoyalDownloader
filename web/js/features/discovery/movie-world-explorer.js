@@ -142,7 +142,9 @@ export function createMovieWorldExplorer(root, {
   }
 
   function mount(scope) {
-    if (mounted || !picker || !select) return;
+    if (mounted || !picker || !select || !document?.createElement
+        || typeof select.querySelectorAll !== "function"
+        || typeof picker.insertBefore !== "function") return;
     mounted = true;
     worlds = fromExistingSelect();
     groups = [
