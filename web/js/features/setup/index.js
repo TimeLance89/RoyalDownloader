@@ -252,7 +252,13 @@ function prepare(stage) {
 async function finishSetup() {
   if (!scope?.active || saving) return;
   if (committed && needsLogin) {
-    // The configuration is already persisted; do not submit setup a second time.
+    // A legacy first-run cookie may be valid but belong to no user. Revoke it
+    // before reloading so startup reliably shows the regular sign-in screen.
+    // Never submit the already-committed setup a second time.
+    saving = true;
+    byId("setup-finish").disabled = true;
+    try { await client.post("/api/auth/logout", {}); }
+    catch (error) { onError(error); }
     window.location.reload();
     return;
   }
