@@ -4,7 +4,9 @@ from unittest.mock import patch
 import pytest
 
 from integrations.tmdb_client import TMDBClient
-from integrations.tmdb_movie_worlds import MOVIE_WORLDS
+from integrations.tmdb_movie_worlds import (
+    MOVIE_WORLDS, FRANCHISE_COLLECTIONS, public_movie_world_catalog,
+)
 
 
 def payload():
@@ -133,3 +135,84 @@ def test_world_route_requires_tmdb(monkeypatch):
     with pytest.raises(HTTPException) as error:
         asyncio.run(router.api_movies(mode="world", world="disney"))
     assert error.value.status_code == 503
+
+
+def test_curated_worlds_cover_studios_franchises_and_legacy_entries():
+    catalog = public_movie_world_catalog()
+    worlds = catalog["worlds"]
+    ids = [item["id"] for item in worlds]
+    assert len(worlds) >= 80
+    assert len(ids) == len(set(ids))
+    assert {"disney", "disney-classics", "star-wars", "marvel", "pixar"} <= set(ids)
+    assert {"harry-potter", "jurassic", "middle-earth", "warner-bros", "blumhouse"} <= set(ids)
+    assert all(item["group"] in {group["id"] for group in catalog["groups"]} for item in worlds)
+    assert all(item["id"] in MOVIE_WORLDS or item["id"] in FRANCHISE_COLLECTIONS for item in worlds)
+
+
+def test_franchise_uses_canonical_tmdb_collection_ids_with_defensive_cache():
+    client = TMDBClient("key")
+    paths = []
+
+    def request(path, params):
+        paths.append(path)
+        if path == "/search/collection":
+            return {"results": [
+                {"id": 7, "original_name": "Harry Potter Fan Collection"},
+                {"id": 1241, "original_name": "Harry Potter Collection"},
+            ]}
+        assert path == "/collection/1241"
+        return {"id": 1241, "name": "Harry Potter Collection", "parts": [
+            {"id": 1, "title": "A", "release_date": "2001-01-01", "genre_ids": [14]},
+            {"id": 2, "title": "B", "release_date": "2002-01-01", "genre_ids": [14]},
+        ]}
+
+    with patch.object(client, "_request", side_effect=request):
+        first = client.movie_world("harry-potter")
+        first["results"][0]["title"] = "mutated"
+        again = client.movie_world("harry-potter")
+        second_page = client.movie_world("harry-potter", page=2)
+    assert [item["tmdb_id"] for item in again["results"]] == [1, 2]
+    assert again["results"][0]["title"] == "A"
+    assert again["collections"] == [{"collection_id": 1241, "title": "Harry Potter Collection"}]
+    assert second_page["results"] == []
+    assert paths == ["/search/collection", "/collection/1241"]
+
+
+def test_multi_collection_world_deduplicates_and_sorts_before_pagination():
+    client = TMDBClient("key")
+    def request(path, params):
+        if path == "/search/collection":
+            if params["query"] == "The Lord of the Rings":
+                return {"results": [{"id": 119, "original_name": "The Lord of the Rings Collection"}]}
+            return {"results": [{"id": 121938, "original_name": "The Hobbit Collection"}]}
+        if path == "/collection/119":
+            return {"id": 119, "name": "Lord of the Rings", "parts": [
+                {"id": 1, "title": "Fellowship", "release_date": "2001-12-19",
+                 "genre_ids": [14], "vote_average": 8.8, "vote_count": 400},
+            ]}
+        assert path == "/collection/121938"
+        return {"id": 121938, "name": "The Hobbit", "parts": [
+            {"id": 1, "title": "Duplicate", "release_date": "2001-12-19",
+             "genre_ids": [14], "vote_average": 8.8, "vote_count": 400},
+            {"id": 2, "title": "Unexpected Journey", "release_date": "2012-12-12",
+             "genre_ids": [14], "vote_average": 7.6, "vote_count": 400},
+            {"id": 3, "title": "Unrelated Genre", "release_date": "2013-12-13",
+             "genre_ids": [28], "vote_average": 4.4, "vote_count": 400},
+        ]}
+    with patch.object(client, "_request", side_effect=request):
+        data = client.movie_world("middle-earth", genre="Fantasy", sort="newest")
+        assert [item["tmdb_id"] for item in data["results"]] == [2, 1]
+        assert data["total_results"] == 2
+        assert len(data["collections"]) == 2
+        assert client.movie_world("middle-earth", period="2020s")["results"] == []
+
+
+def test_franchise_does_not_guess_collection_by_similar_title():
+    client = TMDBClient("key")
+    with patch.object(client, "_request", return_value={
+        "results": [{"id": 78, "original_name": "Harry Potter Fan Collection"}],
+    }) as request:
+        result = client.movie_world("harry-potter")
+    assert result["results"] == []
+    assert result["collections"] == []
+    assert request.call_count == 1
