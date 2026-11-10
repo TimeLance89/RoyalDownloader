@@ -10,7 +10,7 @@ public partial class MainWindow : Window
 {
     private static readonly string[] Titles =
     [
-        "Wie möchtest du Royal installieren?",
+        "RoyalDownloader verwalten",
         "Sichere Verbindung herstellen",
         "Deine Speicherorte",
         "Alles vor dem Start prüfen",
@@ -20,7 +20,7 @@ public partial class MainWindow : Window
 
     private static readonly string[] Descriptions =
     [
-        "Wähle zwischen diesem Windows-PC und einer sicheren NAS-Installation.",
+        "Neu installieren, reparieren, aktualisieren oder deinstallieren – auf Windows und deinem NAS.",
         "Auf Windows ist keine globale Python-Installation erforderlich. Beim NAS prüfen wir zuerst den SSH-Hostschlüssel.",
         "Lege fest, wo Programm, Filme und Serien gespeichert werden sollen.",
         "Diese Prüfung verändert keine bestehenden Programme, Container oder Mediendateien.",
@@ -46,6 +46,16 @@ public partial class MainWindow : Window
     }
 
     private bool IsNas => MethodNas.IsChecked == true;
+    private ManagerAction Operation =>
+        ActionRemove.IsChecked == true ? ManagerAction.Uninstall :
+        ActionUpdate.IsChecked == true ? ManagerAction.Update :
+        ActionRepair.IsChecked == true ? ManagerAction.Repair :
+        ManagerAction.Install;
+
+    private void ActionChanged(object sender, RoutedEventArgs e)
+    {
+        if (IsLoaded) ShowStep(_step);
+    }
 
     private void MethodChanged(object sender, RoutedEventArgs e)
     {
@@ -64,7 +74,13 @@ public partial class MainWindow : Window
     private void ShowStep(int value)
     {
         _step = Math.Clamp(value, 0, 5);
-        StepTitle.Text = Titles[_step];
+        StepTitle.Text = _step switch
+        {
+            0 => "Was möchtest du mit RoyalDownloader tun?",
+            4 => ManagerEngine.OperationName(Operation) + " läuft",
+            5 => "Vorgang abgeschlossen",
+            _ => Titles[_step]
+        };
         StepHint.Text = Descriptions[_step];
         StepCaption.Text = "ROYAL EASY INSTALL / " + (_step + 1).ToString("00");
         FooterStatus.Text = "SCHRITT " + (_step + 1) + " VON 6";
@@ -80,7 +96,7 @@ public partial class MainWindow : Window
         NextButton.Content = _step switch
         {
             3 => "Voraussetzungen prüfen",
-            4 => "Jetzt installieren",
+            4 => Operation == ManagerAction.Uninstall ? "Sicher deinstallieren" : ManagerEngine.OperationName(Operation) + " starten",
             5 => "Schließen",
             _ => "Weiter →"
         };
@@ -165,22 +181,27 @@ public partial class MainWindow : Window
 
     private void SetReview()
     {
+        var action = Operation;
         if (IsNas)
         {
             EnsureHostApproved();
-            var config = NasConfig();
-            ReviewDescription.Text = "NAS: " + config.Host + ":" + config.Port +
-                "\nNeues Projekt: " + config.Project +
-                "\nFilme: " + config.Movies + "\nSerien: " + config.Series +
-                "\nDocker wird ausschließlich für ein neues Projekt verwendet. Die App ist danach im lokalen Netzwerk erreichbar.";
+            var cfg = NasConfig();
+            ReviewDescription.Text = "Vorgang: " + ManagerEngine.OperationName(action) +
+                "\nNAS: " + cfg.Host + ":" + cfg.Port +
+                "\nProjekt: " + cfg.Project +
+                "\nFilme: " + cfg.Movies + "\nSerien: " + cfg.Series +
+                "\nSSH-Hostschlüssel muss auch bei SFTP übereinstimmen. " +
+                "Bestehende fremde Docker-Projekte und Mediendateien werden nicht verändert.";
         }
         else
         {
-            InstallerEngine.ValidateWindows(WindowsConfig());
-            var config = WindowsConfig();
-            ReviewDescription.Text = "Windows-PC\nNeues Programm: " + config.Project +
-                "\nFilme: " + config.Movies + "\nSerien: " + config.Series +
-                "\nKeine neue globale Python-Version, keine Veränderung an Python 3.14.";
+            var cfg = WindowsConfig();
+            if (action == ManagerAction.Install) InstallerEngine.ValidateWindows(cfg);
+            else _ = ManagerEngine.CheckManagedWindows(cfg, action);
+            ReviewDescription.Text = "Vorgang: " + ManagerEngine.OperationName(action) +
+                "\nWindows-PC: " + cfg.Project + "\nFilme: " + cfg.Movies + "\nSerien: " + cfg.Series +
+                "\nPython wird ausschließlich privat verwaltet. " +
+                "Bei Deinstallation bleiben Einstellungen und Medien als Archiv erhalten.";
         }
         ReviewResult.Text = "Noch nicht geprüft. Klicke unten auf „Voraussetzungen prüfen“.";
     }
@@ -234,12 +255,12 @@ public partial class MainWindow : Window
             {
                 EnsureHostApproved();
                 var cfg = NasConfig();
-                result = await Task.Run(() => NasInstaller.Preflight(cfg));
+                result = await Task.Run(() => NasManager.Preflight(cfg, Operation));
             }
             else
             {
                 var cfg = WindowsConfig();
-                result = await Task.Run(() => InstallerEngine.WindowsPreflight(cfg));
+                result = await Task.Run(() => ManagerEngine.CheckManagedWindows(cfg, Operation));
             }
             ReviewResult.Text = "✓ " + result;
             ShowStep(4);
@@ -254,6 +275,15 @@ public partial class MainWindow : Window
 
     private async Task PerformInstallAsync()
     {
+        if (Operation == ManagerAction.Uninstall)
+        {
+            var place = IsNas ? NasProject.Text.Trim() : WinInstallPath.Text.Trim();
+            var confirmation = MessageBox.Show(this,
+                "RoyalDownloader wird im aktiven Projektordner deaktiviert.\n\n" +
+                place + "\n\nEine Daten- und Programmsicherung bleibt bestehen. Externe Filme und Serien werden nie gelöscht.\n\nFortfahren?",
+                "Deinstallation ausdrücklich bestätigen", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (confirmation != MessageBoxResult.Yes) return;
+        }
         SetBusy(true);
         InstallLog.Clear();
         InstallProgress.IsIndeterminate = true;
@@ -269,17 +299,22 @@ public partial class MainWindow : Window
             {
                 EnsureHostApproved();
                 var cfg = NasConfig();
-                _result = await Task.Run(() => NasInstaller.Install(
-                    cfg, progress, _installCancellation.Token));
+                _result = await Task.Run(() => NasManager.Manage(
+                    cfg, Operation, progress, _installCancellation.Token));
             }
             else
             {
                 var cfg = WindowsConfig();
-                _result = await InstallerEngine.InstallWindowsAsync(
-                    cfg, progress, _installCancellation.Token);
+                _result = await ManagerEngine.ManageWindowsAsync(
+                    cfg, Operation, progress, _installCancellation.Token);
             }
-            FinishedUrl.Text = _result.Url;
+            FinishedUrl.Text = Operation == ManagerAction.Uninstall ? _result.InstalledAt : _result.Url;
             FinishedToken.Text = _result.Token;
+            FinishedTitle.Text = "✓ " + ManagerEngine.OperationName(Operation) + " abgeschlossen.";
+            FinishedUrlLabel.Text = Operation == ManagerAction.Uninstall ? "Sicherungsordner (Daten bleiben erhalten):" : "RoyalDownloader-Adresse:";
+            FinishedTokenLabel.Visibility = Operation == ManagerAction.Install ? Visibility.Visible : Visibility.Collapsed;
+            FinishedToken.Visibility = Operation == ManagerAction.Install ? Visibility.Visible : Visibility.Collapsed;
+            OpenRoyalButton.IsEnabled = Operation != ManagerAction.Uninstall;
             ShowStep(5);
         }
         catch (Exception error)
@@ -298,7 +333,7 @@ public partial class MainWindow : Window
 
     private void OpenRoyal_Click(object sender, RoutedEventArgs e)
     {
-        if (_result is null) return;
+        if (_result is null || string.IsNullOrWhiteSpace(_result.Url)) return;
         try
         {
             Process.Start(new ProcessStartInfo(_result.Url) { UseShellExecute = true });

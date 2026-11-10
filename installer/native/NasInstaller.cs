@@ -51,7 +51,7 @@ internal static class NasInstaller
             throw new InvalidOperationException("SSH-Hostschlüssel stimmt nicht mit dem bestätigten Fingerabdruck überein. Verbindung abgebrochen.");
     }
 
-    private static SshClient Connect(NasOptions config)
+    internal static SshClient Connect(NasOptions config)
     {
         InstallerEngine.ValidateNas(config);
         var client = new SshClient(config.Host, config.Port, config.Username, config.Password);
@@ -67,7 +67,7 @@ internal static class NasInstaller
         return client;
     }
 
-    private static SftpClient ConnectSftp(NasOptions config)
+    internal static SftpClient ConnectSftp(NasOptions config)
     {
         var client = new SftpClient(config.Host, config.Port, config.Username, config.Password);
         client.ConnectionInfo.Timeout = TimeSpan.FromSeconds(18);
@@ -89,7 +89,7 @@ internal static class NasInstaller
         return "'" + value.Replace("'", "'\\''") + "'";
     }
 
-    private static string Execute(SshClient client, string command, int seconds = 40)
+    internal static string Execute(SshClient client, string command, int seconds = 40)
     {
         using var remote = client.CreateCommand(command);
         remote.CommandTimeout = TimeSpan.FromSeconds(seconds);
@@ -222,7 +222,12 @@ internal static class NasInstaller
             using (var sftp = ConnectSftp(cfg))
             using (var stream = new MemoryStream(envBytes))
                 sftp.UploadFile(stream, stage + "/.env", true);
-            Execute(client, "chmod 600 -- " + Quote(stage + "/.env"));
+            using (var markerClient = ConnectSftp(cfg))
+            using (var markerStream = new MemoryStream(Encoding.UTF8.GetBytes(
+                ManagerEngine.CreateMarker("nas"))))
+                markerClient.UploadFile(markerStream, stage + "/" + ManagerEngine.Marker, true);
+            Execute(client, "chmod 600 -- " + Quote(stage + "/.env") +
+                " " + Quote(stage + "/" + ManagerEngine.Marker));
             Execute(client, "set -eu; cd " + qstage +
                 "; docker compose -p royaldownloader-easy config --quiet", 50);
 

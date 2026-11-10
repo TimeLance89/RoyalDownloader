@@ -63,6 +63,7 @@ internal static class InstallerEngine
         try
         {
             VerifyResources();
+            ManagerEngine.SelfTest();
             ValidateWindows(new WindowsOptions(
                 Path.Combine(Path.GetTempPath(), "royal-selftest-" + Guid.NewGuid().ToString("N")),
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "RoyalTestFilme"),
@@ -323,6 +324,7 @@ internal static class InstallerEngine
                 throw new InvalidOperationException("Zwischenzeitlich wurde der Zielordner angelegt – Vorgang abgebrochen.");
             Directory.Move(staging, destination);
             committed = true;
+            ManagerEngine.SaveMarker(destination, "windows");
 
             // uv downloads an isolated, managed interpreter into this application's own folder.
             // Never install, discover, replace or alter system Python.
@@ -361,8 +363,9 @@ internal static class InstallerEngine
                 CreateNoWindow = true
             };
             serverInfo.ArgumentList.Add(Path.Combine(destination, "server.py"));
-            _ = Process.Start(serverInfo) ?? throw new InvalidOperationException(
+            using var ownedServer = Process.Start(serverInfo) ?? throw new InvalidOperationException(
                 "RoyalDownloader konnte nicht gestartet werden.");
+            ManagerEngine.RememberOwnedServer(destination, ownedServer);
             using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
             bool healthy = false;
             for (int attempt = 0; attempt < 30; attempt++)

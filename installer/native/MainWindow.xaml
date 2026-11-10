@@ -1,7 +1,7 @@
 <Window x:Class="RoyalDownloader.Setup.Native.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="RoyalDownloader · Easy Install" Width="1120" Height="760" MinWidth="950" MinHeight="660"
+        Title="RoyalDownloader · Installationsmanager" Width="1120" Height="760" MinWidth="950" MinHeight="660"
         WindowStartupLocation="CenterScreen" Background="#F5F7FB" FontFamily="Segoe UI">
   <Grid>
     <Grid.ColumnDefinitions>
@@ -57,7 +57,14 @@
         <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
           <StackPanel>
             <StackPanel x:Name="Page0">
-              <TextBlock Text="WO SOLL ROYAL LAUFEN?" Foreground="#657994" FontWeight="Bold" FontSize="12" Margin="0,0,0,20"/>
+              <TextBlock Text="WAS MÖCHTEST DU TUN?" Foreground="#657994" FontWeight="Bold" FontSize="12" Margin="0,0,0,15"/>
+              <WrapPanel Margin="0,0,0,16">
+                <RadioButton x:Name="ActionInstall" GroupName="ManagerAction" Content="Installieren" IsChecked="True" Checked="ActionChanged" Margin="0,7,17,7"/>
+                <RadioButton x:Name="ActionRepair" GroupName="ManagerAction" Content="Reparieren" Checked="ActionChanged" Margin="0,7,17,7"/>
+                <RadioButton x:Name="ActionUpdate" GroupName="ManagerAction" Content="Aktualisieren" Checked="ActionChanged" Margin="0,7,17,7"/>
+                <RadioButton x:Name="ActionRemove" GroupName="ManagerAction" Content="Deinstallieren" Checked="ActionChanged" Margin="0,7,0,7"/>
+              </WrapPanel>
+              <TextBlock Text="WO SOLL ROYAL LAUFEN?" Foreground="#657994" FontWeight="Bold" FontSize="12" Margin="0,4,0,16"/>
               <Border BorderBrush="#C6D9FA" BorderThickness="1.5" CornerRadius="9" Padding="19" Margin="0,0,0,14" Background="#F2F7FF">
                 <StackPanel>
                   <RadioButton x:Name="MethodWindows" Content="Auf diesem Windows-PC" IsChecked="True" Checked="MethodChanged"/>
@@ -73,7 +80,7 @@
                 </StackPanel>
               </Border>
               <Border Background="#EFF5FF" CornerRadius="8" Padding="16" Margin="0,15,0,0">
-                <TextBlock Text="Du installierst nur RoyalDownloader. Vorhandene Docker-Dienste, Medien und Einstellungen werden nicht geändert."
+                <TextBlock Text="Nur eindeutig vom Manager angelegte Installationen werden verwaltet. Persönliche Daten und externe Medien werden standardmäßig erhalten."
                            TextWrapping="Wrap" Foreground="#31557D" FontSize="13"/>
               </Border>
             </StackPanel>
@@ -96,7 +103,7 @@
               <StackPanel x:Name="NasConnect" Visibility="Collapsed">
                 <TextBlock Text="SSH-VERBINDUNG" Foreground="#1E3864" FontWeight="Bold" FontSize="15"/>
                 <TextBlock Text="NAS-Adresse oder Hostname" Foreground="#536785" Margin="0,15,0,6"/>
-                <TextBox x:Name="NasHost" Text="192.168.178.47"/>
+                <TextBox x:Name="NasHost" ToolTip="IP-Adresse oder Tailscale-Hostname deines NAS"/>
                 <Grid Margin="0,12,0,0">
                   <Grid.ColumnDefinitions><ColumnDefinition Width="110"/><ColumnDefinition Width="15"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                   <StackPanel Grid.Column="0">
@@ -120,7 +127,7 @@
             <StackPanel x:Name="Page2" Visibility="Collapsed">
               <StackPanel x:Name="WindowsStorage">
                 <TextBlock Text="INSTALLATIONSORT" FontWeight="Bold" Foreground="#1E3864" FontSize="15"/>
-                <TextBlock Text="Neuer Programmordner" Foreground="#536785" Margin="0,15,0,6"/>
+                <TextBlock Text="Programmordner (bei Neuinstallation noch nicht vorhanden)" Foreground="#536785" Margin="0,15,0,6"/>
                 <TextBox x:Name="WinInstallPath"/>
                 <TextBlock Text="Ordner für Filme" Foreground="#536785" Margin="0,15,0,6"/>
                 <TextBox x:Name="WinMoviesPath"/>
@@ -131,7 +138,7 @@
               </StackPanel>
               <StackPanel x:Name="NasStorage" Visibility="Collapsed">
                 <TextBlock Text="ORDNER AUF DEM NAS" FontWeight="Bold" Foreground="#1E3864" FontSize="15"/>
-                <TextBlock Text="Neuer Projektordner (darf noch nicht existieren)" Foreground="#536785" Margin="0,15,0,6"/>
+                <TextBlock Text="NAS-Projektordner (bei Neuinstallation noch nicht vorhanden)" Foreground="#536785" Margin="0,15,0,6"/>
                 <TextBox x:Name="NasProject" Text="/volume1/docker/RoyalDownloader-Easy"/>
                 <TextBlock Text="Bestehender Filmordner" Foreground="#536785" Margin="0,15,0,6"/>
                 <TextBox x:Name="NasMovies" Text="/volume1/movies"/>
@@ -154,7 +161,7 @@
             </StackPanel>
 
             <StackPanel x:Name="Page4" Visibility="Collapsed">
-              <TextBlock Text="ROYALDOWNLOADER EINRICHTEN" FontSize="16" Foreground="#1E3864" FontWeight="Bold"/>
+              <TextBlock x:Name="OperationStageTitle" Text="ROYALDOWNLOADER VERWALTEN" FontSize="16" Foreground="#1E3864" FontWeight="Bold"/>
               <TextBlock Text="Installation und Prüfung werden nachvollziehbar protokolliert. Bitte schließe das Fenster währenddessen nicht." TextWrapping="Wrap" Foreground="#536785" Margin="0,12,0,15"/>
               <ProgressBar x:Name="InstallProgress" Height="6" IsIndeterminate="False" Margin="0,0,0,15"/>
               <TextBox x:Name="InstallLog" Height="280" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"
@@ -162,12 +169,12 @@
             </StackPanel>
 
             <StackPanel x:Name="Page5" Visibility="Collapsed">
-              <TextBlock Text="✓ RoyalDownloader wurde installiert." FontSize="22" FontWeight="Bold" Foreground="#1A7855"/>
-              <TextBlock Text="Deine neue RoyalDownloader-Adresse:" Foreground="#536785" Margin="0,25,0,6"/>
+              <TextBlock x:Name="FinishedTitle" Text="✓ Vorgang erfolgreich abgeschlossen." FontSize="22" FontWeight="Bold" Foreground="#1A7855"/>
+              <TextBlock x:Name="FinishedUrlLabel" Text="RoyalDownloader-Adresse:" Foreground="#536785" Margin="0,25,0,6"/>
               <TextBox x:Name="FinishedUrl" IsReadOnly="True"/>
-              <TextBlock Text="Einmaliger Einrichtungscode – bitte sicher aufbewahren:" Foreground="#536785" Margin="0,16,0,6"/>
+              <TextBlock x:Name="FinishedTokenLabel" Text="Einmaliger Einrichtungscode:" Foreground="#536785" Margin="0,16,0,6"/>
               <TextBox x:Name="FinishedToken" IsReadOnly="True"/>
-              <Button Content="RoyalDownloader öffnen" Click="OpenRoyal_Click" HorizontalAlignment="Left" Margin="0,23,0,0"/>
+              <Button x:Name="OpenRoyalButton" Content="RoyalDownloader öffnen" Click="OpenRoyal_Click" HorizontalAlignment="Left" Margin="0,23,0,0"/>
               <TextBlock Text="Danach übernimmt der bestehende RoyalDownloader-Einrichtungsassistent (Konto, TMDB, Quellen und optionale Jellyfin-Verbindung)." 
                          TextWrapping="Wrap" Foreground="#536785" Margin="0,20,0,0"/>
             </StackPanel>
