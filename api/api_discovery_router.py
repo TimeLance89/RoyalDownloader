@@ -381,6 +381,15 @@ async def api_genres():
 
 
 # ── Filme: Suche / Listen / Genre ───────────────────────────────────────────
+@router.get("/api/v1/movie-worlds/catalog")
+@router.get("/api/movie-worlds/catalog")
+async def api_movie_world_catalog():
+    """Curated navigation metadata; no TMDB key required just to browse categories."""
+    from integrations.tmdb_movie_worlds import public_movie_world_catalog
+
+    return public_movie_world_catalog()
+
+
 @router.get("/api/v1/movie-collections")
 @router.get("/api/movie-collections")
 async def api_movie_collections(query: str = ""):
