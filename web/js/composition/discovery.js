@@ -170,6 +170,7 @@ export function composeDiscovery({ movieState, seriesState, artworkUrls, i18n, s
         getGenres: () => services.genres.get(), applyFpSmartFilters: (...args) => services.movieActions.applyFpSmartFilters(...args), resetFpSmartFilters: (...args) => services.movieActions.resetFpSmartFilters(...args),
         setFilter: (key, value) => services.movieFilters.set(key, value),
         cancelMetadata: () => services.catalogMetadata.unmount(),
+        openMovieCollection: id => services.movieCollections.open(id),
       }),
   catalogIdentity: createCatalogIdentity({ getMetadata: slug => movieState.metadataCache[slug] }),
   catalogSeed: createCatalogSeed({
