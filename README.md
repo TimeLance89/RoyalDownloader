@@ -267,14 +267,14 @@ requested spoken language. A subtitle label is not evidence of an audio track.
 
 ## Fire TV app
 
-**[Download the Fire TV APK · v2.0.49](https://github.com/TimeLance89/RoyalDownloader/releases/download/v2.1.0/RoyalDownloader-TV-2.0.49-native.apk)**
+**[Download the Fire TV APK · v2.0.54](https://github.com/TimeLance89/RoyalDownloader/releases/download/v2.1.0/RoyalDownloader-TV-2.0.54-native.apk)**
 
 Use the RoyalDownloader TV client on your Fire TV and connect it to your running
 Royal server. The APK is provided as a release download (about 4 MB).
 
-**TV app v2.0.49 and server v2.1.0 are versioned separately.** The download is the
+**TV app v2.0.54 and server v2.1.0 are versioned separately.** The download is the
 supplied native APK, unchanged. See the [installation notes and signing details](docs/FIRE_TV.md)
-and its [SHA-256 checksum](https://github.com/TimeLance89/RoyalDownloader/releases/download/v2.1.0/RoyalDownloader-TV-2.0.49-native.apk.sha256).
+and its [SHA-256 checksum](docs/checksums/RoyalDownloader-TV-2.0.54-native.apk.sha256).
 
 ## Quick start
 
