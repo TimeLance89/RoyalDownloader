@@ -1,5 +1,6 @@
 export const HOME_RAIL_CATALOG = [
   { id: "personal", trackId: "home-movies-track", title: "Für dich ausgewählt", eyebrow: "Persönlich", description: "Aus deinen Klicks, Downloads und Favoriten.", layout: "spotlight", wallpaperOnly: true },
+  { id: "saved", trackId: "home-saved-track", title: "Deine Merkliste", eyebrow: "Für später", description: "Filme und Serien, die du mit Merken gespeichert hast." },
   { id: "discovered", trackId: "home-discovered-track", title: "Neu für dich entdeckt", eyebrow: "Royal Discovery", description: "Persönliche Film- und Serientipps mit direkter Detailansicht." },
   { id: "genre", trackId: "home-genre-track", title: "Ein Genre für dich", eyebrow: "Geschmack", description: "Eine wechselnde Reihe aus deinen Lieblingsgenres." },
   { id: "gems", trackId: "home-gems-track", title: "Verborgene Schätze", eyebrow: "Geheimtipps", description: "Gut bewertete Titel abseits der Tagescharts." },
@@ -13,7 +14,7 @@ export const HOME_RAIL_CATALOG = [
   { id: "movies", trackId: "home-movie-night-track", title: "Filmabend", eyebrow: "Nur Filme", description: "Eine täglich neu gemischte Auswahl nur mit Filmen." },
   { id: "library", trackId: "home-library-track", title: "Schon in deiner Mediathek", eyebrow: "Jellyfin", description: "Direkter Zugriff auf bereits vorhandene Titel." },
 ];
-const HOME_DEFAULT_VISIBLE_RAILS = ["personal", "discovered", "genre", "gems", "explore", "series", "top", "fresh"];
+const HOME_DEFAULT_VISIBLE_RAILS = ["personal", "saved", "discovered", "genre", "gems", "explore", "series", "top", "fresh"];
 const LEGACY_DEFAULT_RAIL_ORDER = ["personal", "top", "series", "genre", "explore", "gems", "fresh",
   "new_movies", "new_series", "high_rated", "movies", "library"];
 export function defaultHomeLayout() {
@@ -39,6 +40,12 @@ export function normalizeHomeLayout(value) {
   // restoring a layout saved by an earlier RoyalDownloader version.
   if (order.includes("personal") && !order.includes("discovered")) {
     order.splice(order.indexOf("personal") + 1, 0, "discovered");
+  }
+  // Older saved layouts need the personal wishlist immediately before Discovery,
+  // including customized orders. Users can still move or hide the row afterward.
+  if (!order.includes("saved")) {
+    const discoveredIndex = order.indexOf("discovered");
+    order.splice(discoveredIndex >= 0 ? discoveredIndex : order.length, 0, "saved");
   }
   HOME_RAIL_CATALOG.forEach((rail) => { if (!order.includes(rail.id)) order.push(rail.id); });
   const hidden = new Set((Array.isArray(source.hidden_rails) ? source.hidden_rails : [])

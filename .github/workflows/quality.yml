@@ -149,7 +149,7 @@ jobs:
       - name: Personal Jellyfin wishes, separate profiles and delayed responses
         if: ${{ matrix.suite == 'catalog' }}
         run: |
-          node --test tests/frontend/saved-media.test.mjs
+          node --test tests/frontend/saved-media.test.mjs tests/frontend/saved-home.test.mjs
           node tests/frontend/saved-media-browser.cjs
 
       - name: Household playback permissions and stale identity responses
