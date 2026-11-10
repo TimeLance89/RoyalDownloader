@@ -36,22 +36,22 @@ internal static class ManagerEngine
         return manifest.RootElement.GetProperty("commit").GetString() ?? "";
     }
 
-    internal static string CreateMarker(string platform)
+    internal static string CreateMarker(string platform, string? commitOverride = null)
         => JsonSerializer.Serialize(new Dictionary<string, object>
         {
             ["owner"] = Owner,
             ["platform"] = platform,
             ["schema"] = 1,
-            ["source_commit"] = SourceCommit(),
+            ["source_commit"] = commitOverride ?? SourceCommit(),
             ["created_utc"] = DateTimeOffset.UtcNow.ToString("O"),
             ["instance_id"] = Guid.NewGuid().ToString("N")
         });
 
-    internal static void SaveMarker(string root, string platform)
+    internal static void SaveMarker(string root, string platform, string? commitOverride = null)
     {
         string path = Path.Combine(root, Marker);
         if (File.Exists(path)) throw new InvalidOperationException("Bereits verwaltete Installation vorhanden.");
-        File.WriteAllText(path, CreateMarker(platform), Encoding.UTF8);
+        File.WriteAllText(path, CreateMarker(platform, commitOverride), Encoding.UTF8);
     }
 
     internal static void CheckWindowsMarker(string root)
@@ -234,10 +234,10 @@ internal static class ManagerEngine
             throw new InvalidOperationException("Ein Serverpaket ließ sich nicht reparieren.");
     }
 
-    private static async Task ExtractVerified(string stage, CancellationToken cancel)
+    private static async Task ExtractVerified(string stage, CancellationToken cancel, byte[] stableZip)
     {
         InstallerEngine.VerifyResources();
-        using var memory = new MemoryStream(InstallerEngine.Resource("RoyalSource.zip"));
+        using var memory = new MemoryStream(stableZip);
         using var archive = new ZipArchive(memory);
         if (archive.Entries.Count > 25000 ||
             archive.Entries.Sum(e => e.Length) > 1_500_000_000)
@@ -282,9 +282,26 @@ internal static class ManagerEngine
         ManagerAction operation, IProgress<string> log, CancellationToken cancel)
     {
         if (operation == ManagerAction.Install)
-            return await InstallerEngine.InstallWindowsAsync(options, log, cancel);
+        {
+            // Resolve the latest published Stable before touching any target folder.
+            var latest = await StableSource.FetchLatestAsync(log, cancel);
+            return await InstallerEngine.InstallWindowsAsync(options, log, cancel, latest);
+        }
         _ = CheckManagedWindows(options, operation);
         string root = Path.GetFullPath(options.Project);
+        StablePackage? release = null;
+        if (operation == ManagerAction.Update)
+        {
+            // Never stop the running server if the latest Stable cannot be verified.
+            release = await StableSource.FetchLatestAsync(log, cancel);
+            using var marker = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, Marker)));
+            if (marker.RootElement.TryGetProperty("source_commit", out var previous) &&
+                string.Equals(previous.GetString(), release.Commit, StringComparison.Ordinal))
+            {
+                log.Report("RoyalDownloader ist bereits auf der neuesten Stable-Version " + release.Version + ".");
+                return new InstallResult("http://127.0.0.1:8765", "", root);
+            }
+        }
         StopOwnedServer(root, log);
         RequireFreePort();
         if (operation == ManagerAction.Uninstall)
@@ -311,7 +328,7 @@ internal static class ManagerEngine
             cancel.ThrowIfCancellationRequested();
             log.Report("Das SHA-256-verifizierte Quellarchiv dieses Installers wird benutzt.");
             Directory.CreateDirectory(stage);
-            await ExtractVerified(stage, cancel);
+            await ExtractVerified(stage, cancel, release!.Zip);
             Directory.CreateDirectory(Path.Combine(stage, ".tools"));
             await File.WriteAllBytesAsync(Path.Combine(stage, ".tools", "uv.exe"),
                 InstallerEngine.Resource("BundledUv.exe"), cancel);
@@ -324,7 +341,7 @@ internal static class ManagerEngine
             Directory.Move(stage, root);
             swapped = true;
             MovePersistent(backup, root);
-            SaveMarker(root, "windows");
+            SaveMarker(root, "windows", release!.Commit);
             // Python virtual environments must be created at their final path;
             // moving a prepared .venv from a staging folder breaks Windows script paths.
             await SyncPython(root, log, cancel);

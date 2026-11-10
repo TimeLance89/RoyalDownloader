@@ -64,6 +64,7 @@ internal static class InstallerEngine
         {
             VerifyResources();
             ManagerEngine.SelfTest();
+            StableSource.SelfTest();
             ValidateWindows(new WindowsOptions(
                 Path.Combine(Path.GetTempPath(), "royal-selftest-" + Guid.NewGuid().ToString("N")),
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "RoyalTestFilme"),
@@ -199,9 +200,9 @@ internal static class InstallerEngine
         ["JELLYFIN_API_KEY"] = ""
     };
 
-    private static async Task ExtractSourceAsync(string directory, CancellationToken cancel)
+    private static async Task ExtractSourceAsync(string directory, CancellationToken cancel, byte[]? stableZip = null)
     {
-        var zipBytes = Resource(SourceZip);
+        var zipBytes = stableZip ?? Resource(SourceZip);
         using var ms = new MemoryStream(zipBytes);
         using var zip = new ZipArchive(ms, ZipArchiveMode.Read, leaveOpen: false);
         if (zip.Entries.Count > MaxExtractedFiles ||
@@ -292,7 +293,7 @@ internal static class InstallerEngine
     }
 
     public static async Task<InstallResult> InstallWindowsAsync(WindowsOptions config,
-        IProgress<string> log, CancellationToken cancel)
+        IProgress<string> log, CancellationToken cancel, StablePackage? stable = null)
     {
         WindowsPreflight(config);
         string destination = Path.GetFullPath(config.Project);
@@ -303,7 +304,7 @@ internal static class InstallerEngine
         {
             log.Report("Verifiziertes RoyalDownloader-Paket wird vorbereitet …");
             Directory.CreateDirectory(staging);
-            await ExtractSourceAsync(staging, cancel);
+            await ExtractSourceAsync(staging, cancel, stable?.Zip);
             Directory.CreateDirectory(Path.Combine(staging, "data"));
             Directory.CreateDirectory(Path.Combine(staging, "runtime"));
             var env = BaseEnv(token);
@@ -325,7 +326,7 @@ internal static class InstallerEngine
                 throw new InvalidOperationException("Zwischenzeitlich wurde der Zielordner angelegt – Vorgang abgebrochen.");
             Directory.Move(staging, destination);
             committed = true;
-            ManagerEngine.SaveMarker(destination, "windows");
+            ManagerEngine.SaveMarker(destination, "windows", stable?.Commit);
 
             // uv downloads an isolated, managed interpreter into this application's own folder.
             // Never install, discover, replace or alter system Python.

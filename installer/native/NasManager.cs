@@ -73,7 +73,10 @@ internal static class NasManager
         IProgress<string> log, CancellationToken cancellation)
     {
         if (action == ManagerAction.Install)
-            return NasInstaller.Install(cfg, log, cancellation);
+        {
+            var latest = StableSource.FetchLatestAsync(log, cancellation).GetAwaiter().GetResult();
+            return NasInstaller.Install(cfg, log, cancellation, latest);
+        }
 
         _ = Preflight(cfg, action);
         using var ssh = NasInstaller.Connect(cfg);
@@ -102,6 +105,8 @@ internal static class NasManager
             return new InstallResult("", "", backup);
         }
 
+        // A failed GitHub request must not stop existing containers.
+        var release = StableSource.FetchLatestAsync(log, cancellation).GetAwaiter().GetResult();
         string parent = cfg.Project[..cfg.Project.LastIndexOf('/')];
         string stage = NewSibling(parent + "/.royal-manager-update", "stage");
         string archive = NewSibling(cfg.Project, "version-backup");
@@ -110,7 +115,7 @@ internal static class NasManager
         try
         {
             cancellation.ThrowIfCancellationRequested();
-            byte[] tar = InstallerEngine.Resource("RoyalSource.tar.gz");
+            byte[] tar = release.Tar;
             string hash = Convert.ToHexString(SHA256.HashData(tar)).ToLowerInvariant();
             Run(ssh, "set -eu; test ! -e " + qStage +
                 "; test ! -e " + qBackup + "; mkdir -m 700 -- " + qStage);
@@ -119,7 +124,7 @@ internal static class NasManager
             using (var sftp = NasInstaller.ConnectSftp(cfg))
             {
                 Upload(sftp, tar, stage + "/royal-source.tar.gz");
-                Upload(sftp, Encoding.UTF8.GetBytes(ManagerEngine.CreateMarker("nas")),
+                Upload(sftp, Encoding.UTF8.GetBytes(ManagerEngine.CreateMarker("nas", release.Commit)),
                     stage + "/" + ManagerEngine.Marker);
             }
             string verified = Run(ssh,

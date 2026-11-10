@@ -161,7 +161,7 @@ internal static class NasInstaller
     }
 
     public static InstallResult Install(NasOptions cfg, IProgress<string> log,
-        CancellationToken cancellation)
+        CancellationToken cancellation, StablePackage? stable = null)
     {
         InstallerEngine.ValidateNas(cfg);
         InstallerEngine.VerifyResources();
@@ -182,7 +182,7 @@ internal static class NasInstaller
             madeStage = true;
 
             string source = stage + "/royal-source.tar.gz";
-            byte[] tar = InstallerEngine.Resource("RoyalSource.tar.gz");
+            byte[] tar = stable?.Tar ?? InstallerEngine.Resource("RoyalSource.tar.gz");
             string expected = Convert.ToHexString(SHA256.HashData(tar)).ToLowerInvariant();
             log.Report("Quellarchiv wird verschlüsselt mit SFTP übertragen …");
             using (var sftp = ConnectSftp(cfg))
@@ -224,7 +224,7 @@ internal static class NasInstaller
                 sftp.UploadFile(stream, stage + "/.env", true);
             using (var markerClient = ConnectSftp(cfg))
             using (var markerStream = new MemoryStream(Encoding.UTF8.GetBytes(
-                ManagerEngine.CreateMarker("nas"))))
+                ManagerEngine.CreateMarker("nas", stable?.Commit))))
                 markerClient.UploadFile(markerStream, stage + "/" + ManagerEngine.Marker, true);
             Execute(client, "chmod 600 -- " + Quote(stage + "/.env") +
                 " " + Quote(stage + "/" + ManagerEngine.Marker));

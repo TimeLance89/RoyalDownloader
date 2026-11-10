@@ -266,6 +266,15 @@ public partial class MainWindow : Window
                 var cfg = WindowsConfig();
                 result = await Task.Run(() => ManagerEngine.CheckManagedWindows(cfg, action));
             }
+            if (action is ManagerAction.Install or ManagerAction.Update)
+            {
+                // A read-only check. The release is rechecked immediately before
+                // installation so a later published Stable cannot be missed.
+                var release = await StableSource.LookupLatestAsync(CancellationToken.None);
+                result += "\nOffiziell neueste Stable: " + release.Version +
+                    " · Commit " + release.Commit[..12] +
+                    "\nKein automatischer Rückfall auf eine veraltete eingebettete Version.";
+            }
             ReviewResult.Text = "✓ " + result;
             ShowStep(4);
         }

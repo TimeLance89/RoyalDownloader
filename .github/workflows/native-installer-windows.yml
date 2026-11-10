@@ -5,6 +5,7 @@ on:
     branches:
       - feature/native-dotnet-easy-installer
       - build/royal-manager-standalone
+      - build/royal-manager-latest-stable
       - overnight
       - main
     paths:
