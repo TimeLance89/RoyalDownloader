@@ -175,8 +175,12 @@ internal static class StableSource
                 using (var writer = dest.Open())
                     bytes.CopyTo(writer);
                 bytes.Position = 0;
+                int unixMode = (entry.ExternalAttributes >> 16) & 0x1FF;
                 var tarEntry = new PaxTarEntry(TarEntryType.RegularFile, path)
-                { DataStream = bytes };
+                {
+                    DataStream = bytes,
+                    Mode = unixMode == 0 ? 420 : unixMode, // 0644 fallback, preserve 0755 scripts
+                };
                 tarWriter.WriteEntry(tarEntry);
             }
         }
@@ -194,12 +198,24 @@ internal static class StableSource
         using (var zip = new ZipArchive(sample, ZipArchiveMode.Create, leaveOpen: true))
             foreach (var path in new[] { ".env.example", "server.py", "requirements.lock", "docker-compose.yml" })
             {
-                using var stream = zip.CreateEntry("repo-abc123/" + path).Open();
+                var entry = zip.CreateEntry("repo-abc123/" + path);
+                if (path == "server.py")
+                    entry.ExternalAttributes = unchecked((int)0x81ED0000); // regular file, 0755
+                using var stream = entry.Open();
                 stream.WriteByte(49);
             }
         var (normalized, tar) = NormalizeGitHubZip(sample.ToArray(), CancellationToken.None);
         using var result = new ZipArchive(new MemoryStream(normalized), ZipArchiveMode.Read);
         if (result.GetEntry("server.py") is null || result.GetEntry("repo-abc123/server.py") is not null || tar.Length < 50)
             throw new Exception("Stable source normalization self-test failed.");
+        using var tarStream = new MemoryStream(tar);
+        using var gzip = new GZipStream(tarStream, CompressionMode.Decompress);
+        using var tarReader = new TarReader(gzip);
+        TarEntry? entry;
+        bool foundExecutable = false;
+        while ((entry = tarReader.GetNextEntry()) is not null)
+            if (entry.Name == "server.py")
+                foundExecutable = (entry.Mode & 0x49) == 0x49;
+        if (!foundExecutable) throw new Exception("NAS executable permission preservation failed.");
     }
 }
