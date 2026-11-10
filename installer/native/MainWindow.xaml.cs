@@ -246,21 +246,25 @@ public partial class MainWindow : Window
 
     private async Task PerformPreflightAsync()
     {
+        // WPF controls have thread affinity: read operation and destination on
+        // the dispatcher thread before Task.Run executes the expensive checks.
+        var action = Operation;
+        var useNas = IsNas;
         SetBusy(true);
         ReviewResult.Text = "Prüfung läuft …";
         try
         {
             string result;
-            if (IsNas)
+            if (useNas)
             {
                 EnsureHostApproved();
                 var cfg = NasConfig();
-                result = await Task.Run(() => NasManager.Preflight(cfg, Operation));
+                result = await Task.Run(() => NasManager.Preflight(cfg, action));
             }
             else
             {
                 var cfg = WindowsConfig();
-                result = await Task.Run(() => ManagerEngine.CheckManagedWindows(cfg, Operation));
+                result = await Task.Run(() => ManagerEngine.CheckManagedWindows(cfg, action));
             }
             ReviewResult.Text = "✓ " + result;
             ShowStep(4);
@@ -284,6 +288,10 @@ public partial class MainWindow : Window
                 "Deinstallation ausdrücklich bestätigen", MessageBoxButton.YesNo, MessageBoxImage.Warning);
             if (confirmation != MessageBoxResult.Yes) return;
         }
+        // Capture the selected operation on the UI thread. The background
+        // NAS task must never read RadioButton.IsChecked or any WPF state.
+        var action = Operation;
+        var useNas = IsNas;
         SetBusy(true);
         InstallLog.Clear();
         InstallProgress.IsIndeterminate = true;
@@ -295,18 +303,18 @@ public partial class MainWindow : Window
         });
         try
         {
-            if (IsNas)
+            if (useNas)
             {
                 EnsureHostApproved();
                 var cfg = NasConfig();
                 _result = await Task.Run(() => NasManager.Manage(
-                    cfg, Operation, progress, _installCancellation.Token));
+                    cfg, action, progress, _installCancellation.Token));
             }
             else
             {
                 var cfg = WindowsConfig();
                 _result = await ManagerEngine.ManageWindowsAsync(
-                    cfg, Operation, progress, _installCancellation.Token);
+                    cfg, action, progress, _installCancellation.Token);
             }
             FinishedUrl.Text = Operation == ManagerAction.Uninstall ? _result.InstalledAt : _result.Url;
             FinishedToken.Text = _result.Token;
