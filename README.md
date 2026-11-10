@@ -280,25 +280,21 @@ and its [SHA-256 checksum](docs/checksums/RoyalDownloader-TV-2.0.54-native.apk.s
 
 ### Easy Install — Windows & NAS (for first-time users)
 
-A guided installer is available in the repository root as
-[`RoyalDownloader-Setup.pyw`](RoyalDownloader-Setup.pyw). The Windows CI builds
-the standalone **`RoyalDownloader-Setup.exe`** from that source. Download the
-EXE from a successful [Windows installer build](https://github.com/TimeLance89/RoyalDownloader/actions/workflows/installer-windows.yml)
-after the build has completed; it does not require Python on the computer that
-runs the installer.
+The native **RoyalDownloader-Setup.exe** is built using **C# / .NET 10 / WPF**.
+It starts without an installed Python interpreter or other global prerequisites.
+Download a successful test artifact from the [native Windows installer build](https://github.com/TimeLance89/RoyalDownloader/actions/workflows/native-installer-windows.yml).
 
-The wizard offers **install locally on Windows** or **install on a NAS over SSH**.
-For NAS it verifies the server's SSH host key (confirm the SHA-256 fingerprint
-through a separate trusted channel), checks Docker Compose, mounted media
-folders, filesystem permissions and free space, and creates a **new, separate**
-Royal project. It does not overwrite running containers, delete media or run
-recursive `chown`. Local Windows installation uses an isolated Python 3.12
-environment. Missing tools can be installed via Windows Package Manager only
-when explicitly requested.
+Windows mode creates a **private managed Python runtime only for the RoyalDownloader server**
+within its newly created program folder; it does **not** alter an existing Python 3.14
+installation, PATH or registry. NAS mode performs its work remotely over host-key-verified
+SSH/SFTP and Docker, without installing Python on the Windows computer.
+Chrome and FFmpeg are not blanket installer prerequisites.
+
+Details: [Native Easy Install / safety notes](docs/EASY_INSTALL_NATIVE.md).
 
 **Important:** The EXE is not included in a source-code ZIP and is not yet a
 signed retail installer. Read the
-[Easy Install guide and security limitations](docs/EASY_INSTALL.md).
+[native Easy Install guide and security limitations](docs/EASY_INSTALL_NATIVE.md).
 A successful CI smoke test is not a substitute for a test on your Windows/NAS
 model.
 
