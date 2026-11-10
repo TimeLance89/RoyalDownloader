@@ -1,0 +1,97 @@
+name: Build Native Windows Easy Installer
+
+on:
+  push:
+    branches:
+      - feature/native-dotnet-easy-installer
+      - overnight
+      - main
+    paths:
+      - 'installer/native/**'
+      - '.github/workflows/native-installer-windows.yml'
+      - '.env.example'
+      - 'requirements.lock'
+  pull_request:
+    paths:
+      - 'installer/native/**'
+      - '.github/workflows/native-installer-windows.yml'
+      - 'README.md'
+      - '.env.example'
+      - 'requirements.lock'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact source revision
+        uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+        with:
+          persist-credentials: false
+
+      - name: Install .NET 10 SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install verified uv CLI (build tool only)
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+        with:
+          version: '0.13.5'
+          enable-cache: false
+
+      - name: Package exact Git revision as trusted installer payload
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path installer/native/Assets | Out-Null
+          git archive --format=zip -o installer/native/Assets/royal-source.zip HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'ZIP archive failed' }
+          git archive --format=tar.gz -o installer/native/Assets/royal-source.tar.gz HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'TAR archive failed' }
+          Copy-Item .env.example installer/native/Assets/.env.example
+          $uvExe = (Get-Command uv -ErrorAction Stop).Source
+          Copy-Item $uvExe installer/native/Assets/uv.exe
+          $payload = @{
+            commit = (git rev-parse HEAD).Trim()
+            sha256_zip = (Get-FileHash installer/native/Assets/royal-source.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+            sha256_tar = (Get-FileHash installer/native/Assets/royal-source.tar.gz -Algorithm SHA256).Hash.ToLowerInvariant()
+            sha256_uv = (Get-FileHash installer/native/Assets/uv.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          }
+          $payload | ConvertTo-Json -Compress | Set-Content -Encoding UTF8 installer/native/Assets/source-manifest.json
+
+      - name: Publish single-file, self-contained native WPF EXE
+        shell: pwsh
+        run: |
+          dotnet publish installer/native/RoyalDownloader.Setup.Native.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o dist/native
+          if ($LASTEXITCODE -ne 0) { throw 'Native publish failed' }
+
+      - name: Run offline EXE self-test (no NAS changes)
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path dist/native/RoyalDownloader-Setup.exe).Path
+          $p = Start-Process -FilePath $exe -ArgumentList '--self-test' -Wait -PassThru
+          if ($p.ExitCode -ne 0) {
+            $errorPath = Join-Path $env:TEMP 'royal-installer-selftest-error.txt'
+            if (Test-Path $errorPath) { Get-Content $errorPath }
+            throw "Native EXE self-test failed: $($p.ExitCode)"
+          }
+
+      - name: Save portable EXE checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash dist/native/RoyalDownloader-Setup.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  RoyalDownloader-Setup.exe" | Set-Content -Encoding ascii dist/native/RoyalDownloader-Setup.exe.sha256
+
+      - name: Publish test installer artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: royaldownloader-native-easy-installer-windows
+          path: |
+            dist/native/RoyalDownloader-Setup.exe
+            dist/native/RoyalDownloader-Setup.exe.sha256
+          if-no-files-found: error
+          retention-days: 14

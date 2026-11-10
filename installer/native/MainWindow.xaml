@@ -1,0 +1,186 @@
+<Window x:Class="RoyalDownloader.Setup.Native.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="RoyalDownloader · Easy Install" Width="1120" Height="760" MinWidth="950" MinHeight="660"
+        WindowStartupLocation="CenterScreen" Background="#F5F7FB" FontFamily="Segoe UI">
+  <Grid>
+    <Grid.ColumnDefinitions>
+      <ColumnDefinition Width="264"/>
+      <ColumnDefinition Width="*"/>
+    </Grid.ColumnDefinitions>
+    <Border Grid.Column="0" Background="#0C1730">
+      <DockPanel Margin="24,34,20,24">
+        <StackPanel DockPanel.Dock="Top">
+          <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+            <Border Width="45" Height="45" CornerRadius="10" Background="#286AF5">
+              <TextBlock Text="R" FontSize="30" FontWeight="Bold" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+              <TextBlock Text="ROYAL" Foreground="White" FontSize="23" FontWeight="Bold"/>
+              <TextBlock Text="DOWNLOADER · SETUP" Foreground="#8EAAD8" FontSize="10" FontWeight="SemiBold"/>
+            </StackPanel>
+          </StackPanel>
+          <TextBlock Text="EINRICHTUNG" Margin="8,54,0,18" Foreground="#7793C2" FontWeight="SemiBold" FontSize="12"/>
+          <StackPanel x:Name="StepRail">
+            <TextBlock x:Name="Rail0" Text="01    Installationsart" Margin="8,15" Foreground="White" FontWeight="Bold"/>
+            <TextBlock x:Name="Rail1" Text="02    Verbindung" Margin="8,15" Foreground="#9DABC4"/>
+            <TextBlock x:Name="Rail2" Text="03    Speicher" Margin="8,15" Foreground="#9DABC4"/>
+            <TextBlock x:Name="Rail3" Text="04    Sicherheitsprüfung" Margin="8,15" Foreground="#9DABC4"/>
+            <TextBlock x:Name="Rail4" Text="05    Installation" Margin="8,15" Foreground="#9DABC4"/>
+            <TextBlock x:Name="Rail5" Text="06    Abschluss" Margin="8,15" Foreground="#9DABC4"/>
+          </StackPanel>
+        </StackPanel>
+        <StackPanel DockPanel.Dock="Bottom" VerticalAlignment="Bottom">
+          <TextBlock Text="SCHUTZ IST STANDARD" Foreground="#71DDCE" FontWeight="Bold" FontSize="11"/>
+          <TextBlock TextWrapping="Wrap" Margin="0,10,4,0" Foreground="#A9B8D1" FontSize="12"
+                     Text="Kein Eingriff in bestehende Installationen. SSH-Schlüssel wird vor Anmeldung geprüft. Keine globalen Python-Änderungen."/>
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <Grid Grid.Column="1" Margin="52,38,52,30">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="*"/>
+        <RowDefinition Height="Auto"/>
+      </Grid.RowDefinitions>
+      <StackPanel Grid.Row="0" Margin="0,0,0,24">
+        <Border HorizontalAlignment="Left" Background="#E5EEFF" Padding="14,8" CornerRadius="5">
+          <TextBlock x:Name="StepCaption" Text="ROYAL EASY INSTALL / 01" Foreground="#2567F3" FontSize="12" FontWeight="Bold"/>
+        </Border>
+        <TextBlock x:Name="StepTitle" Text="Wie möchtest du Royal installieren?" FontSize="28" FontWeight="Bold" Foreground="#14233D" Margin="0,26,0,10"/>
+        <TextBlock x:Name="StepHint" Text="Wähle den Installationsweg. Du kannst dich später noch umentscheiden."
+                   FontSize="14" Foreground="#63738E" TextWrapping="Wrap"/>
+      </StackPanel>
+
+      <Border Grid.Row="1" Background="White" BorderBrush="#DFE6F2" BorderThickness="1" CornerRadius="12" Padding="28">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel>
+            <StackPanel x:Name="Page0">
+              <TextBlock Text="WO SOLL ROYAL LAUFEN?" Foreground="#657994" FontWeight="Bold" FontSize="12" Margin="0,0,0,20"/>
+              <Border BorderBrush="#C6D9FA" BorderThickness="1.5" CornerRadius="9" Padding="19" Margin="0,0,0,14" Background="#F2F7FF">
+                <StackPanel>
+                  <RadioButton x:Name="MethodWindows" Content="Auf diesem Windows-PC" IsChecked="True" Checked="MethodChanged"/>
+                  <TextBlock Text="Royal läuft lokal im Browser. Der Installer richtet eine eigene Laufzeit ein – ohne zusätzliche globale Python-Installation."
+                             TextWrapping="Wrap" Foreground="#60738F" FontSize="13" Margin="26,12,0,0"/>
+                </StackPanel>
+              </Border>
+              <Border BorderBrush="#DCE4F1" BorderThickness="1.5" CornerRadius="9" Padding="19" Margin="0,0,0,14">
+                <StackPanel>
+                  <RadioButton x:Name="MethodNas" Content="Auf meinem NAS / Heimserver" Checked="MethodChanged"/>
+                  <TextBlock Text="Verbindung über SSH, Hostschlüssel prüfen, Docker-Voraussetzungen testen und Dateien geschützt übertragen. Auf deinem PC wird dafür kein Python benötigt."
+                             TextWrapping="Wrap" Foreground="#60738F" FontSize="13" Margin="26,12,0,0"/>
+                </StackPanel>
+              </Border>
+              <Border Background="#EFF5FF" CornerRadius="8" Padding="16" Margin="0,15,0,0">
+                <TextBlock Text="Du installierst nur RoyalDownloader. Vorhandene Docker-Dienste, Medien und Einstellungen werden nicht geändert."
+                           TextWrapping="Wrap" Foreground="#31557D" FontSize="13"/>
+              </Border>
+            </StackPanel>
+
+            <StackPanel x:Name="Page1" Visibility="Collapsed">
+              <StackPanel x:Name="WindowsConnect">
+                <TextBlock Text="KEIN PYTHON AUF DEINEM PC ERFORDERLICH" FontWeight="Bold" FontSize="16" Foreground="#1E3864" Margin="0,0,0,14"/>
+                <TextBlock TextWrapping="Wrap" Foreground="#566A89" FontSize="14"
+                           Text="Dieser Installer enthält eine eigene Windows-Anwendung und ein Werkzeug, das eine passende Python-Laufzeit ausschließlich für RoyalDownloader einrichtet. Deine vorhandene Python-Version bleibt vollständig unverändert."/>
+                <Border Background="#EAF5EE" CornerRadius="8" Padding="18" Margin="0,22,0,0">
+                  <StackPanel>
+                    <TextBlock Text="✓ Keine globale Python-Installation" Foreground="#216A43" FontWeight="SemiBold" Margin="0,0,0,9"/>
+                    <TextBlock Text="✓ Keine Änderung an PATH oder Registry" Foreground="#216A43" FontWeight="SemiBold" Margin="0,0,0,9"/>
+                    <TextBlock Text="✓ Chrome und FFmpeg nicht als Pflichtvoraussetzung" Foreground="#216A43" FontWeight="SemiBold"/>
+                  </StackPanel>
+                </Border>
+                <TextBlock TextWrapping="Wrap" Foreground="#7484A0" Margin="0,20,0,0"
+                           Text="Hinweis: Für die erstmalige Einrichtung der privaten Laufzeit und der Serverpakete ist eine Internetverbindung erforderlich."/>
+              </StackPanel>
+              <StackPanel x:Name="NasConnect" Visibility="Collapsed">
+                <TextBlock Text="SSH-VERBINDUNG" Foreground="#1E3864" FontWeight="Bold" FontSize="15"/>
+                <TextBlock Text="NAS-Adresse oder Hostname" Foreground="#536785" Margin="0,15,0,6"/>
+                <TextBox x:Name="NasHost" Text="192.168.178.47"/>
+                <Grid Margin="0,12,0,0">
+                  <Grid.ColumnDefinitions><ColumnDefinition Width="110"/><ColumnDefinition Width="15"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                  <StackPanel Grid.Column="0">
+                    <TextBlock Text="SSH-Port" Foreground="#536785" Margin="0,0,0,6"/>
+                    <TextBox x:Name="NasPort" Text="22"/>
+                  </StackPanel>
+                  <StackPanel Grid.Column="2">
+                    <TextBlock Text="SSH-Benutzer" Foreground="#536785" Margin="0,0,0,6"/>
+                    <TextBox x:Name="NasUser"/>
+                  </StackPanel>
+                </Grid>
+                <TextBlock Text="SSH-Passwort (wird nicht gespeichert)" Foreground="#536785" Margin="0,12,0,6"/>
+                <PasswordBox x:Name="NasPassword"/>
+                <Button Content="SSH-Hostschlüssel ermitteln" Click="ProbeHost_Click" Margin="0,18,0,0" HorizontalAlignment="Left"/>
+                <TextBlock x:Name="HostFingerprint" Text="Noch kein Hostschlüssel ermittelt" Foreground="#536785" TextWrapping="Wrap" Margin="0,13,0,8"/>
+                <TextBlock Text="Bestätige den Fingerabdruck über einen unabhängigen Weg (z. B. NAS-Konsole). Zum Freigeben exakt eintippen:" Foreground="#536785" TextWrapping="Wrap" Margin="0,8,0,8"/>
+                <TextBox x:Name="ConfirmedFingerprint"/>
+              </StackPanel>
+            </StackPanel>
+
+            <StackPanel x:Name="Page2" Visibility="Collapsed">
+              <StackPanel x:Name="WindowsStorage">
+                <TextBlock Text="INSTALLATIONSORT" FontWeight="Bold" Foreground="#1E3864" FontSize="15"/>
+                <TextBlock Text="Neuer Programmordner" Foreground="#536785" Margin="0,15,0,6"/>
+                <TextBox x:Name="WinInstallPath"/>
+                <TextBlock Text="Ordner für Filme" Foreground="#536785" Margin="0,15,0,6"/>
+                <TextBox x:Name="WinMoviesPath"/>
+                <TextBlock Text="Ordner für Serien" Foreground="#536785" Margin="0,15,0,6"/>
+                <TextBox x:Name="WinSeriesPath"/>
+                <TextBlock Text="Medienordner werden bei Bedarf neu angelegt. Bereits vorhandene Mediendateien bleiben unverändert."
+                           Foreground="#536785" TextWrapping="Wrap" Margin="0,18,0,0"/>
+              </StackPanel>
+              <StackPanel x:Name="NasStorage" Visibility="Collapsed">
+                <TextBlock Text="ORDNER AUF DEM NAS" FontWeight="Bold" Foreground="#1E3864" FontSize="15"/>
+                <TextBlock Text="Neuer Projektordner (darf noch nicht existieren)" Foreground="#536785" Margin="0,15,0,6"/>
+                <TextBox x:Name="NasProject" Text="/volume1/docker/RoyalDownloader-Easy"/>
+                <TextBlock Text="Bestehender Filmordner" Foreground="#536785" Margin="0,15,0,6"/>
+                <TextBox x:Name="NasMovies" Text="/volume1/movies"/>
+                <TextBlock Text="Bestehender Serienordner" Foreground="#536785" Margin="0,15,0,6"/>
+                <TextBox x:Name="NasSeries" Text="/volume1/Serien"/>
+                <Border Background="#FFF6E8" Padding="15" CornerRadius="8" Margin="0,15,0,0">
+                  <TextBlock Text="Keine automatische Änderung von NAS-Berechtigungen. Bestehende Ordner werden nur auf Schreibrechte geprüft."
+                             Foreground="#875A20" TextWrapping="Wrap"/>
+                </Border>
+              </StackPanel>
+            </StackPanel>
+
+            <StackPanel x:Name="Page3" Visibility="Collapsed">
+              <TextBlock Text="VOR DEM ERSTEN EINGRIFF" FontWeight="Bold" Foreground="#1E3864" FontSize="16"/>
+              <TextBlock x:Name="ReviewDescription" TextWrapping="Wrap" Foreground="#536785" Margin="0,17,0,18"/>
+              <Border Background="#F0F5FE" CornerRadius="8" Padding="16">
+                <TextBlock x:Name="ReviewResult" Text="Noch nicht geprüft. Klicke unten auf „Voraussetzungen prüfen“." TextWrapping="Wrap" FontSize="13" Foreground="#224A7B"/>
+              </Border>
+              <TextBlock Text="Erst nach erfolgreicher Prüfung und deiner ausdrücklichen Fortsetzung werden Dateien geschrieben." Foreground="#536785" TextWrapping="Wrap" Margin="0,20,0,0"/>
+            </StackPanel>
+
+            <StackPanel x:Name="Page4" Visibility="Collapsed">
+              <TextBlock Text="ROYALDOWNLOADER EINRICHTEN" FontSize="16" Foreground="#1E3864" FontWeight="Bold"/>
+              <TextBlock Text="Installation und Prüfung werden nachvollziehbar protokolliert. Bitte schließe das Fenster währenddessen nicht." TextWrapping="Wrap" Foreground="#536785" Margin="0,12,0,15"/>
+              <ProgressBar x:Name="InstallProgress" Height="6" IsIndeterminate="False" Margin="0,0,0,15"/>
+              <TextBox x:Name="InstallLog" Height="280" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"
+                       VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12" Background="#111B30" Foreground="#D9E8FF" BorderThickness="0"/>
+            </StackPanel>
+
+            <StackPanel x:Name="Page5" Visibility="Collapsed">
+              <TextBlock Text="✓ RoyalDownloader wurde installiert." FontSize="22" FontWeight="Bold" Foreground="#1A7855"/>
+              <TextBlock Text="Deine neue RoyalDownloader-Adresse:" Foreground="#536785" Margin="0,25,0,6"/>
+              <TextBox x:Name="FinishedUrl" IsReadOnly="True"/>
+              <TextBlock Text="Einmaliger Einrichtungscode – bitte sicher aufbewahren:" Foreground="#536785" Margin="0,16,0,6"/>
+              <TextBox x:Name="FinishedToken" IsReadOnly="True"/>
+              <Button Content="RoyalDownloader öffnen" Click="OpenRoyal_Click" HorizontalAlignment="Left" Margin="0,23,0,0"/>
+              <TextBlock Text="Danach übernimmt der bestehende RoyalDownloader-Einrichtungsassistent (Konto, TMDB, Quellen und optionale Jellyfin-Verbindung)." 
+                         TextWrapping="Wrap" Foreground="#536785" Margin="0,20,0,0"/>
+            </StackPanel>
+          </StackPanel>
+        </ScrollViewer>
+      </Border>
+
+      <Grid Grid.Row="2" Margin="0,23,0,0">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <Button x:Name="BackButton" Grid.Column="0" Content="← Zurück" Style="{StaticResource SecondaryButton}" Click="Back_Click" MinWidth="114"/>
+        <TextBlock x:Name="FooterStatus" Grid.Column="1" Text="Schritt 1 von 6" Foreground="#8290AA" FontSize="12" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+        <Button x:Name="NextButton" Grid.Column="2" Content="Weiter →" Click="Next_Click" MinWidth="160"/>
+      </Grid>
+    </Grid>
+  </Grid>
+</Window>
