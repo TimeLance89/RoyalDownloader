@@ -158,6 +158,34 @@ def _movie_id(client, items, title, year, tmdb_id):
         raise HTTPException(502, "Jellyfin hat keine gültige Film-ID geliefert.") from None
 
 
+def _matched_series_inventory(matches, library, tmdb_id, fetch):
+    """Combine library copies only when their stable series identity agrees."""
+    if not matches:
+        return []
+    if len(matches) > 1:
+        wanted = str(tmdb_id or "").strip()
+        candidates = [item for item in library if str(item.get("id")) in matches]
+        if (not wanted or {str(item.get("id")) for item in candidates} != matches
+                or any(str(item.get("tmdb_id") or "").strip() != wanted for item in candidates)):
+            return []
+    try:
+        series_ids = sorted({UUID(identity).hex for identity in matches})
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(502, "Jellyfin hat keine gültige Serien-ID geliefert.") from None
+    episodes = {}
+    for series_id in series_ids:
+        try:
+            items = fetch(series_id)
+        except HTTPException as error:
+            # Another library copy can be hidden from the linked profile.
+            if len(series_ids) > 1 and error.status_code == 404:
+                continue
+            raise
+        for item in items:
+            episodes.setdefault(item["id"], item)
+    return sorted(episodes.values(), key=lambda item: (item["season"], item["episode"], item["id"]))
+
+
 def _episode_cards(items):
     episodes = []
     for item in items:
@@ -301,13 +329,10 @@ def create_movie_playback_router(backend, administrator=None):
             raise HTTPException(503, "Die Jellyfin-Serienbibliothek ist nicht erreichbar.")
         client = JellyfinClient(base_url, config["api_key"])
         matches = client.series_ids_for(title, tmdb_id, aliases or (), items=library)
-        if not matches or len(matches) != 1:
-            return {"items": []}
-        try:
-            series_id = UUID(next(iter(matches))).hex
-        except (ValueError, TypeError, AttributeError):
-            raise HTTPException(502, "Jellyfin hat keine gültige Serien-ID geliefert.") from None
-        episodes = series_inventory(base_url, config, profile_id, series_id)
+        episodes = _matched_series_inventory(
+            matches, library, tmdb_id,
+            lambda series_id: series_inventory(base_url, config, profile_id, series_id),
+        )
         return {"items": episodes, "profile_id": profile_id, "generation": generation}
 
     @router.get("/api/media-center/episodes/{item_id}/navigation")
