@@ -198,6 +198,7 @@ def _episode_cards(items):
         if card:
             user_data = item.get("UserData") or {}
             episodes.append(card | {
+                "description": item["Overview"].strip() if isinstance(item.get("Overview"), str) else "",
                 "played": bool(user_data.get("Played")),
                 "last_played": user_data.get("LastPlayedDate") or "",
             })
@@ -309,7 +310,7 @@ def create_movie_playback_router(backend, administrator=None):
         profile_series(base_url, config, profile_id, series_id)
         result = _jellyfin_json(base_url, config["api_key"], f"/Shows/{series_id}/Episodes", {
             "UserId": profile_id, "IsMissing": "false", "EnableUserData": "true",
-            "ImageTypeLimit": 1, "EnableImageTypes": "Primary",
+            "ImageTypeLimit": 1, "EnableImageTypes": "Primary", "Fields": "Overview",
         })
         return _episode_cards(result.get("Items") or [])
 
