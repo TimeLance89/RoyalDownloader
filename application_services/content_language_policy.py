@@ -200,11 +200,15 @@ def _mix_series_provider_results(
     provider_results,
     priority,
     claimed_identities: Optional[set[tuple]] = None,
+    *,
+    recent_first: bool = False,
 ):
     """Balance logical series identities by language instead of provider count."""
 
-    if not _mixed_german_english_enabled():
-        return _ORIGINAL_MIX_SERIES(provider_results, priority, claimed_identities)
+    if recent_first or not _mixed_german_english_enabled():
+        return _ORIGINAL_MIX_SERIES(
+            provider_results, priority, claimed_identities, recent_first=recent_first,
+        )
 
     years_by_title = defaultdict(set)
     for results in provider_results.values():
