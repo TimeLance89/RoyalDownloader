@@ -9,6 +9,7 @@ from core.runtime_cache import BoundedTTLCache
 
 import threading
 from application_services.catalog_prefetch import schedule_prefetch as admit_prefetch
+from application_services.movie_discovery_rank import rank_movie_browse
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
 
@@ -1025,6 +1026,10 @@ def movie_catalog_page(mode: str, page: int = 1, genre: str = "") -> dict:
     mode = "genre" if mode == "genre" else mode if mode in {"new", "top"} else "new"
     genre = canonical_movie_genre(genre)
     priority = provider_priority("movies")
+    configured_order = provider_order("movies") if mode == "new" else []
+    if configured_order:
+        configured_rank = {provider: index for index, provider in enumerate(configured_order)}
+        priority = sorted(priority, key=lambda provider: configured_rank.get(provider, len(configured_rank)))
     active = [
         provider for provider in priority
         if mode != "genre" or _provider_supports_movie_genre(provider, genre)
@@ -1062,6 +1067,16 @@ def movie_catalog_page(mode: str, page: int = 1, genre: str = "") -> dict:
     catalog_entries = _mix_movie_provider_results(
         first_wave, priority, claimed_identities, newest_first=mode == "new",
     )
+    discovery_reasons = {}
+    if mode == "new":
+        with state.provider_priority_lock:
+            configured = appconfig.normalize_provider_selection(
+                state.provider_enabled.get("movies", configured_order), configured_order,
+            )
+            languages = set(state.content_languages)
+        catalog_entries, discovery_reasons = rank_movie_browse(
+            catalog_entries, first_wave, configured, languages,
+        )
 
     paginated = [provider for provider in active if provider in MOVIE_PAGINATED_PROVIDERS]
     exhausted = {
@@ -1157,6 +1172,7 @@ def movie_catalog_page(mode: str, page: int = 1, genre: str = "") -> dict:
         )
     return {
         "results": [result for _provider, result in page_entries],
+        "discovery_reasons": discovery_reasons,
         "page": page,
         "page_complete": page_complete,
         "refresh_pending": refresh_pending,
