@@ -69,3 +69,17 @@ def test_single_series_preserves_access_errors():
 
 def test_no_matching_series_does_not_fetch():
     assert _matched_series_inventory(None, [], 66732, lambda _: pytest.fail()) == []
+
+def test_episode_cards_keep_their_own_overview_and_allow_missing_text():
+    from api.api_movie_playback_router import _episode_cards
+
+    base = {"Type": "Episode", "ParentIndexNumber": 1, "SeriesName": "Serie"}
+    cards = _episode_cards([
+        dict(base, Id=E1, IndexNumber=1, Name="Erste Folge", Overview="  Handlung eins.  "),
+        dict(base, Id=E2, IndexNumber=2, Name="Zweite Folge", Overview="Handlung zwei."),
+        dict(base, Id=A, IndexNumber=3, Name="Dritte Folge", Overview=None),
+        dict(base, Id=B, IndexNumber=4, Name="Platzhalter", LocationType="Virtual"),
+    ])
+    assert [(card["episode"], card["description"]) for card in cards] == [
+        (1, "Handlung eins."), (2, "Handlung zwei."), (3, ""),
+    ]

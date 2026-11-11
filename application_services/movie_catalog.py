@@ -9,6 +9,7 @@ from core.runtime_cache import BoundedTTLCache
 
 import threading
 from application_services.catalog_prefetch import schedule_prefetch as admit_prefetch
+from application_services.movie_discovery_rank import movie_browse_configuration, rank_movie_browse
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
 
@@ -1015,16 +1016,13 @@ def _mix_movie_provider_results(
 
 
 def movie_catalog_page(mode: str, page: int = 1, genre: str = "") -> dict:
-    """Erzeugt eine stabile globale 32er-Seite aus allen Filmkatalogen.
-
-    Einseitige Anbieter speisen ihren gesamten Startbestand in die globalen
-    Seiten ein. Weitere Quellseiten werden jeweils als abgeschlossene Welle
-    gemischt und nur hinten angehängt, damit frühere Seitengrenzen stabil bleiben.
-    """
+    """Mix provider pages and append deeper source waves at stable page offsets."""
     page = max(1, min(int(page), MOVIE_MAX_GLOBAL_PAGE))
     mode = "genre" if mode == "genre" else mode if mode in {"new", "top"} else "new"
     genre = canonical_movie_genre(genre)
     priority = provider_priority("movies")
+    if mode == "new":
+        priority, configured, languages = movie_browse_configuration(priority)
     active = [
         provider for provider in priority
         if mode != "genre" or _provider_supports_movie_genre(provider, genre)
@@ -1062,6 +1060,11 @@ def movie_catalog_page(mode: str, page: int = 1, genre: str = "") -> dict:
     catalog_entries = _mix_movie_provider_results(
         first_wave, priority, claimed_identities, newest_first=mode == "new",
     )
+    discovery_reasons = {}
+    if mode == "new":
+        catalog_entries, discovery_reasons = rank_movie_browse(
+            catalog_entries, first_wave, configured, languages,
+        )
 
     paginated = [provider for provider in active if provider in MOVIE_PAGINATED_PROVIDERS]
     exhausted = {
@@ -1157,6 +1160,7 @@ def movie_catalog_page(mode: str, page: int = 1, genre: str = "") -> dict:
         )
     return {
         "results": [result for _provider, result in page_entries],
+        "discovery_reasons": discovery_reasons,
         "page": page,
         "page_complete": page_complete,
         "refresh_pending": refresh_pending,

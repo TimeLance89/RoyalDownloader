@@ -170,6 +170,8 @@ def _mix_series_provider_results(
     provider_results: Dict[str, List[FilmpalastSeriesResult]],
     priority: List[str],
     claimed_identities: Optional[set[tuple]] = None,
+    *,
+    recent_first: bool = False,
 ) -> List[_SeriesCatalogEntry]:
     """Dedupliziert Serien und mischt die Leitquelle im Verhältnis 2:1 ein.
 
@@ -185,8 +187,13 @@ def _mix_series_provider_results(
             if title_key and year:
                 years_by_title[title_key].add(year)
 
+    display_order = priority
+    if recent_first:
+        # Keep general catalogs in the mix, behind freshness feeds each round.
+        display_order = sorted(priority, key=lambda provider: provider not in SERIES_RECENT_FEEDS)
+    source_rank = {provider: index for index, provider in enumerate(priority)}
     grouped: Dict[tuple, List[tuple[str, FilmpalastSeriesResult]]] = OrderedDict()
-    for provider in priority:
+    for provider in display_order:
         for result in provider_results.get(provider, []):
             identity = _series_result_identity(result, provider, years_by_title)
             grouped.setdefault(identity, []).append((provider, result))
@@ -196,7 +203,8 @@ def _mix_series_provider_results(
     for identity, matches in grouped.items():
         if _claim_series_identity(identity, seen):
             continue
-        primary_provider, primary_result = matches[0]
+        display_provider = matches[0][0]
+        primary_provider, primary_result = min(matches, key=lambda match: source_rank[match[0]])
         source_set = {provider for provider, _result in matches}
         sources = tuple(provider for provider in priority if provider in source_set)
 
@@ -212,17 +220,19 @@ def _mix_series_provider_results(
                 "",
             )
         visible_result = replace(primary_result, year=year, cover_url=cover_url)
-        per_provider[primary_provider].append(_SeriesCatalogEntry(
+        per_provider[display_provider].append(_SeriesCatalogEntry(
             provider=primary_provider,
             result=visible_result,
             providers=sources or (primary_provider,),
         ))
 
+    if recent_first:
+        display_order = [provider for provider in display_order if per_provider[provider]]
     mixed: List[_SeriesCatalogEntry] = []
     positions = {provider: 0 for provider in priority}
     while True:
         progressed = False
-        for index, provider in enumerate(priority):
+        for index, provider in enumerate(display_order):
             quota = 2 if index == 0 else 1
             entries = per_provider[provider]
             start = positions[provider]
@@ -237,6 +247,11 @@ def _mix_series_provider_results(
 
 
 _interleave_series_lists = series_catalog_order.interleave_lists
+
+# These adapters explicitly request new or recently updated series.
+SERIES_RECENT_FEEDS = frozenset({
+    "serienstream", "filmpalast", "megakino", "xcine", "ridomovies",
+})
 
 
 def _series_provider_is_paginated(provider: str, mode: str) -> bool:
@@ -381,6 +396,9 @@ def _series_catalog_page_locked(mode: str, page: int = 1, letter: str = "", *, r
     page = max(1, min(int(page), SERIES_MAX_GLOBAL_PAGE))
     mode = mode if mode in {"discover", "new", "trending", "alpha"} else "discover"
     priority = provider_priority("series")
+    if mode == "new":
+        configured_rank = {provider: index for index, provider in enumerate(provider_order("series"))}
+        priority = sorted(priority, key=lambda provider: configured_rank.get(provider, len(configured_rank)))
     if mode == "trending":
         # Nur Serienstream liefert ein echtes Popularitätssignal. Andere
         # Aktualitätslisten werden bewusst nicht als „angesagt“ ausgegeben.
@@ -433,6 +451,7 @@ def _series_catalog_page_locked(mode: str, page: int = 1, letter: str = "", *, r
         first_wave,
         priority,
         claimed_identities,
+        recent_first=mode == "new",
     )
 
     if mode == "trending" and not catalog_entries:
@@ -518,6 +537,7 @@ def _series_catalog_page_locked(mode: str, page: int = 1, letter: str = "", *, r
             wave,
             priority,
             claimed_identities,
+            recent_first=mode == "new",
         ))
         next_source_page += 1
         has_more_unverified = has_more_unverified or timed_out[0]

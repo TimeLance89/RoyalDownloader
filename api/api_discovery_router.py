@@ -472,6 +472,9 @@ async def api_movies(mode: str = "search", query: str = "", genre: str = "", pag
     for result in result_dicts:
         if result.get("provider"):
             result["title"] = clean_movie_title(result.get("title", ""))
+        reason = data.get("discovery_reasons", {}).get(result.get("slug"))
+        if reason:
+            result["discovery_reason"] = reason
     # Jellyfin ist eine nachgelagerte Badge-Anreicherung. Der separate
     # /jellyfin/matches-Aufruf der Weboberflaeche aktualisiert sie asynchron;
     # eine grosse oder schlafende NAS-Bibliothek blockiert dadurch nicht mehr
