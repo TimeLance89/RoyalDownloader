@@ -16,6 +16,19 @@ HISTORY_DAYS = 28
 RECENT_FEEDS = frozenset({"filmpalast", "kinoger", "kinox", "einschalten", "ridomovies"})
 
 
+def movie_browse_configuration(priority):
+    from application_services.runtime import backend_value
+
+    state = backend_value("state")
+    config = backend_value("appconfig")
+    with state.provider_priority_lock:
+        order = backend_value("provider_order")("movies")
+        enabled = config.normalize_provider_selection(state.provider_enabled.get("movies", order), order)
+        languages = set(state.content_languages)
+    ranks = {provider: index for index, provider in enumerate(order)}
+    return sorted(priority, key=lambda provider: ranks.get(provider, len(ranks))), enabled, languages
+
+
 def _signals(scope, day, identities):
     from application_services.chart_history import ChartHistory, _breakout, _indexed
 

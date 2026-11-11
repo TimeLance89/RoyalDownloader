@@ -9,7 +9,7 @@ from core.runtime_cache import BoundedTTLCache
 
 import threading
 from application_services.catalog_prefetch import schedule_prefetch as admit_prefetch
-from application_services.movie_discovery_rank import rank_movie_browse
+from application_services.movie_discovery_rank import movie_browse_configuration, rank_movie_browse
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
 
@@ -1016,20 +1016,13 @@ def _mix_movie_provider_results(
 
 
 def movie_catalog_page(mode: str, page: int = 1, genre: str = "") -> dict:
-    """Erzeugt eine stabile globale 32er-Seite aus allen Filmkatalogen.
-
-    Einseitige Anbieter speisen ihren gesamten Startbestand in die globalen
-    Seiten ein. Weitere Quellseiten werden jeweils als abgeschlossene Welle
-    gemischt und nur hinten angehängt, damit frühere Seitengrenzen stabil bleiben.
-    """
+    """Mix provider pages and append deeper source waves at stable page offsets."""
     page = max(1, min(int(page), MOVIE_MAX_GLOBAL_PAGE))
     mode = "genre" if mode == "genre" else mode if mode in {"new", "top"} else "new"
     genre = canonical_movie_genre(genre)
     priority = provider_priority("movies")
-    configured_order = provider_order("movies") if mode == "new" else []
-    if configured_order:
-        configured_rank = {provider: index for index, provider in enumerate(configured_order)}
-        priority = sorted(priority, key=lambda provider: configured_rank.get(provider, len(configured_rank)))
+    if mode == "new":
+        priority, configured, languages = movie_browse_configuration(priority)
     active = [
         provider for provider in priority
         if mode != "genre" or _provider_supports_movie_genre(provider, genre)
@@ -1069,11 +1062,6 @@ def movie_catalog_page(mode: str, page: int = 1, genre: str = "") -> dict:
     )
     discovery_reasons = {}
     if mode == "new":
-        with state.provider_priority_lock:
-            configured = appconfig.normalize_provider_selection(
-                state.provider_enabled.get("movies", configured_order), configured_order,
-            )
-            languages = set(state.content_languages)
         catalog_entries, discovery_reasons = rank_movie_browse(
             catalog_entries, first_wave, configured, languages,
         )
