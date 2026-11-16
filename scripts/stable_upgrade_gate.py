@@ -100,7 +100,7 @@ def seed():
 
 
 def verify(mode):
-    if mode == "rollback":
+    if mode in ("rollback", "rollback-upgraded"):
         assert running_source_sha() == STABLE_SHA
         assert APP_VERSION == "1.0.0"
     else:
@@ -109,8 +109,10 @@ def verify(mode):
     marker = json.loads(MARKER.read_text(encoding="utf-8"))
     assert marker["source_sha"] == STABLE_SHA
     current_settings = settings()
-    if mode != "rollback":
-        # Catalog migrations may only add these providers to saved selections.
+    expected_settings = marker["settings"]
+    if mode == "upgrade":
+        # Check the exact catalog changes while preserving the relative order
+        # of the sources that existed in the published release.
         additions = {
             "flixitv", "kinoking", "movie2k", "hdfilme_family", "kellerkino",
             "vidsrc", "vixsrc", "vidrift", "vidlink", "vidrock", "moviebox",
@@ -125,7 +127,16 @@ def verify(mode):
                 current_settings[name][media] = [
                     provider for provider in migrated if provider not in additions
                 ]
-    assert current_settings == marker["settings"], "Settings/subscriptions changed"
+    if mode in ("upgrade", "rollback-upgraded"):
+        for name in ("load_provider_priorities", "load_provider_enabled"):
+            saved_series = expected_settings[name]["series"]
+            saved_series.remove("huhu")
+        if mode == "rollback-upgraded":
+            # The old release appends missing providers to the priority list,
+            # while retaining the migrated enabled selection.
+            expected_settings["load_provider_priorities"]["series"].append("huhu")
+    for name, expected in expected_settings.items():
+        assert current_settings[name] == expected, f"Settings/subscriptions changed: {name}"
     assert config.is_initialized()
     assert auth.verify_password(legacy.ADMIN_PASSWORD, config.load_auth()["password_hash"])
     users = UserStore(config.users_file(), config.load_auth())

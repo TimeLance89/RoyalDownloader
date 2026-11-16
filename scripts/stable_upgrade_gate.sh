@@ -32,6 +32,6 @@ run_gate "$fixture" royal-downloader:published-stable seed
 copy_volume "$fixture" "$backup"
 run_gate "$fixture" royal-downloader:quality upgrade
 run_gate "$fixture" royal-downloader:quality upgrade
-run_gate "$fixture" royal-downloader:published-stable rollback
+run_gate "$fixture" royal-downloader:published-stable rollback-upgraded
 copy_volume "$backup" "$recovery"
 run_gate "$recovery" royal-downloader:published-stable rollback
