@@ -22,6 +22,7 @@ from starlette.responses import JSONResponse
 
 import core.config as appconfig
 
+from api.api_christmas_router import create_christmas_router
 from api.api_people_router import create_people_router
 from features.monster_series_extension import (
     inject_monster_search_results,
@@ -246,7 +247,10 @@ def create_discovery_router(backend) -> APIRouter:
         "SeriesCatalogColdLoadLimit": backend.SeriesCatalogColdLoadLimit,
         "_SeriesCatalogEntry": backend._SeriesCatalogEntry,
     })
-    return router
+    discovery = APIRouter(tags=["discovery"])
+    discovery.routes.extend(router.routes)
+    discovery.routes.extend(create_christmas_router(backend).routes)
+    return discovery
 
 
 # ── Start-page composition ────────────────────────────────────────────────

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -66,6 +67,32 @@ def test_only_strong_etags_allow_range_resume():
     assert not range_matches({
         "ETag": '"v1"', "Content-Range": "bytes 4-9/11",
     }, 4, 10, '"v1"')
+
+
+def test_direct_progress_is_rate_limited_but_completion_is_immediate(monkeypatch, tmp_path):
+    from core import egress_curl as curl
+
+    now = 10.0
+
+    class ChunkedResponse(FakeHTTPResponse):
+        def iter_content(self, chunk_size=262144):
+            nonlocal now
+            for instant in (10.0, 10.1, 10.9, 11.0, 11.1):
+                now = instant
+                yield b"A" * 256
+
+    response = ChunkedResponse(b"A" * 1280)
+    monkeypatch.setattr(curl, "get", lambda *_args, **_kwargs: response)
+    monkeypatch.setattr(downloader, "ensure_public_http_url", lambda _url: None)
+    monkeypatch.setattr(downloader, "request_proxy_kwargs", lambda _url: {})
+    monkeypatch.setattr(downloader, "time", SimpleNamespace(monotonic=lambda: now))
+    job = make_job(tmp_path, "progress")
+    updates = []
+    job.on_progress = lambda pct, _: updates.append((now, pct, job.downloaded_bytes))
+
+    assert job._download_direct() == (True, "Direct HTTP OK")
+    assert updates == [(10.0, 20.0, 256), (11.0, 80.0, 1024), (11.1, 100.0, 1280)]
+    assert job.staging_path.read_bytes() == response.body
 
 
 def test_direct_mp4_resumes_after_new_attempt_without_redownloading_prefix(monkeypatch, tmp_path):

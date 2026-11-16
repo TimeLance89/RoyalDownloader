@@ -25,10 +25,8 @@ import uuid
 from pathlib import Path
 from typing import Callable, Dict, Optional
 from urllib.parse import urlparse
-from providers.catalog import normalize_content_language
 
 from core.network_guard import UnsafeNetworkTarget, ensure_public_http_url, request_proxy_kwargs, safe_proxy_url
-from media.audio_language import audio_language_runtime, confirm_audio_language
 from media.http_resume import (
     HTTPResumeStore, cleanup_expired_http_resumes, range_matches, strong_etag,
 )
@@ -292,7 +290,7 @@ def cleanup_stale_staging(target_roots=(), older_than_seconds: int = 24 * 60 * 6
     return planned if preview else removed
 
 
-def validate_media_file(path: Path, *, required_audio_language: str = "") -> tuple:
+def validate_media_file(path: Path) -> tuple:
     """Akzeptiert nur abspielbare Videos, keine HTML-/JSON-Fehlerseiten."""
     try:
         size = path.stat().st_size
@@ -303,7 +301,7 @@ def validate_media_file(path: Path, *, required_audio_language: str = "") -> tup
 
     cmd = [
         "ffprobe", "-v", "error",
-        "-show_entries", "stream=index,codec_type,duration:stream_tags=language:format=duration",
+        "-show_entries", "stream=codec_type,duration:format=duration",
         "-of", "json",
         str(path),
     ]
@@ -351,17 +349,6 @@ def validate_media_file(path: Path, *, required_audio_language: str = "") -> tup
         return False, "kein Audiostream gefunden"
     if duration < MIN_MEDIA_DURATION_SECONDS:
         return False, f"unplausible Videodauer ({duration:.1f} Sekunden)"
-    if required_audio_language:
-        tracks = [
-            (stream.get("index"), str((stream.get("tags") or {}).get("language") or "").strip().lower())
-            for stream in audio_streams
-        ]
-        if not any(
-            confirm_audio_language(path, index, duration, required_audio_language)
-            for index, tag in tracks if isinstance(index, int)
-            and (tag in {"", "und"} or normalize_content_language(tag) == required_audio_language)
-        ):
-            return False, f"keine bestätigte Tonspur für {required_audio_language.upper()} gefunden"
     return True, f"{duration:.0f} Sekunden, {size} Bytes"
 
 
@@ -555,7 +542,6 @@ class DownloadJob:
         job_id: str = "",
         attempt_id: str = "",
         on_start: Optional[Callable[[], None]] = None,
-        required_audio_language: str = "",
     ):
         self.stream_url = stream_url
         self.stream_type = stream_type
@@ -564,7 +550,6 @@ class DownloadJob:
         self.origin = origin
         self.audio_language = audio_language
         self.strict_audio_language = bool(strict_audio_language)
-        self.required_audio_language = required_audio_language
         self.headers = dict(headers or {})
         # Stabiler fachlicher Schluessel fuer Queue-Aktionen. Der Downloader
         # selbst wertet ihn nicht aus, damit bestehende Aufrufer kompatibel
@@ -633,10 +618,6 @@ class DownloadJob:
                         store.discard()
                 self.on_done(False, "Abgebrochen")
                 return
-            if self.required_audio_language and audio_language_runtime() is None:
-                self.failure_kind = "audio_verifier_unavailable"
-                self.on_done(False, "Sprachprüfung nicht installiert")
-                return
             self.on_start()
             resume_store = self._http_resume_store()
             existing_resume = resume_store.load() if resume_store else None
@@ -686,8 +667,6 @@ class DownloadJob:
             if success and self._cancelled:
                 success, msg = False, "Abgebrochen"
             if success:
-                if self.required_audio_language:
-                    self.on_progress(-1, "Prüfe die Tonspur …")
                 success, msg = self._finalize()
             if not success:
                 self._cleanup_staging()
@@ -777,10 +756,7 @@ class DownloadJob:
     def _validate_media(self, path: Path) -> tuple:
         if self._cancelled:
             return False, "Abgebrochen"
-        if self.required_audio_language:
-            result = validate_media_file(path, required_audio_language=self.required_audio_language)
-        else:
-            result = validate_media_file(path)
+        result = validate_media_file(path)
         if self._cancelled:
             return False, "Abgebrochen"
         return result
@@ -1296,11 +1272,13 @@ class DownloadJob:
             self.total_bytes = total or None
             self.downloaded_bytes = downloaded
             started = time.monotonic()
+            next_progress_at = started
             speed_watchdog = None if self.allow_slow else _ByteGrowthWatchdog(started_at=started)
             if speed_watchdog:
                 speed_watchdog.window_bytes = downloaded
             if saved is not None and total:
                 self.on_progress(downloaded / total * 100, "HTTP-Download wird fortgesetzt …")
+                next_progress_at = started + 1.0
             flags = os.O_WRONLY | (os.O_APPEND if mode == "ab" else os.O_TRUNC)
             if hasattr(os, "O_NOFOLLOW"):
                 flags |= os.O_NOFOLLOW
@@ -1334,9 +1312,10 @@ class DownloadJob:
                                 f"{SLOW_FAILURE_PREFIX} "
                                 f"({self._format_speed(speed_watchdog.last_rate_bps)})"
                             )
-                        if total > 0:
+                        if total > downloaded and now >= next_progress_at:
                             self.eta_seconds = int(max(0, total - downloaded) / max(self.average_speed_bps, 1))
                             self.on_progress(downloaded / total * 100, f"{downloaded // 1024 // 1024} MB")
+                            next_progress_at = now + 1.0
                     file.flush()
                     os.fsync(file.fileno())
             finally:
@@ -1358,6 +1337,9 @@ class DownloadJob:
                     return False, f"Staging nicht nutzbar: {detail}"
                 store.commit_to_staging(output, self.staging_path)
                 store.discard()
+            if total > 0:
+                self.eta_seconds = 0
+                self.on_progress(100.0, f"{downloaded // 1024 // 1024} MB")
             return True, "Direct HTTP OK"
         except Exception as exc:
             detail = str(exc).casefold()

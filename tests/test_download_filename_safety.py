@@ -126,21 +126,20 @@ def test_publication_grants_owner_read_access():
     DownloadJob._make_published_media_readable(GroupReadableMedia())
     assert permissions == [0o444]
 
-def test_german_episode_does_not_transfer_without_the_audio_verifier(monkeypatch, tmp_path):
-    from media import downloader
 
-    monkeypatch.setattr(downloader, "audio_language_runtime", lambda: None)
-    outcomes = []
-    starts = []
-    job = DownloadJob(
-        "https://example.test/video.mp4", "mp4", tmp_path / "episode.mp4",
-        required_audio_language="de",
-        on_start=lambda: starts.append(True),
-        on_done=lambda ok, msg: outcomes.append((ok, msg)),
-    )
+def test_download_completion_preserves_ugos_acl(monkeypatch):
+    import server
+    from application_services import download_lifecycle
 
-    job._run()
+    class UgosAclMedia:
+        def is_file(self):
+            return True
 
-    assert not starts
-    assert job.failure_kind == "audio_verifier_unavailable"
-    assert outcomes == [(False, "Sprachprüfung nicht installiert")]
+        def stat(self):
+            return type("Stat", (), {"st_mode": stat.S_IFREG})()
+
+        def chmod(self, _mode):
+            raise AssertionError("completion must preserve the inherited ACL")
+
+    monkeypatch.setattr(download_lifecycle, "Path", lambda _path: UgosAclMedia())
+    download_lifecycle._ensure_jellyfin_media_readable("/movies/example.mp4")

@@ -17,6 +17,7 @@ from features.monster_series_extension import (
 )
 from features.episode_source_probe import episode_source_providers
 from features.subscription_languages import subscription_content_languages
+from media.downloader import DownloadJob
 from providers.aniworld import aniworld_episode_slug
 from application_services.media_scans import request_media_scan, media_scan_manager
 
@@ -131,8 +132,11 @@ def _watchlist_retry_allowed(slug: str) -> bool:
 def _ensure_jellyfin_media_readable(path: Path) -> None:
     """Repariert auch bereits vorhandene Dateien aus älteren Downloads."""
     media_path = Path(path)
-    if media_path.is_file():
-        DownloadJob._make_published_media_readable(media_path)
+    try:
+        if media_path.is_file():
+            DownloadJob._make_published_media_readable(media_path)
+    except OSError:
+        pass
 
 
 def on_job_done(
