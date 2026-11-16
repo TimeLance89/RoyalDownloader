@@ -470,7 +470,11 @@ def _ensure_queue_job(slug: str, movie=None, *, job_id: str = ""):
         explicit_track = normalize_content_language(
             selected_episode_language(provider, slug)
         )
-        if explicit_track:
+        subscription_languages = {
+            normalize_content_language(value)
+            for value in (getattr(movie, "_subscription_content_languages", None) or ())
+        } - {""}
+        if explicit_track and (not subscription_languages or explicit_track in subscription_languages):
             # Explicit provider track selectors (for example MKissa RAW=JA)
             # are stronger evidence than the global DE/EN installation lanes.
             language = explicit_track
@@ -485,9 +489,9 @@ def _ensure_queue_job(slug: str, movie=None, *, job_id: str = ""):
                     entry or {"base_slug": episode[0]}, state.content_languages,
                     getattr(state, "subscription_content_languages", {}),
                 )
-            selected = {
+            selected = subscription_languages or {
                 normalize_content_language(value)
-                for value in (getattr(movie, "_subscription_content_languages", None) or desired)
+                for value in desired
                 if normalize_content_language(value)
             }
             offered = _source_languages(movie) & selected

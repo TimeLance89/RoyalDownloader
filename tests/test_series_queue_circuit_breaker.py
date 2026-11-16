@@ -65,6 +65,68 @@ def episode_movie(provider, slug, title="Exact Show S02E04", hosters=True):
     )
 
 
+@pytest.mark.parametrize(("tag", "spoken_german", "published"), [
+    ("und", True, True),
+    ("und", False, False),
+    ("deu", False, False),
+    ("deu", True, True),
+    ("eng", True, False),
+])
+def test_german_queue_verifies_the_finished_episode_audio(monkeypatch, tmp_path, tag, spoken_german, published):
+    import json
+    from subprocess import CompletedProcess
+
+    from application_services import storage_autopilot_runtime
+    from media import downloader
+
+    slug = "moflix:123:exact-show-s02e04"
+    movie = episode_movie("moflix", slug)
+    stored = new_job(slug)
+    stored["content_language"] = "de"
+    server.state.queue_jobs[stored["job_id"]] = stored
+    server.state.queue_job_by_slug[slug] = stored["job_id"]
+    server.state.picked.add(slug)
+    pending = []
+    monkeypatch.setattr(server.state, "dl_queue", SimpleNamespace(add_front=pending.append))
+    monkeypatch.setattr(storage_autopilot_runtime, "place_download", lambda job, path, **_: path)
+    monkeypatch.setattr(downloader, "MIN_MEDIA_BYTES", 1)
+    monkeypatch.setattr(
+        downloader, "confirm_audio_language",
+        lambda path, index, duration, language: spoken_german,
+    )
+    monkeypatch.setattr(downloader.subprocess, "run", lambda cmd, **_: CompletedProcess(
+        cmd, 0, json.dumps({
+            "streams": [{"codec_type": "video"},
+                        {"codec_type": "audio", "index": 1, "tags": {"language": tag}}],
+            "format": {"duration": "2400"},
+        }), "",
+    ))
+    result = server._HosterResult()
+    result.content_language = "de"
+    result.stream_info = ("https://cdn.invalid/media.mp4", "mp4")
+    target = tmp_path / "episode.mp4"
+    assert server._enqueue_hoster_attempt(
+        movie, slug, target, result, set(), set(), [], [movie], 0, [True], set(),
+    )
+    job = pending[0]
+    job.staging_path.parent.mkdir(parents=True)
+    job.staging_path.write_bytes(b"media")
+
+    assert job._finalize()[0] is published
+    assert target.is_file() is published
+
+
+def test_recovery_keeps_previous_audio_rejections():
+    from core.queue_jobs import normalize_job
+
+    stored = new_job("huhu:123:exact-show-s02e04")
+    stored.update(status="waiting_provider", wait_reason="source_unavailable", next_retry_at=9999)
+    stored["rejected_audio_sources"] = ["audio:" + "a" * 64]
+    restored = normalize_job(stored, active=True)
+    assert restored["next_retry_at"] == 9999
+    assert restored["rejected_audio_sources"] == stored["rejected_audio_sources"]
+
+
 def test_series_preparations_share_one_scheduler_group():
     first = server._QueuePreparationJob([], Path("/tmp/one"))
     second = server._QueuePreparationJob([], Path("/tmp/two"))
@@ -328,33 +390,19 @@ def test_fallback_uses_exact_series_season_episode_and_ttl_cache(monkeypatch):
     assert calls == {"search": 1, "load": 1}
 
 
-def test_huhu_fallback_uses_known_tmdb_id_without_title_search(monkeypatch):
-    series = FilmpalastSeries(
-        title="Exact Show",
-        base_slug="huhu:123:exact-show",
-        url="https://huhu.to/item?id=123",
-        seasons={2: [SeriesEpisode(2, 4, "huhu:123:exact-show-s02e04", "https://x")]},
-    )
-    loaded = []
-    monkeypatch.setattr(
-        server, "_search_series_for_provider",
-        lambda *_args: (_ for _ in ()).throw(AssertionError("title search used")),
-    )
-    monkeypatch.setattr(
-        server, "_load_series_for_provider",
-        lambda provider, value: loaded.append((provider, value)) or series,
-    )
+def test_huhu_series_slug_never_calls_the_provider(monkeypatch):
+    monkeypatch.setattr(server, "get_huhu_scraper", lambda: pytest.fail("Huhu series call"))
 
-    assert server._fallback_get_series("huhu", "Exact Show", tmdb_id="123") is series
-    assert loaded == [("huhu", "huhu:123:tmdb")]
+    assert server.load_movie_for_slug("huhu:123:exact-show-s02e04") is None
+    assert server._fallback_get_series("huhu", "Exact Show", tmdb_id="123") is None
 
 
 def test_first_exact_fallback_starts_without_searching_later_providers(monkeypatch):
-    huhu_series = FilmpalastSeries(
+    moflix_series = FilmpalastSeries(
         title="Exact Show",
-        base_slug="huhu:123:exact-show",
-        url="https://huhu.to/item?id=123",
-        seasons={2: [SeriesEpisode(2, 4, "huhu:123:exact-show-s02e04", "https://x")]},
+        base_slug="moflix:123:exact-show",
+        url="https://moflix.test/series/123",
+        seasons={2: [SeriesEpisode(2, 4, "moflix:123:exact-show-s02e04", "https://x")]},
     )
     calls = []
     monkeypatch.setattr(
@@ -363,11 +411,11 @@ def test_first_exact_fallback_starts_without_searching_later_providers(monkeypat
     )
     monkeypatch.setattr(
         server, "_fallback_get_series",
-        lambda provider, *_args, **_kwargs: calls.append(provider) or huhu_series,
+        lambda provider, *_args, **_kwargs: calls.append(provider) or moflix_series,
     )
     monkeypatch.setattr(
         server, "load_movie_for_slug",
-        lambda slug: episode_movie("huhu", slug),
+        lambda slug: episode_movie("moflix", slug),
     )
 
     results = server.find_episode_fallbacks(
@@ -376,8 +424,8 @@ def test_first_exact_fallback_starts_without_searching_later_providers(monkeypat
         limit=1,
     )
 
-    assert [movie.provider for movie in results] == ["huhu"]
-    assert calls == ["huhu"]
+    assert [movie.provider for movie in results] == ["moflix"]
+    assert calls == ["moflix"]
 
 
 def test_network_error_is_not_negative_cached(monkeypatch):
@@ -1007,7 +1055,7 @@ def test_existing_de_job_distinguishes_wrong_audio_from_broken_matching_source(m
     slug = "serienstream:american-horror-story-s13e03"
     primary = episode_movie("serienstream", slug)
     primary.hosters = [HosterInfo("VOE", "https://example.test/en", "en")]
-    fallback = episode_movie("huhu", "huhu:ahs-s13e03")
+    fallback = episode_movie("moflix", "moflix:ahs-s13e03")
     fallback.hosters = [HosterInfo("VOE", "https://example.test/fallback", fallback_language)]
     job = new_job(slug, job_id="legacy-de")
     job["content_language"] = "de"
@@ -1016,7 +1064,7 @@ def test_existing_de_job_distinguishes_wrong_audio_from_broken_matching_source(m
     server.state.queue_job_by_slug[slug] = job["job_id"]
     server.state.picked.add(slug)
     server.state.counted_queue_slugs.add(slug)
-    monkeypatch.setattr(server, "provider_priority", lambda _kind: ["serienstream", "huhu"])
+    monkeypatch.setattr(server, "provider_priority", lambda _kind: ["serienstream", "moflix"])
     monkeypatch.setattr(server, "_content_already_available", lambda *_args: (False, ""))
     monkeypatch.setattr(server, "find_episode_fallbacks", lambda *_args, **_kwargs: [fallback])
     monkeypatch.setattr(server, "_extract_from_movie", lambda *_args, **_kwargs: SimpleNamespace(stream_info=None, gated=False))
@@ -1042,7 +1090,7 @@ def test_german_fallback_remains_downloadable_for_english_only_primary(monkeypat
     slug = "serienstream:american-horror-story-s13e06"
     primary = episode_movie("serienstream", slug)
     primary.hosters = [HosterInfo("VOE", "https://example.test/en", "en")]
-    fallback = episode_movie("huhu", "huhu:ahs-s13e06")
+    fallback = episode_movie("moflix", "moflix:ahs-s13e06")
     fallback.hosters = [HosterInfo("VOE", "https://example.test/de", "de")]
     job = new_job(slug, job_id="fallback-de")
     job["content_language"] = "de"
@@ -1050,7 +1098,7 @@ def test_german_fallback_remains_downloadable_for_english_only_primary(monkeypat
     server.state.queue_job_by_slug[slug] = job["job_id"]
     server.state.picked.add(slug)
     server.state.counted_queue_slugs.add(slug)
-    monkeypatch.setattr(server, "provider_priority", lambda _kind: ["serienstream", "huhu"])
+    monkeypatch.setattr(server, "provider_priority", lambda _kind: ["serienstream", "moflix"])
     monkeypatch.setattr(server, "_content_already_available", lambda *_args: (False, ""))
     monkeypatch.setattr(server, "find_episode_fallbacks", lambda *_args, **_kwargs: [fallback])
     monkeypatch.setattr(server, "_extract_from_movie", lambda movie, *_args, **_kwargs: SimpleNamespace(

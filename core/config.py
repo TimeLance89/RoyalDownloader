@@ -142,7 +142,7 @@ CONTENT_LANGUAGE_DEFAULTS = provider_language_keys()
 UPDATE_MODE_MANUAL = "manual"
 UPDATE_MODE_AUTOMATIC = "automatic"
 UPDATE_MODES = {UPDATE_MODE_MANUAL, UPDATE_MODE_AUTOMATIC}
-PROVIDER_CATALOG_REVISION = 8
+PROVIDER_CATALOG_REVISION = 9
 
 
 _PROJECT_DATA_DIR = Path(__file__).resolve().parents[1] / "data"
@@ -554,26 +554,6 @@ def _migrate_provider_catalog(values: dict) -> dict:
             movie_enabled.append("huhu")
             updates["movie_provider_enabled"] = ",".join(movie_enabled)
 
-    priority_raw = values.get("series_provider_priority")
-    if revision < 3 and priority_raw is not None and "huhu" in SERIES_PROVIDER_DEFAULTS:
-        requested = {
-            item.strip().casefold()
-            for item in str(priority_raw).split(",")
-            if item.strip()
-        }
-        if "huhu" not in requested:
-            order = normalize_provider_order(priority_raw, SERIES_PROVIDER_DEFAULTS)
-            order.remove("huhu")
-            order.insert(SERIES_PROVIDER_DEFAULTS.index("huhu"), "huhu")
-            updates["series_provider_priority"] = ",".join(order)
-
-    enabled_raw = values.get("series_provider_enabled")
-    if revision < 3 and enabled_raw is not None and "huhu" in SERIES_PROVIDER_DEFAULTS:
-        enabled = normalize_provider_selection(enabled_raw, SERIES_PROVIDER_DEFAULTS)
-        if "huhu" not in enabled:
-            enabled.append("huhu")
-            updates["series_provider_enabled"] = ",".join(enabled)
-
     # Revision 4: Filmo wird bei bestehenden Installationen einmalig an seiner
     # Standardposition aktiviert, ohne eine spätere Benutzerauswahl zu ändern.
     if movie_priority_raw is not None and revision < 4:
@@ -680,6 +660,14 @@ def _migrate_provider_catalog(values: dict) -> dict:
         if "aniworld" not in anime_enabled:
             anime_enabled.append("aniworld")
         updates["anime_provider_enabled"] = ",".join(anime_enabled)
+
+    for setting in ("series_provider_priority", "series_provider_enabled"):
+        raw = updates.get(setting, values.get(setting))
+        if raw is not None:
+            providers = str(raw).split(",")
+            remaining = [key for key in providers if key.strip().casefold() != "huhu"]
+            if remaining != providers:
+                updates[setting] = ",".join(remaining)
 
     _update_all(updates)
     return {**values, **updates}

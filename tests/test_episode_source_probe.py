@@ -149,21 +149,21 @@ def test_missing_german_episode_searches_every_enabled_matching_source_and_prese
         if provider == "moflix":
             return []
         return [FilmpalastMovie("Exact Show S02E04", f"https://{provider}.test/episode", provider=provider,
-            hosters=[HosterInfo("VOE", "https://stream.test/file", "de" if provider == "huhu" else "en")])]
+            hosters=[HosterInfo("VOE", "https://stream.test/file", "de" if provider == "filmpalast" else "en")])]
     monkeypatch.setattr(lifecycle, "find_episode_fallbacks", fallback)
     body = discovery.SeriesEpisodeLanguagesBody(provider="serienstream", slugs=[slug], title="Exact Show", tmdb_id=123)
     try:
         result = asyncio.run(discovery.api_series_episode_languages(body))
-        assert sorted(calls) == ["filmpalast", "huhu", "moflix"]
+        assert sorted(calls) == ["filmpalast", "moflix"]
         assert result["available"] == {slug: True}
         assert result["languages"] == {slug: ["de"]}
-        assert result["source_providers"] == {slug: ["huhu"]}
+        assert result["source_providers"] == {slug: ["filmpalast"]}
         sources = runtime.movie_source_cache[slug]
         assert sources[0].title == "Exact Show S02E04"
         assert sources[0].url == slug
-        assert [source.provider for source in sources[1:]] == ["huhu"]
+        assert [source.provider for source in sources[1:]] == ["filmpalast"]
         asyncio.run(discovery.api_series_episode_languages(body))
-        assert len(calls) == 3, "completed source searches are shared with retries"
+        assert len(calls) == 2, "completed source searches are shared with retries"
     finally:
         broker.close()
 

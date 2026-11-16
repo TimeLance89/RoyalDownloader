@@ -112,3 +112,35 @@ def test_publication_keeps_ugos_inherited_acl_intact():
             raise AssertionError("chmod must not be called on UGOS ACL media")
 
     DownloadJob._make_published_media_readable(UgosAclMedia())
+
+
+def test_publication_grants_owner_read_access():
+    class GroupReadableMedia:
+        def stat(self):
+            return type("Stat", (), {"st_mode": stat.S_IFREG | 0o044})()
+
+        def chmod(self, mode):
+            permissions.append(stat.S_IMODE(mode))
+
+    permissions = []
+    DownloadJob._make_published_media_readable(GroupReadableMedia())
+    assert permissions == [0o444]
+
+def test_german_episode_does_not_transfer_without_the_audio_verifier(monkeypatch, tmp_path):
+    from media import downloader
+
+    monkeypatch.setattr(downloader, "audio_language_runtime", lambda: None)
+    outcomes = []
+    starts = []
+    job = DownloadJob(
+        "https://example.test/video.mp4", "mp4", tmp_path / "episode.mp4",
+        required_audio_language="de",
+        on_start=lambda: starts.append(True),
+        on_done=lambda ok, msg: outcomes.append((ok, msg)),
+    )
+
+    job._run()
+
+    assert not starts
+    assert job.failure_kind == "audio_verifier_unavailable"
+    assert outcomes == [(False, "Sprachprüfung nicht installiert")]

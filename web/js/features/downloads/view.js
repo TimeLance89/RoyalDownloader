@@ -125,7 +125,8 @@ function renderQueue(payload) {
       const progress = document.createElement("span");
       progress.className = "queue-item-progress";
       const progressFill = document.createElement("i");
-      progressFill.style.width = `${Math.max(0, Math.min(100, Number(item.progress) || 0))}%`;
+      const percent = queueStatus(item) === "waiting_provider" ? 0 : Number(item.progress) || 0;
+      progressFill.style.width = `${Math.max(0, Math.min(100, percent))}%`;
       progress.appendChild(progressFill);
       const titleEpisode = String(item.title || "").match(/\bS(\d{1,2})E(\d{1,3})\b/i);
       const hasEpisodeTitle = episode && titleEpisode
@@ -243,7 +244,7 @@ function formatQueueBytes(value) {
 function queueJobMetrics(job) {
   const parts = [];
   const waitCopy = queueWaitCopy(job);
-  if (waitCopy) parts.push(waitCopy);
+  if (waitCopy) return [...parts, waitCopy].join(" · ");
   const downloaded = formatQueueBytes(job.downloaded_bytes);
   const total = formatQueueBytes(job.total_bytes);
   if (downloaded) parts.push(total ? `${downloaded} / ${total}` : downloaded);
