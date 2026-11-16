@@ -1,7 +1,7 @@
 # Royal Downloader container image for 24/7 NAS and Docker operation.
 ARG APP_COMMIT_SHA=""
 # Build the local speech verifier without shipping compiler tools in the image.
-FROM python:3.12.15-slim-bookworm AS audio-language
+FROM python:3.12.16-slim-bookworm AS audio-language
 RUN apt-get -o Acquire::Retries=0 update \
     && apt-get -o Acquire::Retries=0 install -y --no-install-recommends build-essential cmake ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -19,7 +19,7 @@ RUN python -c "from urllib.request import urlretrieve; urlretrieve('https://code
     && install -D -m 0644 whisper.cpp-1.8.2/LICENSE /audio-language/LICENSE \
     && /audio-language/whisper-cli --help >/dev/null 2>&1
 
-FROM python:3.12.15-slim-bookworm AS runtime-base
+FROM python:3.12.16-slim-bookworm AS runtime-base
 ARG APP_UID=1000
 ARG APP_GID=1000
 ARG CHROME_SECURITY_FLOOR="151.0.7922.169-1"
