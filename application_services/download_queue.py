@@ -243,7 +243,7 @@ def _episode_candidates(movie, slug, episode, known, refresh, cancelled, gate_se
     original_provider = provider_for_value(slug)
     providers = list(episode_source_providers(provider_priority("series"), provider_priority("anime")))
     # Keep the explicitly selected source usable, including anime-only catalogs.
-    if original_provider not in providers:
+    if original_provider != "huhu" and original_provider not in providers:
         providers.insert(len(providers) - int("serienstream" in providers), original_provider)
     providers.sort(key=lambda provider: provider == "serienstream")
     known = [movie, *known]
@@ -285,7 +285,7 @@ def _episode_candidates(movie, slug, episode, known, refresh, cancelled, gate_se
                     excluded_providers=set(PROVIDER_CATALOG) - {provider}, limit=1,
                 )
         for candidate in candidates:
-            if candidate.url not in seen:
+            if _movie_provider(candidate, slug) != "huhu" and candidate.url not in seen:
                 seen.add(candidate.url)
                 yield candidate
 
@@ -319,8 +319,13 @@ def run_download_queue(
     gated_jobs: List[tuple] = []   # (movie, slug) die am Captcha-Gate hingen
     queued_slugs: set = set()
 
+    from core.queue_jobs import RETIRED_SERIES_SOURCE_REASON, is_retired_series_slug
+
     for movie, movie_slug in jobs:
         if (cancelled and cancelled()) or not _queue_slug_claimed(movie_slug):
+            continue
+        if is_retired_series_slug(movie_slug):
+            on_job_done(False, RETIRED_SERIES_SOURCE_REASON, movie.title, Path(""), slug=movie_slug)
             continue
         log(f"─── {movie.title} ───")
 
@@ -363,6 +368,8 @@ def run_download_queue(
         episode_candidates = None
         if ep_info:
             language_job = _queue_job_for_slug(movie_slug) or {}
+            if required_language == "de":
+                barren_hoster_urls.update(language_job.get("rejected_audio_sources") or ())
             refresh = (
                 language_job.get("wait_reason") == "language_unavailable"
                 or (language_job.get("wait_reason") == "source_unavailable"

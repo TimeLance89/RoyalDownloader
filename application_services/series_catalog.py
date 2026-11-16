@@ -43,9 +43,6 @@ def _search_series_for_provider(provider: str, query: str) -> List[FilmpalastSer
     if provider == "moflix":
         with state.moflix_lock:
             return get_moflix_scraper().search_series(query)
-    if provider == "huhu":
-        with state.huhu_lock:
-            return get_huhu_scraper().search_series(query)
     if provider == "kinoger":
         return KinogerScraper(progress_cb=log).search_series(query)
     if provider == "megakino":
@@ -78,9 +75,6 @@ def _load_series_for_provider(provider: str, value: str) -> Optional[FilmpalastS
     if provider == "moflix":
         with state.moflix_lock:
             return get_moflix_scraper().get_series(value)
-    if provider == "huhu":
-        with state.huhu_lock:
-            return get_huhu_scraper().get_series(value)
     if provider == "kinoger":
         return KinogerScraper(progress_cb=log).get_series(value)
     if provider == "megakino":
@@ -314,9 +308,6 @@ def _fetch_series_provider_page(
         "sflix": SflixScraper,
         "ridomovies": RidomoviesScraper,
     }
-    if provider == "huhu":
-        with state.huhu_lock:
-            return list(get_huhu_scraper().list_series(source_page))
     scraper_class = scraper_classes.get(provider)
     if scraper_class is None:
         return []
@@ -766,7 +757,8 @@ def get_series_for_value(
     fallbacks = [key for key in provider_priority("series") if key != provider]
     if provider in appconfig.SERIES_PROVIDER_DEFAULTS:
         fallbacks.append(provider)
-    return _find_series_by_title(fallback_title or value, fallbacks)
+    title = fallback_title or (_series_search_title(value) if provider == "huhu" else value)
+    return _find_series_by_title(title, fallbacks)
 
 
 def merge_series_snapshots(

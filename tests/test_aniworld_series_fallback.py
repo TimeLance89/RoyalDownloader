@@ -25,13 +25,17 @@ def bridge(monkeypatch, tmp_path):
     monkeypatch.setattr(server.state, "watchlist", [])
     monkeypatch.setattr(server.state, "provider_waiting_jobs", {})
     monkeypatch.setattr(server.state, "provider_health", ProviderHealth(tmp_path / "health.json"))
-    monkeypatch.setattr(server.state, "provider_priorities", {"series": ["huhu"], "anime": ["aniworld", "mkissa"]})
-    monkeypatch.setattr(server.state, "provider_enabled", {"series": ["huhu"], "anime": ["aniworld"]})
+    monkeypatch.setattr(server.state, "provider_priorities", {"series": ["moflix"], "anime": ["aniworld", "mkissa"]})
+    monkeypatch.setattr(server.state, "provider_enabled", {"series": ["moflix"], "anime": ["aniworld"]})
     monkeypatch.setattr(server.state, "content_languages", {"de"})
     monkeypatch.setattr(server, "broadcast", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(server, "_persist_queue_state", lambda: None)
     monkeypatch.setattr(server, "_ensure_provider_retry_worker", lambda: None)
     monkeypatch.setattr(server, "get_tmdb_client", lambda: SimpleNamespace(configured=False))
+    search_series = server._search_series_for_provider
+    monkeypatch.setattr(server, "_search_series_for_provider", lambda provider, query:
+        [] if provider == "moflix" else search_series(provider, query))
+
     anime = AniWorldAnime(
         "sailor-moon", "Sailor Moon", year="1992",
         episodes=[
@@ -61,8 +65,8 @@ def bridge(monkeypatch, tmp_path):
 
 
 def test_disabled_anime_sources_are_not_added_to_series_order():
-    assert episode_source_providers(["huhu", "serienstream"], ["mkissa"]) == ("huhu", "serienstream")
-    assert episode_source_providers(["huhu", "aniworld"], ["aniworld", "mkissa"]) == ("huhu", "aniworld")
+    assert episode_source_providers(["huhu", "serienstream"], ["mkissa"]) == ("serienstream",)
+    assert episode_source_providers(["huhu", "aniworld"], ["aniworld", "mkissa"]) == ("aniworld",)
 
 
 def test_native_seasons_and_episode_flags_are_preserved_and_films_are_excluded(bridge):
@@ -133,7 +137,7 @@ def test_temporary_catalog_failure_is_retried_after_cooldown(monkeypatch, bridge
     slug = "huhu:3570:sailor-moon-s01e01"
     assert server.find_episode_fallbacks("Sailor Moon", 1, 1, source_slug=slug) == []
     assert "aniworld" in server.state.fallback_provider_errors
-    assert not server.state.fallback_series_cache
+    assert not any(key.startswith("aniworld:") for key in server.state.fallback_series_cache)
     monkeypatch.setattr(bridge.scraper, "_search", lambda _query: [bridge.anime])
     assert server.find_episode_fallbacks("Sailor Moon", 1, 1, source_slug=slug) == []
     server.state.fallback_provider_errors["aniworld"] = (0, "expired")
@@ -197,49 +201,18 @@ def test_identical_known_numbering_keeps_the_aniworld_source(bridge):
     assert len(server.find_episode_fallbacks("Sailor Moon", 1, 1, source_slug=f"{base}-s01e01")) == 1
 
 
-def test_huhu_gersub_is_rejected_then_aniworld_dub_enqueues_with_original_identity(monkeypatch, bridge, tmp_path):
-    from application_services import source_resolution
-    from media.resolved_link_cache import ResolvedLinkCache
-    from media.source_language import StreamInfo
+def test_legacy_huhu_series_job_is_stopped_before_source_resolution(monkeypatch, bridge, tmp_path):
     slug = "huhu:3570:sailor-moon-s01e01"
     primary = FilmpalastMovie("Sailor Moon S01E01", "https://huhu.to/item", provider="huhu",
         hosters=[HosterInfo("VOE", "https://voe.sx/sub", "de")])
-    job = new_job(slug, job_id="fallback-de")
-    job["content_language"] = "de"
-    server.state.queue_jobs[job["job_id"]] = job
-    server.state.queue_job_by_slug[slug] = job["job_id"]
     server.state.picked.add(slug)
-    server.state.counted_queue_slugs.add(slug)
-    monkeypatch.setattr(server, "_content_already_available", lambda *_args: (False, ""))
-    monkeypatch.setattr(server, "_episode_fallback_aliases", lambda *_args: ())
-    monkeypatch.setattr(server.state, "resolved_link_cache", ResolvedLinkCache(tmp_path / "links.json"))
-    monkeypatch.setattr(bridge.scraper, "resolve_play_url", lambda *_args, **_kwargs: "https://voe.sx/dub")
-    monkeypatch.setattr(source_resolution.state.hoster_intel, "rank", lambda hosters: list(hosters))
-    monkeypatch.setattr(source_resolution.state.hoster_intel, "cooldown", lambda *_args, **_kwargs: (0, ""))
-    monkeypatch.setattr(source_resolution.state.hoster_intel, "record_probe", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(source_resolution, "hoster_attempt_safely", lambda *_args: None)
-    monkeypatch.setattr(source_resolution, "observe_hoster_safely", lambda *_args: None)
-    monkeypatch.setattr(source_resolution, "_shared_browser_pool", lambda _reason: object())
-    monkeypatch.setattr(source_resolution, "pre_check_voe", lambda *_args, **_kwargs: "ok")
-    monkeypatch.setattr(source_resolution, "hoster_profile_safely", lambda *_args: {})
-    extracted, probed = [], []
-    def extract(url, **_kwargs):
-        extracted.append(url)
-        track = "sub" if url.endswith("/sub") else "dub"
-        return StreamInfo(f"https://cdn.example/{track}.m3u8", "hls", [
-            "Sailor.Moon.S01E01.GerSub.mp4" if track == "sub" else "Sailor.Moon.S01E01.German.Dub.mp4",
-        ])
-    monkeypatch.setattr(source_resolution, "extract_stream_url", extract)
-    monkeypatch.setattr(source_resolution, "probe_stream_url", lambda url, **_kwargs: (probed.append(url) or True, "ok"))
-    queued = []
-    monkeypatch.setattr(server, "_enqueue_hoster_attempt", lambda **kwargs: queued.append(kwargs) or True)
-    assert server.run_download_queue([(primary, slug)], tmp_path, start_queue=False) == {slug}
-    assert queued[0]["movie"].provider == "aniworld"
-    assert queued[0]["movie"]._required_content_language == "de"
-    assert queued[0]["movie_slug"] == slug
-    assert server.state.queue_jobs[job["job_id"]]["content_language"] == "de"
-    assert extracted == ["https://voe.sx/sub", "https://voe.sx/dub"]
-    assert probed == ["https://cdn.example/dub.m3u8"]
+    monkeypatch.setattr(server, "_extract_from_movie", lambda *_args, **_kwargs: pytest.fail("source resolved"))
+    failed = []
+    monkeypatch.setattr(server, "on_job_done", lambda ok, reason, *_args, **_kwargs: failed.append((ok, reason)))
+
+    assert server.run_download_queue([(primary, slug)], tmp_path, start_queue=False) == set()
+    assert failed == [(False, "Huhu ist für Serien deaktiviert.")]
+    assert not bridge.searches
 
 
 def test_language_probe_finds_aniworld_and_keeps_original_queue_identity(monkeypatch, bridge):
@@ -250,10 +223,10 @@ def test_language_probe_finds_aniworld_and_keeps_original_queue_identity(monkeyp
     monkeypatch.setattr("features.episode_source_probe.episode_source_probes", sources)
     monkeypatch.setattr(discovery, "episode_languages_for_slug", lambda *_args: ["en"])
     monkeypatch.setattr(library, "record_watchlist_episode_languages", lambda _values: None)
-    slug = "huhu:3570:sailor-moon-s01e01"
+    slug = "moflix:3570:sailor-moon-s01e01"
     try:
         result = asyncio.run(discovery.api_series_episode_languages(discovery.SeriesEpisodeLanguagesBody(
-            provider="huhu", slugs=[slug], title="Sailor Moon", content_languages=["de"])))
+            provider="moflix", slugs=[slug], title="Sailor Moon", content_languages=["de"])))
         assert result["available"][slug] is True
         assert result["source_providers"][slug] == ["aniworld"]
         cached = server.state.movie_source_cache[slug]
@@ -268,8 +241,8 @@ def test_language_probe_finds_aniworld_and_keeps_original_queue_identity(monkeyp
 def test_transfer_failure_searches_aniworld_lazily_and_retains_language_and_path(monkeypatch, bridge, tmp_path):
     from application_services import source_resolution
     import application_services.storage_autopilot_runtime as storage
-    slug = "huhu:3570:sailor-moon-s01e01"
-    primary = FilmpalastMovie("Sailor Moon S01E01", "https://huhu.to/item", provider="huhu",
+    slug = "moflix:3570:sailor-moon-s01e01"
+    primary = FilmpalastMovie("Sailor Moon S01E01", "https://moflix.test/item", provider="moflix",
         hosters=[HosterInfo("VOE", "https://voe.sx/primary", "de")])
     logical = new_job(slug, job_id="transfer-fallback")
     logical["content_language"] = "de"
@@ -300,7 +273,7 @@ def test_transfer_failure_searches_aniworld_lazily_and_retains_language_and_path
     monkeypatch.setattr(server.state, "dl_queue", SimpleNamespace(add=queued.append, add_front=queued.append))
     assert server.run_download_queue([(primary, slug)], tmp_path, start_queue=False) == {slug}
     assert bridge.searches == []
-    assert queued[0].provider == "huhu"
+    assert queued[0].provider == "moflix"
     queued[0].on_done(False, "CDN transfer failed")
     assert len(queued) == 2
     assert queued[1].provider == "aniworld"

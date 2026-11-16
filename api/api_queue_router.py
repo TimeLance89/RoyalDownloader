@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 import threading
 import time
 from dataclasses import replace
@@ -15,6 +16,8 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
+from core.queue_jobs import RETIRED_SERIES_SOURCE_REASON, is_retired_series_slug
+from features.watchlist_policy import normalize_episode_history, serialize_episode_history
 
 from providers.mkissa import SOURCE_PREFIX as MKISSA_PREFIX
 from providers.aniworld import SOURCE_PREFIX as ANIWORLD_PREFIX
@@ -346,6 +349,7 @@ def _enqueue_automatic_downloads(
                 key = content_keys.get(slug, "")
                 if (
                     slug not in state.picked
+                    or is_retired_series_slug(slug)
                     or slug in already_counted
                     or slug in active_slugs
                     or movie is None
@@ -433,7 +437,7 @@ def _retryable_legacy_source_failure(job: dict) -> bool:
     if str(job.get("status") or "") != "failed":
         return False
     slug = str(job.get("slug") or "")
-    if parse_episode_slug(slug) is None:
+    if is_retired_series_slug(slug) or parse_episode_slug(slug) is None:
         return False
     # Only pre-feature terminal failures are migrated. A new job that already
     # exhausted the bounded automatic source retry budget must remain terminal
@@ -544,7 +548,7 @@ def _recover_evicted_personal_episode_failures() -> int:
 
         for request in requests:
             slug = str(request.get("media_key") or "")
-            if not slug or parse_episode_slug(slug) is None or slug in active_slugs:
+            if not slug or is_retired_series_slug(slug) or parse_episode_slug(slug) is None or slug in active_slugs:
                 continue
             historical_job_id = str(request.get("job_id") or "")
             # If the full queue history row still exists, its exact error decides
@@ -1028,6 +1032,10 @@ async def api_queue_add(body: QueueAddBody, request: Request = None):
         skipped_details: dict[str, str] = {}
         movie_jellyfin_ready: bool | None = None
         for slug in body.slugs:
+            if is_retired_series_slug(slug):
+                skipped += 1
+                skipped_details[slug] = RETIRED_SERIES_SOURCE_REASON
+                continue
             scheduled_reason = _scheduled_episode_reason(slug)
             if scheduled_reason:
                 skipped += 1
@@ -1346,10 +1354,42 @@ def _cancel_withdrawn_watchlist_slugs(slugs: set[str], reason: str) -> set[str]:
     return cancellable
 
 
+def _suppress_cancelled_subscription_episodes(slugs: set[str]) -> None:
+    episodes = {slug: parsed for slug in slugs if (parsed := parse_episode_slug(slug))}
+    if not episodes:
+        return
+    with state.watchlist_lock:
+        updates = []
+        for entry in state.watchlist:
+            base = entry["base_slug"]
+            known = set(entry.get("known_slugs") or ()) | state.watchlist_new_slugs.get(base, set())
+            selected = {parsed[1:] for slug, parsed in episodes.items() if parsed[0] == base or slug in known}
+            if not selected:
+                continue
+            previous = entry.get("manual_cancelled_episodes")
+            updated = serialize_episode_history(normalize_episode_history(previous) | selected)
+            if updated != previous:
+                updates.append((entry, previous))
+                entry["manual_cancelled_episodes"] = updated
+        if not updates:
+            return
+        try:
+            _require_persistent_snapshot("watchlist", deepcopy(state.watchlist))
+        except HTTPException:
+            for entry, previous in updates:
+                if previous is None:
+                    entry.pop("manual_cancelled_episodes", None)
+                else:
+                    entry["manual_cancelled_episodes"] = previous
+            raise
+
+
 @router.post("/api/v1/queue/remove")
 @router.post("/api/queue/remove")
 async def api_queue_remove(body: QueueRemoveBody):
     def _work():
+        if _queue_job_for_slug(body.slug):
+            _suppress_cancelled_subscription_episodes({body.slug})
         _job, removed, active = _request_queue_cancel(body.slug)
         return len(removed), len(active), build_queue_payload()
 
@@ -1372,6 +1412,7 @@ async def api_queue_clear():
         }
         with state.queue_claim_lock:
             removed_slugs = set(state.picked) - active_slugs
+        _suppress_cancelled_subscription_episodes(removed_slugs)
         for slug in removed_slugs:
             _request_queue_cancel(slug)
         return removed_slugs, build_queue_payload()
@@ -1413,6 +1454,7 @@ async def api_queue_job_cancel(job_id: str):
         job = _job_or_404(job_id)
         if job.get("status") == "cancelling":
             return dict(job), 0, 0, False
+        _suppress_cancelled_subscription_episodes({str(job["slug"])})
         current, removed, active = _request_queue_cancel(str(job["slug"]))
         return current, len(removed), len(active), True
 
@@ -1433,6 +1475,8 @@ async def api_queue_job_cancel(job_id: str):
 async def api_queue_job_retry(job_id: str):
     def _work():
         previous = dict(_job_or_404(job_id, include_history=True))
+        if is_retired_series_slug(previous["slug"]):
+            raise HTTPException(409, detail=RETIRED_SERIES_SOURCE_REASON)
         if previous.get("status") == "cancelling":
             raise HTTPException(409, detail={"code": "queue_job_cancelling"})
         if previous.get("status") not in {"failed", "cancelled"}:
@@ -1540,6 +1584,8 @@ async def api_queue_job_move(job_id: str, body: QueueMoveBody):
 async def api_queue_job_resume(job_id: str):
     def _work():
         job = _job_or_404(job_id)
+        if is_retired_series_slug(job["slug"]):
+            raise HTTPException(409, detail=RETIRED_SERIES_SOURCE_REASON)
         if job.get("status") == "waiting_provider":
             slug = str(job.get("slug") or "")
             with state.queue_claim_lock:

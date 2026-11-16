@@ -48,6 +48,8 @@ def on_job_progress(
             attempt_id and current.get("attempt_id") != attempt_id
         ) or current.get("status") == "cancelling":
             return False
+        if pct < 0 and current.get("status") == "waiting_provider":
+            return False
         now = time.monotonic()
         with state.queue_claim_lock:
             last_persisted = float(state.queue_job_persist_times.get(slug) or 0)
@@ -128,14 +130,9 @@ def _watchlist_retry_allowed(slug: str) -> bool:
 
 def _ensure_jellyfin_media_readable(path: Path) -> None:
     """Repariert auch bereits vorhandene Dateien aus älteren Downloads."""
-    try:
-        media_path = Path(path)
-        if media_path.is_file():
-            media_path.chmod(media_path.stat().st_mode | 0o044)
-    except OSError:
-        # NAS-ACLs können chmod ablehnen; der anschließende Scan bleibt
-        # trotzdem sinnvoll und liefert Jellyfin die eigentliche Diagnose.
-        pass
+    media_path = Path(path)
+    if media_path.is_file():
+        DownloadJob._make_published_media_readable(media_path)
 
 
 def on_job_done(
@@ -938,6 +935,11 @@ def _defer_provider_episode(
             next_retry_at=next_retry_at,
             wait_reason=reason,
             error=error,
+            progress=0.0,
+            downloaded_bytes=0,
+            total_bytes=0,
+            speed_bps=0.0,
+            eta_seconds=0,
         )
         if reason in {"source_unavailable", "language_unavailable"}:
             job_id = state.queue_job_by_slug.get(slug)
@@ -994,6 +996,8 @@ def _episode_fallback_aliases(movie_slug: str, title: str) -> tuple[str, ...]:
 
 
 def _fallback_get_series(provider: str, title: str, tmdb_id: str = "") -> Optional[FilmpalastSeries]:
+    if provider == "huhu":
+        return None
     from features.episode_source_probe import catalog_probe_locks
     lock = catalog_probe_locks.get(provider)
     if lock is None:
@@ -1008,13 +1012,7 @@ def _fallback_get_series_unlocked(
     """Sucht die Serie «title» beim Fallback-Anbieter per Titel-Match und lädt sie.
     Ergebnis (auch None) wird pro Download-Lauf gecacht, damit nicht jede Episode
     denselben Anbieter erneut durchsucht."""
-    exact_tmdb_id = str(tmdb_id or "").strip() if provider == "huhu" else ""
-    if exact_tmdb_id and not exact_tmdb_id.isdigit():
-        exact_tmdb_id = ""
-    key = (
-        f"{provider}:tmdb:{exact_tmdb_id}"
-        if exact_tmdb_id else f"{provider}:{_norm_title(title)}"
-    )
+    key = f"{provider}:{_norm_title(title)}"
     now = time.time()
     with state.fallback_series_cache_lock:
         provider_error = state.fallback_provider_errors.get(provider)
@@ -1028,32 +1026,26 @@ def _fallback_get_series_unlocked(
     series: Optional[FilmpalastSeries] = None
     matched = False
     try:
-        if exact_tmdb_id:
-            matched = True
-            series = _load_series_for_provider(
-                provider, f"{HUHU_PREFIX}{exact_tmdb_id}:tmdb",
-            )
-        else:
-            results = _search_series_for_provider(provider, title)
-            wanted = _norm_title(title)
-            best = next(
-                (result for result in results if _norm_title(result.title) == wanted),
-                None,
-            )
-            if provider == "aniworld":
-                exact = [result for result in results if _norm_title(result.title) == wanted]
-                if not exact:
-                    exact = [result for result in results if wanted in {
-                        _norm_title(value) for value in getattr(result, "_fallback_aliases", ())
-                    }]
-                # Never choose an arbitrary remake or similarly named anime.
-                best = exact[0] if len({result.base_slug for result in exact}) == 1 else None
-            if best and provider == "kinoking" and tmdb_id:
-                result_tmdb = str(getattr(best, "tmdb_id", "") or "")
-                if result_tmdb != tmdb_id:
-                    best = None
-            matched = best is not None
-            series = _load_series_for_provider(provider, best.sample_slug) if best else None
+        results = _search_series_for_provider(provider, title)
+        wanted = _norm_title(title)
+        best = next(
+            (result for result in results if _norm_title(result.title) == wanted),
+            None,
+        )
+        if provider == "aniworld":
+            exact = [result for result in results if _norm_title(result.title) == wanted]
+            if not exact:
+                exact = [result for result in results if wanted in {
+                    _norm_title(value) for value in getattr(result, "_fallback_aliases", ())
+                }]
+            # Never choose an arbitrary remake or similarly named anime.
+            best = exact[0] if len({result.base_slug for result in exact}) == 1 else None
+        if best and provider == "kinoking" and tmdb_id:
+            result_tmdb = str(getattr(best, "tmdb_id", "") or "")
+            if result_tmdb != tmdb_id:
+                best = None
+        matched = best is not None
+        series = _load_series_for_provider(provider, best.sample_slug) if best else None
     except Exception as exc:
         label = PROVIDER_LABELS.get(provider, provider)
         log(f"  {label}-Fallback-Suche vorübergehend nicht erreichbar: {exc}", "warn")
