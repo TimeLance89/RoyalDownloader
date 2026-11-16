@@ -79,8 +79,9 @@ class ChristmasService:
         # Dec 31 expires the current year too. January also cleans up a missed Dec 31.
         before = today.year + (1 if today.month == 12 and today.day == 31 else 0)
         with self.connect() as db:
-            for table in ("seasons", "calendars", "doors"):
-                db.execute(f"DELETE FROM {table} WHERE year < ?", (before,))
+            db.execute("DELETE FROM seasons WHERE year < ?", (before,))
+            db.execute("DELETE FROM calendars WHERE year < ?", (before,))
+            db.execute("DELETE FROM doors WHERE year < ?", (before,))
 
     @staticmethod
     def discover(client, today):
