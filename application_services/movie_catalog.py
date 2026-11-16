@@ -278,11 +278,9 @@ def load_movie_for_slug(slug: str) -> Optional[FilmpalastMovie]:
     if re.fullmatch(r"tmdb:\d+", slug or "", flags=re.IGNORECASE):
         sources = resolve_tmdb_movie_sources(slug.split(":", 1)[1])
         return sources[0] if sources else None
-    requested_slug = slug
-    monster_virtual = parse_monster_virtual_episode(requested_slug)
-    provider = provider_for_value(requested_slug)
-    if monster_virtual is not None:
-        slug = monster_source_episode_slug(requested_slug) or requested_slug
+    provider = provider_for_value(slug)
+    if parse_monster_virtual_episode(slug) is not None:
+        slug = monster_source_episode_slug(slug) or slug
     if slug.startswith(FILMFREI24_PREFIX):
         movie = FilmFrei24Scraper(progress_cb=log).get_movie(slug)
     elif slug.startswith(FILMO_PREFIX):
