@@ -1,24 +1,5 @@
 # Royal Downloader container image for 24/7 NAS and Docker operation.
 ARG APP_COMMIT_SHA=""
-# Build the local speech verifier without shipping compiler tools in the image.
-FROM python:3.12.15-slim-bookworm AS audio-language
-RUN apt-get -o Acquire::Retries=0 update \
-    && apt-get -o Acquire::Retries=0 install -y --no-install-recommends build-essential cmake ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-WORKDIR /build
-RUN python -c "from urllib.request import urlretrieve; urlretrieve('https://codeload.github.com/ggml-org/whisper.cpp/tar.gz/refs/tags/v1.8.2', 'whisper.tar.gz'); urlretrieve('https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin', 'ggml-tiny.bin')" \
-    && echo 'bcee25589bb8052d9e155369f6759a05729a2022d2a8085c1aa4345108523077  whisper.tar.gz' | sha256sum -c - \
-    && echo 'be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21  ggml-tiny.bin' | sha256sum -c - \
-    && tar -xzf whisper.tar.gz \
-    && cmake -S whisper.cpp-1.8.2 -B build -DCMAKE_BUILD_TYPE=Release \
-        -DBUILD_SHARED_LIBS=OFF -DWHISPER_BUILD_TESTS=OFF -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF \
-        -DGGML_AVX=OFF -DGGML_AVX2=OFF -DGGML_FMA=OFF -DGGML_F16C=OFF -DGGML_BMI2=OFF \
-    && cmake --build build --target whisper-cli -j 2 \
-    && install -D -m 0755 build/bin/whisper-cli /audio-language/whisper-cli \
-    && install -D -m 0644 ggml-tiny.bin /audio-language/ggml-tiny.bin \
-    && install -D -m 0644 whisper.cpp-1.8.2/LICENSE /audio-language/LICENSE \
-    && /audio-language/whisper-cli --help >/dev/null 2>&1
-
 FROM python:3.12.15-slim-bookworm AS runtime-base
 ARG APP_UID=1000
 ARG APP_GID=1000
@@ -119,7 +100,6 @@ RUN python -c "from update_checker import write_build_commit_marker; write_build
 
 FROM runtime-base AS runtime
 ARG APP_COMMIT_SHA
-COPY --from=audio-language /audio-language /opt/royal-audio-language
 COPY --from=source --chown=royal:royal /opt/seriendownloader /opt/seriendownloader
 
 # Repair invalid UTF-8 shipped in nodriver 0.50.3 cdp/network.py.

@@ -65,14 +65,7 @@ def episode_movie(provider, slug, title="Exact Show S02E04", hosters=True):
     )
 
 
-@pytest.mark.parametrize(("tag", "spoken_german", "published"), [
-    ("und", True, True),
-    ("und", False, False),
-    ("deu", False, False),
-    ("deu", True, True),
-    ("eng", True, False),
-])
-def test_german_queue_verifies_the_finished_episode_audio(monkeypatch, tmp_path, tag, spoken_german, published):
+def test_german_queue_accepts_valid_media_with_untagged_audio(monkeypatch, tmp_path):
     import json
     from subprocess import CompletedProcess
 
@@ -90,14 +83,10 @@ def test_german_queue_verifies_the_finished_episode_audio(monkeypatch, tmp_path,
     monkeypatch.setattr(server.state, "dl_queue", SimpleNamespace(add_front=pending.append))
     monkeypatch.setattr(storage_autopilot_runtime, "place_download", lambda job, path, **_: path)
     monkeypatch.setattr(downloader, "MIN_MEDIA_BYTES", 1)
-    monkeypatch.setattr(
-        downloader, "confirm_audio_language",
-        lambda path, index, duration, language: spoken_german,
-    )
     monkeypatch.setattr(downloader.subprocess, "run", lambda cmd, **_: CompletedProcess(
         cmd, 0, json.dumps({
             "streams": [{"codec_type": "video"},
-                        {"codec_type": "audio", "index": 1, "tags": {"language": tag}}],
+                        {"codec_type": "audio"}],
             "format": {"duration": "2400"},
         }), "",
     ))
@@ -112,19 +101,8 @@ def test_german_queue_verifies_the_finished_episode_audio(monkeypatch, tmp_path,
     job.staging_path.parent.mkdir(parents=True)
     job.staging_path.write_bytes(b"media")
 
-    assert job._finalize()[0] is published
-    assert target.is_file() is published
-
-
-def test_recovery_keeps_previous_audio_rejections():
-    from core.queue_jobs import normalize_job
-
-    stored = new_job("huhu:123:exact-show-s02e04")
-    stored.update(status="waiting_provider", wait_reason="source_unavailable", next_retry_at=9999)
-    stored["rejected_audio_sources"] = ["audio:" + "a" * 64]
-    restored = normalize_job(stored, active=True)
-    assert restored["next_retry_at"] == 9999
-    assert restored["rejected_audio_sources"] == stored["rejected_audio_sources"]
+    assert job._finalize()[0]
+    assert target.is_file()
 
 
 def test_series_preparations_share_one_scheduler_group():

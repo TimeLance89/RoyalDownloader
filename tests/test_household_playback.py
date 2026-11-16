@@ -15,6 +15,36 @@ A, B, ITEM, SERIES = "1" * 32, "2" * 32, "3" * 32, "4" * 32
 BASE = "/api/media-center"
 
 
+def test_series_detail_reads_exact_library_item_with_profile_permissions(household):
+    client = household.clients["a"]
+    response = client.get(f"{BASE}/series/episodes", params={"item_id": SERIES})
+    assert response.status_code == 200, response.text
+    assert response.json()["items"][0]["id"] == ITEM
+    assert response.json()["profile_id"] == A
+    assert client.get(f"{BASE}/series/episodes", params={"item_id": ITEM}).status_code == 404
+
+
+def test_library_children_require_visible_parent_and_use_profile(household):
+    client = household.clients["a"]
+    result = client.get(f"{BASE}/library/{SERIES}/children")
+    assert result.status_code == 200, result.text
+    assert result.json()["items"][0]["id"] == ITEM
+    assert result.json()["items"][0]["kind"] == "episode"
+    assert client.get(f"{BASE}/library/{ITEM}/children").status_code == 404
+
+
+def test_library_list_paginates_and_filters_with_linked_profile(household):
+    result = household.clients["b"].get(
+        f"{BASE}/library", params={"kind": "collection", "offset": 4, "limit": 1, "search": "Saga"}
+    )
+    assert result.status_code == 200, result.text
+    assert result.json() == {"items": [], "next_offset": 5}
+    assert household.calls[-1][1]["UserId"] == B
+    assert household.calls[-1][1]["IncludeItemTypes"] == "BoxSet"
+    assert household.calls[-1][1]["StartIndex"] == 4
+    assert household.calls[-1][1]["SearchTerm"] == "Saga"
+
+
 @pytest.mark.parametrize("title,tmdb_id,count", [
     ("Stranger Things", 66732, 2),
     ("Dexter: Wiedererwachen", 259909, 3),
@@ -41,7 +71,9 @@ def test_series_playback_combines_same_identity_copies_for_linked_profile(househ
         identity = path.split("/")[2]
         assert identity != series_ids[-1]
         number = series_ids.index(identity) + 1
+        assert "Overview" in params.get("Fields", "").split(",")
         return {"Items": [{"Id": UUID(int=100 + number).hex, "Type": "Episode", "Name": "Pilot",
+                           "Overview": f"Eigene Handlung der Staffel {number}.",
                            "ParentIndexNumber": number, "IndexNumber": 1}]}
 
     monkeypatch.setattr("api.api_movie_playback_router._jellyfin_json", read)
@@ -51,6 +83,9 @@ def test_series_playback_combines_same_identity_copies_for_linked_profile(househ
     assert result["profile_id"] == A
     assert result["generation"] == 7
     assert [item["season"] for item in result["items"]] == list(range(1, count))
+    assert [item["description"] for item in result["items"]] == [
+        f"Eigene Handlung der Staffel {number}." for number in range(1, count)
+    ]
     assert {params["Ids"] for path, params in calls if path == "/Items"} == set(series_ids)
 
 

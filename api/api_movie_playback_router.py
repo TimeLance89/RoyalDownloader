@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from starlette.responses import Response, StreamingResponse
 
 from api.jellyfin_playback import PlaybackSessions
+from api.jellyfin_library import register_library_routes
 from api.playback_access import PlaybackAccess
 from core import egress_requests as requests
 from core.config import home_layout_file
@@ -315,9 +316,12 @@ def create_movie_playback_router(backend, administrator=None):
         return _episode_cards(result.get("Items") or [])
 
     @router.get("/api/media-center/series/episodes")
-    def series_episodes(request: Request, title: str = Query(min_length=1, max_length=400),
+    def series_episodes(request: Request, title: str = Query(default="", max_length=400),
                         tmdb_id: int | None = Query(default=None, gt=0),
-                        aliases: Annotated[list[str] | None, Query(max_length=8)] = None):
+                        aliases: Annotated[list[str] | None, Query(max_length=8)] = None,
+                        item_id: UUID | None = None):
+        if item_id is None and not title.strip():
+            raise HTTPException(422, "Serientitel oder Jellyfin-ID erforderlich.")
         active = connection(request)
         if active is None:
             return {"items": []}
@@ -325,6 +329,9 @@ def create_movie_playback_router(backend, administrator=None):
         profile_id = linked_profile(request, config)
         if not profile_id:
             return {"items": []}
+        if item_id is not None:
+            return {"items": series_inventory(base_url, config, profile_id, item_id.hex),
+                    "profile_id": profile_id, "generation": generation}
         library = backend.get_jellyfin_series()
         if library is None:
             raise HTTPException(503, "Die Jellyfin-Serienbibliothek ist nicht erreichbar.")
@@ -472,10 +479,13 @@ def create_movie_playback_router(backend, administrator=None):
         config, _, base_url = active
         item = profile_video(base_url, config, linked_profile(request, config), item_id.hex)
         image_type = "Backdrop" if item.get("BackdropImageTags") else "Primary"
+        return item_image(base_url, config["api_key"], item_id.hex, image_type)
+
+    def item_image(base_url, api_key, item_id, image_type):
         try:
-            with requests.get(f"{base_url}/Items/{item_id.hex}/Images/{image_type}",
+            with requests.get(f"{base_url}/Items/{item_id}/Images/{image_type}",
                               params={"maxWidth": 640, "quality": 85},
-                              headers=jellyfin_auth_headers(config["api_key"]), stream=True,
+                              headers=jellyfin_auth_headers(api_key), stream=True,
                               timeout=5, allow_redirects=False) as image:
                 mime = image.headers.get("Content-Type", "").split(";", 1)[0].lower()
                 if image.status_code != 200 or mime not in IMAGE_TYPES:
@@ -488,6 +498,8 @@ def create_movie_playback_router(backend, administrator=None):
         except requests.RequestException:
             raise HTTPException(502, "Jellyfin-Bild ist nicht erreichbar.") from None
         return Response(bytes(content), media_type=mime)
+
+    register_library_routes(router, connection, linked_profile, _jellyfin_json, item_image)
 
     def resolve_movie(request: Request, title: str = Query(default="", max_length=400),
                       year: str = Query(default="", max_length=10),
@@ -585,7 +597,7 @@ def create_movie_playback_router(backend, administrator=None):
             raise HTTPException(502, "Jellyfin konnte den Wiedergabestand nicht laden.") from None
         if not 0 < position <= MAX_POSITION_TICKS or (duration and position >= duration):
             position = 0
-        return {"position_ticks": position, "duration_ticks": duration,
+        return {"item_id": item_id, "position_ticks": position, "duration_ticks": duration,
                 "profile_id": profile_id, "generation": generation}
 
     @router.post("/api/media-center/movies/progress", status_code=204)

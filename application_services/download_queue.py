@@ -368,8 +368,6 @@ def run_download_queue(
         episode_candidates = None
         if ep_info:
             language_job = _queue_job_for_slug(movie_slug) or {}
-            if required_language == "de":
-                barren_hoster_urls.update(language_job.get("rejected_audio_sources") or ())
             refresh = (
                 language_job.get("wait_reason") == "language_unavailable"
                 or (language_job.get("wait_reason") == "source_unavailable"

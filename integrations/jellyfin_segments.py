@@ -17,6 +17,6 @@ class JellyfinSegmentsMixin:
         })
 
     def media_segments(self, item_id):
-        return self._saved_request("GET", f"/MediaSegments/{jellyfin_id(item_id)}", params={
-            "includeSegmentTypes": "Intro,Outro",
-        })
+        # The service filters supported segment types after reading the native list.
+        # A comma-separated value is not portable for Jellyfin's enum collection.
+        return self._saved_request("GET", f"/MediaSegments/{jellyfin_id(item_id)}")

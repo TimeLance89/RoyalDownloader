@@ -86,19 +86,26 @@ def test_browser_rendered_release_title_is_kept_before_tab_closes(monkeypatch):
                 assert "serializationOptions" not in request["params"]
                 return SimpleNamespace(value=[GERSUB, None, None]), None
 
-        async def close(self):
-            closed.append(True)
-
     async def get(*_args, **_kwargs):
         return Tab()
+
+    async def browser_send(command):
+        from nodriver.cdp.target import TargetID
+        request = next(command)
+        if request["method"] == "Target.getTargets":
+            names = ["setup", "stream", "popup"] if sends else ["setup"]
+            return [SimpleNamespace(target_id=TargetID(name), type_="page") for name in names]
+        assert request["method"] == "Target.closeTarget"
+        closed.append(request["params"]["targetId"])
+        return True
 
     async def sleep(_seconds):
         pass
 
     monkeypatch.setattr(extractor.asyncio, "sleep", sleep)
     pool = extractor.VOEBrowserPool()
-    pool._browser = SimpleNamespace(get=get)
+    pool._browser = SimpleNamespace(get=get, connection=SimpleNamespace(send=browser_send))
     result = asyncio.run(pool._async_extract_inner("https://voe.sx/example", 5))
     assert result == ("https://cdn.example/master.m3u8", "hls")
     assert result.media_titles == (GERSUB,)
-    assert closed == [True]
+    assert closed == ["stream", "popup"]

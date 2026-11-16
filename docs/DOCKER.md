@@ -123,20 +123,6 @@ exists.
 > bit issues on NAS filesystems. The bootstrap container must run as `root`
 > because it installs operating-system packages and configures Chromium.
 
-## German episode audio verification
-
-Docker images built from this checkout include Whisper.cpp and the multilingual
-Tiny model. The verifier runs locally on completed German episode downloads
-before the files are published to the media library.
-
-For an existing source-only installation, put the platform's Whisper.cpp 1.8.2
-CLI and multilingual `ggml-tiny.bin` in `$SERIENDL_DATA_DIR/audio-language`
-(`data/audio-language` if the variable is unset). The executable must be named
-`whisper-cli` on Linux or `whisper-cli.exe` on Windows. Existing Docker
-installations can rebuild the image to obtain both files. RD reports
-`Sprachprüfung nicht installiert` before starting a German episode transfer if
-it cannot find the verifier.
-
 ## Deployment B: Docker Compose
 
 Docker Compose creates a self-contained image with dependencies installed during

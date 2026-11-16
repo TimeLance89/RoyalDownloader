@@ -2,8 +2,6 @@
 # Runtime service publication is intentionally invisible to static name resolution.
 # ruff: noqa: F821
 
-from hashlib import sha256
-
 from providers.sentinel_runtime import observe_hoster_safely, hoster_profile_safely, hoster_attempt_safely, observe_language_safely
 from providers.catalog import selected_source_language_allowed
 from features.episode_language_policy import concrete_source_language
@@ -15,10 +13,6 @@ from application_services.runtime import (
 )
 
 globals().update(import_backend_namespace())
-
-
-def _audio_source_key(url):
-    return "audio:" + sha256(url.split("#", 1)[0].encode("utf-8")).hexdigest()
 
 
 class _HosterResult:
@@ -198,9 +192,6 @@ def _extract_from_movie(
         if hoster.url in barren_hoster_urls:
             log(f"  Überspringe {hoster.name}: lieferte zuvor keine Stream-URL", "warn")
             continue
-        if required_language == "de" and _audio_source_key(hoster.url) in barren_hoster_urls:
-            log(f"  Überspringe {hoster.name}: Tonspur bereits abgewiesen", "info")
-            continue
         name = hoster.name.lower()
         if hoster.url in unsupported_domains:
             log(f"  Überspringe {hoster.name}: Link nicht unterstützt", "warn")
@@ -323,9 +314,6 @@ def _extract_from_movie(
                 log(f"  Überspringe {hoster.name}: lieferte zuvor keine Stream-URL", "warn")
                 continue
         name = _canonical_hoster_name(hoster.name, play_url)
-        if required_language == "de" and _audio_source_key(play_url) in barren_hoster_urls:
-            log(f"  Überspringe {hoster.name}: Tonspur bereits abgewiesen", "info")
-            continue
         res.hoster_url_used = play_url
         cooldown, _reason = state.hoster_intel.cooldown(
             play_url, hoster_name=hoster.name,
@@ -683,10 +671,6 @@ def _extract_from_movie(
 
         if res.stream_info:
             stream_url, _stream_type = res.stream_info
-            if required_language == "de" and _audio_source_key(stream_url) in barren_hoster_urls:
-                log(f"  Überspringe {hoster.name}: Tonspur bereits abgewiesen", "info")
-                res.stream_info = None
-                continue
             res.media_titles = tuple(getattr(res.stream_info, "media_titles", ()))
             if not stream_audio_language_allowed(
                 res.stream_info, res.content_language, res.media_titles,
@@ -885,12 +869,6 @@ def _enqueue_hoster_attempt(
             or current.get("attempt_id") != logical_attempt_id
         ):
             return
-        if getattr(job, "failure_kind", "") == "audio_verifier_unavailable":
-            on_job_done(
-                False, msg, label, out_path, slug=movie_slug,
-                job_id=logical_job["job_id"], attempt_id=logical_attempt_id,
-            )
-            return
         if result.hoster_url_used:
             state.hoster_intel.record_download(
                 result.hoster_url_used,
@@ -924,26 +902,6 @@ def _enqueue_hoster_attempt(
             return
 
         is_slow = getattr(job, "failure_kind", "") == "slow"
-        audio_rejected = (
-            getattr(job, "required_audio_language", "") == "de"
-            and msg.startswith("Ungültiger Download: keine bestätigte Tonspur")
-        )
-        if audio_rejected:
-            rejected = sorted({
-                _audio_source_key(url)
-                for url in (result.source_hoster_url, result.hoster_url_used, stream_url)
-                if url
-            })
-            barren_hoster_urls.update(rejected)
-            _update_queue_job(
-                movie_slug,
-                expected_job_id=logical_job["job_id"],
-                expected_attempt_id=logical_attempt_id,
-                rejected_audio_sources=list(dict.fromkeys([
-                    *(current.get("rejected_audio_sources") or ()), *rejected,
-                ]))[-128:],
-            )
-            log(f"  {hoster_used}: {msg}", "warn")
         if last_resort:
             final_msg = "; ".join(attempt_errors + [f"Letzte langsame Reserve: {msg}"])
             if parse_episode_slug(movie_slug) and gate_retry and gate_retry("source_unavailable"):
@@ -970,7 +928,7 @@ def _enqueue_hoster_attempt(
         # Signierte CDN-Links können zwischen Probe und Download ablaufen. Den
         # gleichen Hoster genau einmal frisch extrahieren, bevor er ausscheidet.
         source_url = result.source_hoster_url
-        if not is_slow and not audio_rejected and source_url and source_url not in refreshed_hoster_urls:
+        if not is_slow and source_url and source_url not in refreshed_hoster_urls:
             refreshed_hoster_urls.add(source_url)
             log(f"  {hoster_used}: Link wird einmal frisch aufgelöst …", "warn")
             # Ein abgelaufener Hoster-/CDN-Link darf genau einen Cache-Miss
@@ -1174,7 +1132,6 @@ def _enqueue_hoster_attempt(
         strict_audio_language=bool(
             required_language and getattr(result, "audio_language", "")
         ),
-        required_audio_language="de" if required_language == "de" and parse_episode_slug(movie_slug) else "",
         headers=getattr(result, "headers", {}),
         on_progress=lambda pct, msg: on_job_progress(
             pct,

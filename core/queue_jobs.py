@@ -86,7 +86,6 @@ def new_job(
         "next_retry_at": 0.0,
         "wait_reason": "",
         "language_checked_at": 0.0,
-        "rejected_audio_sources": [],
         "final_path": "",
         "requested_by_user_id": "",
         "request_source": "",
@@ -143,11 +142,6 @@ def normalize_job(
             job[key] = max(0, int(job[key])) if job.get(key) is not None else None
         except (TypeError, ValueError):
             job[key] = None
-    rejected = job["rejected_audio_sources"]
-    job["rejected_audio_sources"] = (
-        [value for value in rejected if isinstance(value, str) and re.fullmatch(r"audio:[0-9a-f]{64}", value)][-128:]
-        if isinstance(rejected, list) else []
-    )
     return job
 
 

@@ -102,7 +102,7 @@ def test_segment_client_reuses_authentication_transport_and_rejects_non_uuid_pat
         assert options["timeout"] == 5 and options["allow_redirects"] is False
     assert calls[1][2]["params"]["UserId"] == PROFILE
     assert calls[1][2]["params"]["Ids"] == ITEM
-    assert calls[2][2]["params"] == {"includeSegmentTypes": "Intro,Outro"}
+    assert calls[2][2].get("params") is None
     with pytest.raises(ValueError):
         client.media_segments("../Users")
     assert len(calls) == 3
