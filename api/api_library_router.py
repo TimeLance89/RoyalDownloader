@@ -1388,6 +1388,11 @@ def _calculate_watchlist_entry_state(
 
 def _apply_watchlist_entry_state(entry: dict, calculated: dict) -> set[str]:
     """Übernimmt ein Ergebnis und meldet nicht mehr benötigte Queue-Slugs."""
+    queued_slugs = {
+        slug for slug in getattr(state, "picked", ())
+        if slug in entry.get("known_slugs", ())
+        or ((parsed := parse_episode_slug(slug)) is not None and parsed[0] == entry["base_slug"])
+    }
     entry["download_mode"] = calculated["mode"]
     entry["cleanup_mode"] = calculated["cleanup_mode"]
     entry["known_slugs"] = calculated["known_slugs"]
@@ -1435,7 +1440,7 @@ def _apply_watchlist_entry_state(entry: dict, calculated: dict) -> set[str]:
     from features.watchlist_policy import retain_queued_subscription_episodes
 
     pending = state.watchlist_new_slugs.get(entry["base_slug"], set())
-    retain_queued_subscription_episodes(entry, previous_slugs & getattr(state, "picked", set()), pending)
+    retain_queued_subscription_episodes(entry, queued_slugs, pending)
     if pending:
         state.watchlist_new_slugs[entry["base_slug"]] = pending
     entry["last_checked"] = time.time()

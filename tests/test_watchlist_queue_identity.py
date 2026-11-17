@@ -101,3 +101,21 @@ def test_unknown_language_does_not_schedule_a_fresh_download(subscription):
     })
     assert not state.watchlist_new_slugs.get(BASE)
     assert entry["episode_states"] == {ALTERNATE: "language_pending"}
+
+
+def test_pending_probe_can_remove_pending_marker_without_losing_active_job(subscription):
+    entry, state, cancelled = subscription
+    library._update_watchlist_language_states(entry, {OLD: None})
+    assert OLD not in state.watchlist_new_slugs.get(BASE, set())
+    assert OLD in state.picked
+
+    withdrawn = library._apply_watchlist_entry_state(entry, {
+        "mode": "all", "cleanup_mode": "keep", "known_slugs": [ALTERNATE],
+        "missing_slugs": {ALTERNATE}, "episode_states": {ALTERNATE: "available"},
+        "episode_language_checks": {},
+    })
+    assert not withdrawn
+    assert state.watchlist_new_slugs[BASE] == {OLD}
+    assert entry["known_slugs"] == [OLD]
+    assert not queue._cancel_withdrawn_watchlist_slugs({OLD}, "subscription recheck")
+    assert not cancelled
