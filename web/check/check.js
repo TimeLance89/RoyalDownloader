@@ -1,3 +1,7 @@
+import { api } from "../js/core/api.js";
+import { createWebSocketManager } from "../js/core/websocket.js";
+import { createScope } from "../js/core/lifecycle.js";
+
 const byId = (id) => document.getElementById(id);
 const statusNames = {
   queued: "Eingereiht", preparing: "Quelle wird geprüft", downloading: "Lädt",
@@ -14,7 +18,9 @@ const timeFormat = new Intl.DateTimeFormat("de", { hour: "2-digit", minute: "2-d
 const numberFormat = new Intl.NumberFormat("de", { maximumFractionDigits: 1 });
 const jobs = new Map();
 let results = [];
+const scope = createScope();
 let socket = null;
+let connected = false;
 let stopped = false;
 let dirty = false;
 let fetching = false;
@@ -109,20 +115,8 @@ async function refresh() {
   fetching = true;
   const startRevision = revision;
   try {
-    const responses = await Promise.all(["jobs", "history"].map((part) =>
-      fetch(`/api/queue/${part}`, { cache: "no-store", signal: AbortSignal.timeout(8000) })));
-    if (responses.some((response) => response.status === 401 || response.status === 403)) {
-      stopped = true;
-      socket?.close();
-      jobs.clear();
-      results = [];
-      byId("dashboard").hidden = true;
-      byId("access").hidden = false;
-      connection("Anmeldung erforderlich");
-      return;
-    }
-    if (responses.some((response) => !response.ok)) throw new Error("Queue");
-    const [queue, history] = await Promise.all(responses.map((response) => response.json()));
+    const [queue, history] = await Promise.all(["jobs", "history"].map((part) =>
+      api.get(`/api/queue/${part}`, { cache: "no-store", timeoutMs: 8000, signal: scope.signal })));
     if (startRevision === revision) {
       jobs.clear();
       for (const job of queue.jobs || []) jobs.set(job.job_id, job);
@@ -131,27 +125,35 @@ async function refresh() {
     byId("dashboard").hidden = false;
     renderQueue();
     renderResults();
-    if (socket?.readyState !== WebSocket.OPEN) connection("Abgleich alle 15 Sekunden");
-  } catch {
-    connection("Queue gerade nicht erreichbar");
+    if (!connected) connection("Abgleich alle 15 Sekunden");
+  } catch (error) {
+    if (error.status === 401 || error.status === 403) requireLogin();
+    else if (!stopped) connection("Queue gerade nicht erreichbar");
   } finally {
     fetching = false;
   }
 }
 
+function requireLogin() {
+  stopped = true;
+  socket?.disconnect();
+  jobs.clear();
+  results = [];
+  byId("dashboard").hidden = true;
+  byId("access").hidden = false;
+  connection("Anmeldung erforderlich");
+}
+
 function connect() {
   if (stopped) return;
-  socket = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws`);
-  socket.addEventListener("open", () => { connection("Live verbunden", "live"); void refresh(); });
-  socket.addEventListener("close", () => {
-    if (stopped) return;
-    connection("Live-Verbindung getrennt");
-    void refresh();
-    setTimeout(connect, 5000);
-  });
-  socket.addEventListener("message", (event) => {
-    let data;
-    try { data = JSON.parse(event.data); } catch { return; }
+  socket = createWebSocketManager({ status(value) {
+    connected = value === "connected";
+    if (connected) { connection("Live verbunden", "live"); void refresh(); }
+    else if (!stopped) connection("Abgleich alle 15 Sekunden");
+  } });
+  scope.add(() => socket.disconnect());
+  scope.add(socket.subscribe("session.expired", requireLogin));
+  const receive = data => {
     if (data.type === "log" && (["warn", "err"].includes(data.level)
       || /^\s*(?:Versuche Hoster|Stream bereit|Prüfe Hoster|Fertig|Fehler)/.test(data.message || ""))) {
       activity(data.message, data.level === "err" ? "bad" : data.level === "warn" ? "warn" : "");
@@ -163,11 +165,18 @@ function connect() {
     } else if (["job_done", "queue_done", "queue_update", "queue_started"].includes(data.type)) {
       void refresh();
     }
-  });
+  };
+  for (const topic of ["log", "progress", "audio_verification", "job_done", "queue_done", "queue_update", "queue_started"]) {
+    scope.add(socket.subscribe(topic, receive));
+  }
+  socket.connect();
 }
 
-byId("result-filter").addEventListener("change", renderResults);
-setInterval(() => { if (dirty) { dirty = false; renderQueue(); } }, 300);
-setInterval(() => { if (!document.hidden) void refresh(); }, 15000);
+scope.listen(byId("result-filter"), "change", renderResults);
+scope.interval(() => { if (dirty) { dirty = false; renderQueue(); } }, 300);
+scope.interval(() => { if (!document.hidden) void refresh(); }, 15000);
+scope.listen(window, "pagehide", event => {
+  if (!event.persisted) { stopped = true; scope.dispose(); }
+});
 await refresh();
 connect();
