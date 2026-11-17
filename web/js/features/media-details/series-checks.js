@@ -283,16 +283,24 @@ export function createSeriesChecks(status, {
             const liveEpisodes = new Map((seriesState.current.seasons || []).flatMap(season => season.episodes || []).map(episode => [episode.slug, episode]));
             remaining = remaining.filter(episode => {
               const languages = result.languages?.[episode.slug];
-              const known = Array.isArray(languages) && languages.length > 0
+              const waitingForLanguage = result.waiting_for_language?.includes(episode.slug)
+                && !result.available?.[episode.slug];
+              const known = Array.isArray(languages) && (languages.length > 0 || waitingForLanguage)
                 && typeof result.available?.[episode.slug] === "boolean" && !result.pending?.includes(episode.slug);
               // Positive evidence is immediate. A negative needs a fresh second
               // request; incomplete responses never become a permanent lock.
               const fingerprint = known ? [...languages].sort().join(",") : "";
-              const checked = known && (result.available[episode.slug]
+              const checked = known && (result.available[episode.slug] || waitingForLanguage
                 || negativeEvidence.get(episode.slug) === fingerprint);
               if (known && !result.available[episode.slug]) negativeEvidence.set(episode.slug, fingerprint);
               for (const target of new Set([episode, liveEpisodes.get(episode.slug)])) {
                 if (!target) continue;
+                target.waiting_for_language = Boolean(waitingForLanguage);
+                if (waitingForLanguage) {
+                  target.language_checked = target.huhu_language_checked = false;
+                  target.language_available = target.huhu_language_available = false;
+                  target.content_languages = [];
+                }
                 target.language_check_error = !checked;
                 // Partial evidence is visible, but cannot grant download access.
                 if (Array.isArray(languages) && languages.length) target.content_languages = languages;

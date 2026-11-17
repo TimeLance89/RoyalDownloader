@@ -561,3 +561,20 @@ test('two independent batches run concurrently with bounded requests', async () 
   f.respond(f.requests[0]); await click;
   assert.equal(f.state.epPicked.size, 12);
 });
+
+
+test('a rejected audio source leaves a neutral waiting episode and a new source can release it', async () => {
+  const f = fixture(1);
+  const slug = f.episodes[0].slug;
+  const selection = f.model.toggleEpisodeTile(slug);
+  const request = await requestAt(f, 0);
+  request.resolve({languages: {[slug]: []}, available: {[slug]: false},
+    waiting_for_language: [slug], selected_content_languages: ['de']});
+  await selection;
+  assert.equal(f.episodes[0].waiting_for_language, true);
+  assert.equal(f.episodes[0].language_check_error, false);
+  assert.equal(f.model.isEpisodeSelectable(f.episodes[0]), false);
+  assert.equal(f.state.epPicked.size, 0);
+  assert.equal(f.requests.length, 1, 'a confirmed source rejection does not trigger immediate retries');
+  assert.equal(f.queueRequests.length, 0);
+});

@@ -127,14 +127,6 @@ def verify(mode):
                 current_settings[name][media] = [
                     provider for provider in migrated if provider not in additions
                 ]
-    if mode in ("upgrade", "rollback-upgraded"):
-        for name in ("load_provider_priorities", "load_provider_enabled"):
-            saved_series = expected_settings[name]["series"]
-            saved_series.remove("huhu")
-        if mode == "rollback-upgraded":
-            # The old release appends missing providers to the priority list,
-            # while retaining the migrated enabled selection.
-            expected_settings["load_provider_priorities"]["series"].append("huhu")
     for name, expected in expected_settings.items():
         assert current_settings[name] == expected, f"Settings/subscriptions changed: {name}"
     assert config.is_initialized()

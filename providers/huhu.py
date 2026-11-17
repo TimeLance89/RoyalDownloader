@@ -25,6 +25,7 @@ from providers.models import (
     parse_episode_slug,
 )
 from media.session_manager import ProviderBlockedError
+from media.rejected_episode_audio import huhu_audio_rejected
 from providers.catalog import normalize_content_language
 
 
@@ -168,6 +169,8 @@ class HuhuScraper:
         tmdb_id = self._tmdb_id(base_slug)
         if not tmdb_id:
             return None
+        if huhu_audio_rejected((int(tmdb_id), season, episode)):
+            return None
         title = self._title_from_slug(base_slug)
         sources = self._post("source", {
             "type": "series",
@@ -202,6 +205,8 @@ class HuhuScraper:
         base_slug, season, episode = parsed
         tmdb_id = self._tmdb_id(base_slug)
         if not tmdb_id:
+            return ()
+        if huhu_audio_rejected((int(tmdb_id), season, episode)):
             return ()
         sources = self._post("source", {
             "type": "series",

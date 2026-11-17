@@ -13,7 +13,7 @@ catalog_probe_locks = {provider: threading.RLock() for provider in PROVIDER_CATA
 def episode_source_providers(series_providers, anime_providers):
     """Keep the configured order among alternatives; use SerienStream last."""
     providers = dict.fromkeys([
-        *(provider for provider in series_providers if provider != "huhu"),
+        *series_providers,
         *(provider for provider in anime_providers if provider == "aniworld"),
     ])
     return tuple(sorted(providers, key=lambda provider: provider == "serienstream"))

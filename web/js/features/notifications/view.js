@@ -70,7 +70,7 @@ export function createNotificationView(root, { getSnapshot, ui, coverUrl, subscr
 
     const detailText = hasIssue ? inboxIssueDetail(entry)
       : languagePendingCount ? "Die konkrete Episodensprache wird noch geprüft. Ungeprüfte Folgen werden nicht eingeplant."
-      : waitingLanguageCount ? "Die Episode ist verfügbar, aber noch nicht in deiner gewünschten Sprache."
+      : waitingLanguageCount ? "Wartet auf eine Quelle in deiner gewünschten Sprache."
       : waitingSourceCount ? "Die Episode ist bekannt, aber noch ohne geeignete Quelle."
       : upcomingCount ? "Angekündigte Folgen werden erst nach Veröffentlichung geprüft."
       : entry.status === "waiting_window" && openCount

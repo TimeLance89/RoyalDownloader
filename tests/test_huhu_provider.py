@@ -121,16 +121,6 @@ def test_huhu_episode_sources_keep_only_german_direct_hoster_urls():
     assert payload["episode"] == {"ids": {}, "season": 2, "episode": 4}
 
 
-def test_huhu_episode_api_rejects_legacy_requests():
-    from fastapi import HTTPException
-    import api.api_discovery_router as discovery
-
-    body = discovery.HuhuEpisodeLanguagesBody(slugs=["huhu:123:exact-show-s09e15"])
-    with pytest.raises(HTTPException) as error:
-        asyncio.run(discovery.api_huhu_episode_languages(body))
-    assert error.value.status_code == 409
-
-
 def test_huhu_english_only_source_is_not_a_german_episode():
     scraper, _calls = scraper_with(Response([
         {"type": "url", "url": "https://voe.sx/e/english", "languages": ["en"]},
@@ -160,24 +150,42 @@ def test_huhu_protection_responses_are_respected(status, text, reason):
     assert error.value.reason == reason
 
 
-def test_catalog_migration_removes_huhu_from_series_only(monkeypatch):
+def test_catalog_migration_enables_huhu_for_series_once(monkeypatch):
     writes = []
     monkeypatch.setattr(config, "_update_all", lambda values: writes.append(values) or True)
     old = {
-        "provider_catalog_revision": "8",
-        "series_provider_priority": "serienstream,huhu,moflix",
-        "series_provider_enabled": "huhu,serienstream",
+        "provider_catalog_revision": "9",
+        "series_provider_priority": "serienstream,moflix",
+        "series_provider_enabled": "serienstream",
         "movie_provider_enabled": "huhu,filmpalast",
     }
 
     migrated = config._migrate_provider_catalog(old)
 
-    assert migrated["series_provider_priority"] == "serienstream,moflix"
-    assert migrated["series_provider_enabled"] == "serienstream"
+    assert "huhu" in migrated["series_provider_priority"].split(",")
+    assert set(migrated["series_provider_enabled"].split(",")) == {"huhu", "serienstream"}
     assert migrated["movie_provider_enabled"] == old["movie_provider_enabled"]
-    assert "huhu" not in config.SERIES_PROVIDER_DEFAULTS
-    assert "huhu" in config.MOVIE_PROVIDER_DEFAULTS
+    migrated["series_provider_enabled"] = "serienstream"
+    assert config._migrate_provider_catalog(migrated)["series_provider_enabled"] == "serienstream"
     assert len(writes) == 1
+
+
+def test_huhu_episode_audio_rejection_persists_across_urls(monkeypatch, tmp_path):
+    from media import rejected_episode_audio as rejected
+
+    monkeypatch.setattr(rejected, "_path", lambda: tmp_path / "rejected.sqlite3")
+    episode_url = "https://huhu.to/item?id=42&type=series&season=1&episode=3"
+    episode = rejected.huhu_episode_identity(episode_url)
+    assert episode == (42, 1, 3)
+    assert not rejected.huhu_audio_rejected(episode)
+    assert rejected.reject_huhu_audio(episode)
+    assert rejected.huhu_audio_rejected(rejected.huhu_episode_identity(episode_url + "&token=changed"))
+    assert not rejected.huhu_audio_rejected((42, 1, 4))
+    scraper, calls = scraper_with(Response([]))
+    assert scraper.get_movie("huhu:42:exact-show-s01e03") is None
+    assert scraper.get_episode_languages("huhu:42:exact-show-s01e03") == ()
+    assert not calls
+    assert rejected.huhu_episode_identity("https://huhu.to/item?id=42&type=movie") is None
 
 
 def test_movie_provider_migration_puts_filmpalast_then_huhu_and_filmfrei_last(

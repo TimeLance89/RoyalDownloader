@@ -30,7 +30,12 @@ export function createSeriesDetailsLoader(root, status, {
               && (fresh.jellyfin_pending || fresh.jellyfin_available !== true || fresh.jellyfin_stale)) {
             merged.in_jellyfin = true;
           }
-          if ((previousEpisode?.language_checked || previousEpisode?.huhu_language_checked)
+          if (episode.waiting_for_language) {
+            merged.language_checked = merged.huhu_language_checked = false;
+            merged.language_available = merged.huhu_language_available = false;
+            merged.content_languages = [];
+          }
+          if (!episode.waiting_for_language && (previousEpisode?.language_checked || previousEpisode?.huhu_language_checked)
               && !episode.language_checked && !episode.huhu_language_checked) {
             // Listing metadata must not replace concrete episode-track evidence.
             merged.content_languages = previousEpisode.content_languages;

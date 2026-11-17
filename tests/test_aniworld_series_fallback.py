@@ -65,8 +65,8 @@ def bridge(monkeypatch, tmp_path):
 
 
 def test_disabled_anime_sources_are_not_added_to_series_order():
-    assert episode_source_providers(["huhu", "serienstream"], ["mkissa"]) == ("serienstream",)
-    assert episode_source_providers(["huhu", "aniworld"], ["aniworld", "mkissa"]) == ("aniworld",)
+    assert episode_source_providers(["huhu", "serienstream"], ["mkissa"]) == ("huhu", "serienstream")
+    assert episode_source_providers(["huhu", "aniworld"], ["aniworld", "mkissa"]) == ("huhu", "aniworld")
 
 
 def test_native_seasons_and_episode_flags_are_preserved_and_films_are_excluded(bridge):
@@ -199,20 +199,6 @@ def test_identical_known_numbering_keeps_the_aniworld_source(bridge):
     server.state.series_cache[base] = FilmpalastSeries("Sailor Moon", base, "https://huhu.to/item", year="1992",
         seasons={1: [SeriesEpisode(1, number, f"{base}-s01e{number:02d}", "") for number in (1, 2)]})
     assert len(server.find_episode_fallbacks("Sailor Moon", 1, 1, source_slug=f"{base}-s01e01")) == 1
-
-
-def test_legacy_huhu_series_job_is_stopped_before_source_resolution(monkeypatch, bridge, tmp_path):
-    slug = "huhu:3570:sailor-moon-s01e01"
-    primary = FilmpalastMovie("Sailor Moon S01E01", "https://huhu.to/item", provider="huhu",
-        hosters=[HosterInfo("VOE", "https://voe.sx/sub", "de")])
-    server.state.picked.add(slug)
-    monkeypatch.setattr(server, "_extract_from_movie", lambda *_args, **_kwargs: pytest.fail("source resolved"))
-    failed = []
-    monkeypatch.setattr(server, "on_job_done", lambda ok, reason, *_args, **_kwargs: failed.append((ok, reason)))
-
-    assert server.run_download_queue([(primary, slug)], tmp_path, start_queue=False) == set()
-    assert failed == [(False, "Huhu ist für Serien deaktiviert.")]
-    assert not bridge.searches
 
 
 def test_language_probe_finds_aniworld_and_keeps_original_queue_identity(monkeypatch, bridge):

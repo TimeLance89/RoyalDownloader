@@ -368,11 +368,13 @@ def test_fallback_uses_exact_series_season_episode_and_ttl_cache(monkeypatch):
     assert calls == {"search": 1, "load": 1}
 
 
-def test_huhu_series_slug_never_calls_the_provider(monkeypatch):
-    monkeypatch.setattr(server, "get_huhu_scraper", lambda: pytest.fail("Huhu series call"))
+def test_huhu_series_fallback_resolves_exact_tmdb_identity(monkeypatch):
+    calls = []
+    monkeypatch.setattr(server, "_search_series_for_provider", lambda *_: pytest.fail("title search"))
+    monkeypatch.setattr(server, "_load_series_for_provider", lambda *args: calls.append(args))
 
-    assert server.load_movie_for_slug("huhu:123:exact-show-s02e04") is None
-    assert server._fallback_get_series("huhu", "Exact Show", tmdb_id="123") is None
+    server._fallback_get_series("huhu", "Exact Show", tmdb_id="555123")
+    assert calls == [("huhu", "huhu:555123:tmdb")]
 
 
 def test_first_exact_fallback_starts_without_searching_later_providers(monkeypatch):
@@ -385,7 +387,7 @@ def test_first_exact_fallback_starts_without_searching_later_providers(monkeypat
     calls = []
     monkeypatch.setattr(
         server, "provider_priority",
-        lambda _kind: ["serienstream", "huhu", "moflix"],
+        lambda _kind: ["serienstream", "moflix", "huhu"],
     )
     monkeypatch.setattr(
         server, "_fallback_get_series",
