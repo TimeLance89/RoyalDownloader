@@ -1,6 +1,7 @@
 """Auswahlregeln fuer automatisch abonnierte Serienepisoden."""
 
 from features.episode_language_policy import episode_language_state
+from providers.models import parse_episode_slug
 
 WATCH_MODE_ALL = "all"
 WATCH_MODE_LATEST_SEASON = "latest_season"
@@ -277,3 +278,50 @@ def classify_subscription_episode_states(
         else:
             result[episode.slug] = "available"
     return result
+
+
+def subscription_needs_episode(entry: dict, slug: str) -> bool:
+    """Match a queued episode only within its subscription and selected scope."""
+    parsed = parse_episode_slug(slug)
+    if parsed is None or parsed[1:] in normalize_episode_history(entry.get("manual_cancelled_episodes")):
+        return False
+    if parsed[0] != entry.get("base_slug") and slug not in entry.get("known_slugs", ()):
+        return False
+    return any(
+        status in {"available", "language_pending", "waiting_for_language"}
+        and (other := parse_episode_slug(candidate)) is not None and other[1:] == parsed[1:]
+        for candidate, status in (entry.get("episode_states") or {}).items()
+    )
+
+
+def retain_queued_subscription_episodes(entry: dict, queued: set[str], pending: set[str]) -> None:
+    """Keep active queue identities while catalog providers or evidence change."""
+    cancelled = normalize_episode_history(entry.get("manual_cancelled_episodes"))
+    by_episode = {
+        parsed[1:]: slug for slug in queued
+        if (parsed := parse_episode_slug(slug)) is not None and parsed[1:] not in cancelled
+    }
+    replacements = {
+        slug: by_episode[parsed[1:]]
+        for slug, status in (entry.get("episode_states") or {}).items()
+        if status in {"available", "language_pending", "waiting_for_language"}
+        and (parsed := parse_episode_slug(slug)) is not None and parsed[1:] in by_episode
+    }
+    if not replacements:
+        return
+    retained = set(replacements.values())
+    pending.difference_update(replacements)
+    pending.update(retained)
+    entry["known_slugs"] = list(dict.fromkeys(replacements.get(slug, slug) for slug in entry["known_slugs"]))
+    entry["episode_states"] = {
+        replacements.get(slug, slug): "available" if slug in replacements else status
+        for slug, status in entry["episode_states"].items()
+    }
+    for field in ("waiting_language_slugs", "language_pending_slugs", "waiting_release_slugs", "upcoming_slugs"):
+        entry[field] = [slug for slug in entry.get(field, ()) if slug not in replacements and slug not in retained]
+    # Evidence belongs to its actual provider. Never transfer a fallback's
+    # language claim to the source of a running download.
+    checks = entry.get("episode_language_checks") or {}
+    for alias, original in replacements.items():
+        if alias != original:
+            checks.pop(alias, None)
