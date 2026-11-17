@@ -27,6 +27,7 @@ from typing import Callable, Dict, Optional
 from urllib.parse import urlparse
 
 from core.network_guard import UnsafeNetworkTarget, ensure_public_http_url, request_proxy_kwargs, safe_proxy_url
+from media.audio_verification import verify_german_audio
 from media.http_resume import (
     HTTPResumeStore, cleanup_expired_http_resumes, range_matches, strong_etag,
 )
@@ -521,6 +522,30 @@ def build_movie_filename(movie_title: str, year: str = "") -> str:
     return _bounded_filename(stem, ".mp4", f"movie:{movie_title}:{year}")
 
 
+_AUDIO_LANGUAGE_TAGS = {
+    "de": "deu", "en": "eng", "es": "spa", "fr": "fra", "it": "ita",
+    "nl": "nld", "pl": "pol", "pt": "por", "tr": "tur", "uk": "ukr", "ja": "jpn",
+}
+
+
+def _yt_dlp_audio_args(stream_type: str, audio_language: str, strict: bool) -> list[str]:
+    if stream_type not in {"hls", "dash"} or not audio_language:
+        return []
+    language = re.sub(r"[^a-z]", "", audio_language.casefold())[:3]
+    if not language:
+        return []
+    preferred = f"[language^={language}]"
+    if not strict:
+        return ["-f", f"bestvideo+bestaudio{preferred}/best"]
+    args = ["-f", f"bestvideo+bestaudio{preferred}/best{preferred}"]
+    tag = _AUDIO_LANGUAGE_TAGS.get(language)
+    if tag:
+        # Only the separate-stream branch invokes Merger, with one audio track.
+        # A pre-muxed fallback keeps the metadata already present in its file.
+        args += ["--postprocessor-args", f"Merger+ffmpeg_o:-metadata:s:a:0 language={tag}"]
+    return args
+
+
 class DownloadJob:
     def __init__(
         self,
@@ -542,6 +567,7 @@ class DownloadJob:
         job_id: str = "",
         attempt_id: str = "",
         on_start: Optional[Callable[[], None]] = None,
+        on_audio_verification: Optional[Callable[[str, str], None]] = None,
     ):
         self.stream_url = stream_url
         self.stream_type = stream_type
@@ -550,6 +576,7 @@ class DownloadJob:
         self.origin = origin
         self.audio_language = audio_language
         self.strict_audio_language = bool(strict_audio_language)
+        self.on_audio_verification = on_audio_verification
         self.headers = dict(headers or {})
         # Stabiler fachlicher Schluessel fuer Queue-Aktionen. Der Downloader
         # selbst wertet ihn nicht aus, damit bestehende Aufrufer kompatibel
@@ -741,6 +768,15 @@ class DownloadJob:
             if final is None:
                 detail = validation_errors[0] if validation_errors else "keine gültige Mediendatei"
                 return False, f"Ungültiger Download: {detail}"
+
+            if self.on_audio_verification:
+                status, detail = verify_german_audio(final, lambda: self._cancelled, self.on_audio_verification)
+                if self._cancelled or status == "cancelled":
+                    return False, "Abgebrochen"
+                self.on_audio_verification(status, detail)
+                if status == "mismatch":
+                    self.failure_kind = "audio_language_mismatch"
+                    return False, f"Deutsche Tonspur nicht bestätigt. {detail}"
 
             target_path = self.out_path if final.suffix == self.out_path.suffix else self.out_path.with_suffix(final.suffix)
             if self._cancelled:
@@ -963,18 +999,7 @@ class DownloadJob:
             "--user-agent", BROWSER_USER_AGENT,
             "--proxy", safe_proxy_url(),
         ]
-        if self.stream_type in {"hls", "dash"} and self.audio_language:
-            language = re.sub(r"[^a-z]", "", self.audio_language.casefold())[:3]
-            if language:
-                if self.strict_audio_language:
-                    # A pinned queue language must never silently fall back to
-                    # an unlabeled/foreign audio rendition.
-                    cmd += [
-                        "-f",
-                        f"bestvideo+bestaudio[language^={language}]/best[language^={language}]",
-                    ]
-                else:
-                    cmd += ["-f", f"bestvideo+bestaudio[language^={language}]/best"]
+        cmd += _yt_dlp_audio_args(self.stream_type, self.audio_language, self.strict_audio_language)
         if self.stream_type == "mkv":
             cmd += ["--remux-video", "mp4"]
         if (

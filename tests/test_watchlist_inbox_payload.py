@@ -322,3 +322,24 @@ def test_open_publishes_provider_failure_instead_of_leaving_clients_stale(
     assert entry["check_in_progress"] is False
     assert saved[-1] == entry
     assert events == [{"type": "watchlist_update", "watchlist": [entry]}]
+
+
+def test_confirmed_audio_mismatch_waits_without_an_inbox_problem(inbox_payload):
+    item = inbox_payload(
+        {"failed_downloads": {
+            "huhu:75219:show-s10e02": {"audio_language_mismatch": True, "message": "English audio"},
+            "broken": {"message": "Connection failed"},
+        }},
+        pending={"huhu:75219:show-s10e02", "broken"},
+    )
+    assert item["waiting_language_count"] == 1
+    assert item["open_count"] == item["failed_count"] == 1
+    assert item["status"] == "failed"
+
+    item = inbox_payload(
+        {"failed_downloads": {"episode": {"audio_language_mismatch": True}}},
+        pending={"episode"},
+    )
+    assert item["failed_count"] == item["open_count"] == 0
+    assert item["waiting_language_count"] == 1
+    assert item["status"] == "waiting_for_language"

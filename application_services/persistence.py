@@ -4,7 +4,6 @@
 
 import hashlib
 import uuid
-from core.queue_jobs import is_retired_series_slug
 
 from application_services.runtime import (
     import_backend_namespace,
@@ -541,7 +540,7 @@ def _retry_queue_job(
         if job.get("status") not in {"failed", "cancelled"}:
             return None
         slug = str(job.get("slug") or "")
-        if not slug or is_retired_series_slug(slug) or slug in state.queue_job_by_slug:
+        if not slug or slug in state.queue_job_by_slug:
             return None
         state.queue_history.pop(index)
         job.update({
@@ -820,8 +819,14 @@ def watchlist_payload() -> dict:
             # manual retries which deliberately retain their failure history.
             waiting_release = (set(w.get("waiting_release_slugs") or []) & pending) - queued
             episode_states = w.get("episode_states") if isinstance(w.get("episode_states"), dict) else {}
+            failures = w.get("failed_downloads") if isinstance(w.get("failed_downloads"), dict) else {}
+            audio_mismatches = {
+                slug for slug, failure in failures.items()
+                if isinstance(failure, dict) and failure.get("audio_language_mismatch")
+            }
             waiting_language = (
-                set(w.get("waiting_language_slugs") or [])
+                audio_mismatches
+                | set(w.get("waiting_language_slugs") or [])
                 | queued_language_wait
                 | {slug for slug, status in episode_states.items() if status == "waiting_for_language"}
             ) - queued
@@ -834,13 +839,12 @@ def watchlist_payload() -> dict:
             # release states authoritative even if that old slug is briefly
             # still present in the in-memory pending/failure maps.
             language_pending = (set(w.get("language_pending_slugs") or [])
-                                | {slug for slug, status in episode_states.items() if status == "language_pending"}) - queued
+                                | {slug for slug, status in episode_states.items() if status == "language_pending"}) - queued - waiting_language
             non_actionable = waiting_release | waiting_language | upcoming | language_pending
             actionable_pending = pending - non_actionable
             open_pending = actionable_pending - queued
             queued_count = len(queued)
-            failures = w.get("failed_downloads") if isinstance(w.get("failed_downloads"), dict) else {}
-            failed_count = len(set(failures) & open_pending)
+            failed_count = len((set(failures) - audio_mismatches) & open_pending)
             mode = normalize_watch_mode(w.get("download_mode"))
             cleanup_mode = normalize_cleanup_mode(w.get("cleanup_mode"))
             error = str(w.get("last_error") or "")

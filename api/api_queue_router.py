@@ -16,7 +16,6 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
-from core.queue_jobs import RETIRED_SERIES_SOURCE_REASON, is_retired_series_slug
 from features.watchlist_policy import normalize_episode_history, serialize_episode_history
 
 from providers.mkissa import SOURCE_PREFIX as MKISSA_PREFIX
@@ -349,7 +348,6 @@ def _enqueue_automatic_downloads(
                 key = content_keys.get(slug, "")
                 if (
                     slug not in state.picked
-                    or is_retired_series_slug(slug)
                     or slug in already_counted
                     or slug in active_slugs
                     or movie is None
@@ -437,7 +435,7 @@ def _retryable_legacy_source_failure(job: dict) -> bool:
     if str(job.get("status") or "") != "failed":
         return False
     slug = str(job.get("slug") or "")
-    if is_retired_series_slug(slug) or parse_episode_slug(slug) is None:
+    if parse_episode_slug(slug) is None:
         return False
     # Only pre-feature terminal failures are migrated. A new job that already
     # exhausted the bounded automatic source retry budget must remain terminal
@@ -548,7 +546,7 @@ def _recover_evicted_personal_episode_failures() -> int:
 
         for request in requests:
             slug = str(request.get("media_key") or "")
-            if not slug or is_retired_series_slug(slug) or parse_episode_slug(slug) is None or slug in active_slugs:
+            if not slug or parse_episode_slug(slug) is None or slug in active_slugs:
                 continue
             historical_job_id = str(request.get("job_id") or "")
             # If the full queue history row still exists, its exact error decides
@@ -1032,10 +1030,6 @@ async def api_queue_add(body: QueueAddBody, request: Request = None):
         skipped_details: dict[str, str] = {}
         movie_jellyfin_ready: bool | None = None
         for slug in body.slugs:
-            if is_retired_series_slug(slug):
-                skipped += 1
-                skipped_details[slug] = RETIRED_SERIES_SOURCE_REASON
-                continue
             scheduled_reason = _scheduled_episode_reason(slug)
             if scheduled_reason:
                 skipped += 1
@@ -1475,8 +1469,6 @@ async def api_queue_job_cancel(job_id: str):
 async def api_queue_job_retry(job_id: str):
     def _work():
         previous = dict(_job_or_404(job_id, include_history=True))
-        if is_retired_series_slug(previous["slug"]):
-            raise HTTPException(409, detail=RETIRED_SERIES_SOURCE_REASON)
         if previous.get("status") == "cancelling":
             raise HTTPException(409, detail={"code": "queue_job_cancelling"})
         if previous.get("status") not in {"failed", "cancelled"}:
@@ -1584,8 +1576,6 @@ async def api_queue_job_move(job_id: str, body: QueueMoveBody):
 async def api_queue_job_resume(job_id: str):
     def _work():
         job = _job_or_404(job_id)
-        if is_retired_series_slug(job["slug"]):
-            raise HTTPException(409, detail=RETIRED_SERIES_SOURCE_REASON)
         if job.get("status") == "waiting_provider":
             slug = str(job.get("slug") or "")
             with state.queue_claim_lock:

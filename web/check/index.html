@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Royal · Download-Check</title>
+  <link rel="stylesheet" href="/check/check.css">
+  <script type="module" src="/check/check.js"></script>
+</head>
+<body>
+  <main>
+    <header>
+      <div><a class="home" href="/">Royal Downloader</a><h1>Download-Check</h1></div>
+      <p class="connection" id="connection" role="status">Verbinde …</p>
+    </header>
+    <p id="access" hidden>Für diese Ansicht ist eine Anmeldung bei <a href="/">Royal Downloader</a> erforderlich.</p>
+    <div id="dashboard" hidden>
+      <section aria-labelledby="current-title">
+        <div class="section-heading"><h2 id="current-title">Aktuelle Queue</h2><span id="counts"></span></div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th scope="col">Datei</th><th scope="col">Quelle und Sprache</th><th scope="col">Transfer</th><th scope="col">Tonprüfung</th></tr></thead>
+            <tbody id="jobs"></tbody>
+          </table>
+        </div>
+      </section>
+      <div class="lower">
+        <section aria-labelledby="history-title">
+          <div class="section-heading"><h2 id="history-title">Letzte Ergebnisse</h2>
+            <select id="result-filter" aria-label="Ergebnisse filtern">
+              <option value="">Alle Ergebnisse</option><option value="completed">Erfolgreich</option>
+              <option value="failed">Fehlgeschlagen</option><option value="cancelled">Abgebrochen</option>
+            </select>
+          </div>
+          <ol id="results"></ol>
+        </section>
+        <section aria-labelledby="activity-title">
+          <div class="section-heading"><h2 id="activity-title">Live-Aktivität</h2></div>
+          <ol id="events"><li class="empty">Ereignisse erscheinen, sobald Royal etwas meldet.</li></ol>
+        </section>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

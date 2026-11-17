@@ -3,7 +3,6 @@
 # ruff: noqa: F821
 
 from features.subscription_languages import subscription_content_languages
-from core.queue_jobs import is_retired_series_slug
 from features.watchlist_policy import normalize_episode_history
 
 import threading
@@ -49,8 +48,6 @@ def _watchlist_entry_for_episode(slug: str) -> dict | None:
 
 def _watchlist_episode_is_actionable(entry: dict, slug: str) -> bool:
     """Reject stale pending slugs that are known language/release wait states."""
-    if is_retired_series_slug(slug):
-        return False
     episode = parse_episode_slug(slug)
     if episode and episode[1:] in normalize_episode_history(entry.get("manual_cancelled_episodes")):
         return False

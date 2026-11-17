@@ -6,6 +6,7 @@ from providers.sentinel_runtime import observe_hoster_safely, hoster_profile_saf
 from providers.catalog import selected_source_language_allowed
 from features.episode_language_policy import concrete_source_language
 from media.source_language import stream_audio_language_allowed
+from media.rejected_episode_audio import huhu_audio_rejected, huhu_episode_identity, reject_huhu_audio
 
 from application_services.runtime import (
     import_backend_namespace,
@@ -111,6 +112,10 @@ def _extract_from_movie(
     Hoster einfach ihre direkte URL verwenden."""
     res = _HosterResult()
     res.provider = _movie_provider(movie)
+    huhu_episode = huhu_episode_identity(movie.url)
+    if huhu_episode and huhu_audio_rejected(huhu_episode):
+        log("Huhu für diese Folge übersprungen: Tonspur bereits abgewiesen.", "warn")
+        return res
     if (
         res.provider == "serienstream"
         and not state.provider_health.request_allowed("serienstream")
@@ -155,6 +160,8 @@ def _extract_from_movie(
         )
     for hoster in ranked_hosters:
         if not hoster.url:
+            continue
+        if huhu_episode and normalize_content_language(hoster.language) != "de":
             continue
         hoster_audio_language = str(
             getattr(hoster, "audio_language", "") or ""
@@ -807,6 +814,10 @@ def _enqueue_hoster_attempt(
     if (cancelled and cancelled()) or not _queue_slug_claimed(movie_slug):
         return False
     required_language = _queue_requested_language(movie_slug)
+    huhu_episode = huhu_episode_identity(movie.url) if parse_episode_slug(movie_slug) else None
+    if huhu_episode and huhu_audio_rejected(huhu_episode):
+        log("Huhu für diese Folge übersprungen: Tonspur bereits abgewiesen.", "warn")
+        return False
     if required_language:
         movie._required_content_language = required_language
         for candidate in source_movies:
@@ -868,6 +879,14 @@ def _enqueue_hoster_attempt(
             current.get("job_id") != logical_job["job_id"]
             or current.get("attempt_id") != logical_attempt_id
         ):
+            return
+        if getattr(job, "failure_kind", "") == "audio_language_mismatch":
+            if huhu_episode:
+                if reject_huhu_audio(huhu_episode):
+                    log("Huhu-Tonspur abgewiesen und für diese Folge dauerhaft gesperrt.", "warn")
+                else:
+                    log("Huhu-Tonspur abgewiesen. Sperre konnte nicht gespeichert werden.", "err")
+            on_job_done(False, msg, label, out_path, slug=movie_slug, job_id=logical_job["job_id"], attempt_id=logical_attempt_id)
             return
         if result.hoster_url_used:
             state.hoster_intel.record_download(
@@ -1114,7 +1133,18 @@ def _enqueue_hoster_attempt(
             provider=result.provider or _movie_provider(movie, movie_slug),
             hoster=hoster_used,
             quality=result.quality,
+            audio_check_status="",
+            audio_check_detail="",
         )
+
+    def _audio_verification(status, detail):
+        updated = _update_queue_job(
+            movie_slug, expected_job_id=logical_job["job_id"],
+            expected_attempt_id=logical_attempt_id, audio_check_status=status,
+            audio_check_detail=detail,
+        )
+        if updated:
+            broadcast({"type": "audio_verification", "job": updated})
 
     job = DownloadJob(
         stream_url=stream_url,
@@ -1147,6 +1177,8 @@ def _enqueue_hoster_attempt(
         ),
         on_done=_attempt_done,
         on_start=_download_started,
+        on_audio_verification=_audio_verification
+        if logical_job.get("media_type") == "series" and (required_language == "de" or huhu_episode) else None,
         job_id=logical_job["job_id"],
         attempt_id=logical_attempt_id,
         allow_slow=last_resort,
