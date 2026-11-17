@@ -1432,10 +1432,16 @@ def _apply_watchlist_entry_state(entry: dict, calculated: dict) -> set[str]:
                     for slug, record in entry["episode_language_checks"].items()}
     _update_watchlist_language_states(entry, exact_states)
     entry["language_pending_slugs"] = sorted(slug for slug, status in entry["episode_states"].items() if status == "language_pending")
+    from features.watchlist_policy import retain_queued_subscription_episodes
+
+    pending = state.watchlist_new_slugs.get(entry["base_slug"], set())
+    retain_queued_subscription_episodes(entry, previous_slugs & getattr(state, "picked", set()), pending)
+    if pending:
+        state.watchlist_new_slugs[entry["base_slug"]] = pending
     entry["last_checked"] = time.time()
     entry["last_error"] = ""
     entry["check_in_progress"] = False
-    return previous_slugs - set(state.watchlist_new_slugs.get(entry["base_slug"], set()))
+    return previous_slugs - pending
 
 
 def _update_watchlist_entry_state(

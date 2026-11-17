@@ -1342,6 +1342,15 @@ def _cancel_withdrawn_watchlist_slugs(slugs: set[str], reason: str) -> set[str]:
                         for pending in state.watchlist_new_slugs.values()
                         for slug in pending
                     }
+                    from features.watchlist_policy import subscription_needs_episode
+
+                    currently_required.update(
+                        slug for slug in slugs
+                        if slug in state.picked and any(
+                            subscription_needs_episode(entry, slug)
+                            for entry in state.watchlist
+                        )
+                    )
                     cancellable = set(slugs) - currently_required
                     if cancellable:
                         _cancel_queue_slugs(cancellable, reason)
