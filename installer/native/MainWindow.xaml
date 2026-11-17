@@ -168,7 +168,7 @@
               <TextBlock Text="Einmaliger Einrichtungscode – bitte sicher aufbewahren:" Foreground="#536785" Margin="0,16,0,6"/>
               <TextBox x:Name="FinishedToken" IsReadOnly="True"/>
               <Button Content="RoyalDownloader öffnen" Click="OpenRoyal_Click" HorizontalAlignment="Left" Margin="0,23,0,0"/>
-              <TextBlock Text="Danach übernimmt der bestehende RoyalDownloader-Einrichtungsassistent (Konto, TMDB, Quellen und optionale Jellyfin-Verbindung)." 
+              <TextBlock Text="Danach übernimmt der bestehende RoyalDownloader-Einrichtungsassistent (Konto, TMDB, Quellen und optionale Jellyfin-Verbindung)."
                          TextWrapping="Wrap" Foreground="#536785" Margin="0,20,0,0"/>
             </StackPanel>
           </StackPanel>
