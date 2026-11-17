@@ -43,6 +43,9 @@ def _search_series_for_provider(provider: str, query: str) -> List[FilmpalastSer
     if provider == "moflix":
         with state.moflix_lock:
             return get_moflix_scraper().search_series(query)
+    if provider == "huhu":
+        with state.huhu_lock:
+            return get_huhu_scraper().search_series(query)
     if provider == "kinoger":
         return KinogerScraper(progress_cb=log).search_series(query)
     if provider == "megakino":
@@ -75,6 +78,9 @@ def _load_series_for_provider(provider: str, value: str) -> Optional[FilmpalastS
     if provider == "moflix":
         with state.moflix_lock:
             return get_moflix_scraper().get_series(value)
+    if provider == "huhu":
+        with state.huhu_lock:
+            return get_huhu_scraper().get_series(value)
     if provider == "kinoger":
         return KinogerScraper(progress_cb=log).get_series(value)
     if provider == "megakino":
@@ -308,6 +314,9 @@ def _fetch_series_provider_page(
         "sflix": SflixScraper,
         "ridomovies": RidomoviesScraper,
     }
+    if provider == "huhu":
+        with state.huhu_lock:
+            return list(get_huhu_scraper().list_series(source_page))
     scraper_class = scraper_classes.get(provider)
     if scraper_class is None:
         return []
@@ -1104,6 +1113,7 @@ def series_to_dict(
             for episode in series.all_episodes
             if quick_status["episodes"].get(episode.slug)
         }
+    from media.rejected_episode_audio import huhu_episode_rejected
     seasons = []
     for s in series.season_numbers:
         episodes = []
@@ -1114,6 +1124,8 @@ def series_to_dict(
                 "url": ep.url, "release_name": ep.release_name,
                 "release_at": ep.release_at, "release_label": ep.release_label,
                 "content_languages": list(ep.content_languages),
+                "waiting_for_language": huhu_episode_rejected(ep.slug, tmdb_id)
+                    and not (ep.slug in downloaded or in_jellyfin),
                 "queued": ep.slug in state.picked,
                 "downloaded": ep.slug in downloaded,
                 "in_jellyfin": in_jellyfin,

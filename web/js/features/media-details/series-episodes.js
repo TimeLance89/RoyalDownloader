@@ -226,7 +226,7 @@ export function createSeriesEpisodes(root, {
       && !episode.downloaded && !episode.in_jellyfin && !episode.unreleased && !isEpisodeQueued(episode);
     const offered = episode.content_languages || [];
     const languageLock = isEpisodeQueued(episode) ? "" : episodeLanguageLockLabel(episode, series);
-    const languageText = languageLock || (languagePending
+    const languageText = (episode.waiting_for_language ? "WARTET AUF PASSENDE SPRACHE" : languageLock) || (languagePending
       ? (offered.length === 1 ? `NUR ${String(offered[0]).toUpperCase()}` : "PRÜFUNG") : "");
     const stateLabel = tile.querySelector(".ep-download-state");
     if (stateLabel) {
@@ -252,6 +252,7 @@ export function createSeriesEpisodes(root, {
         : languagePending ? `Folge ${episode.episode}, ${languageText}, Quellenprüfung offen, Download gesperrt`
         : `Folge ${episode.episode}`);
     if (isEpisodeQueued(episode)) tile.title = "Vorgemerkt · Sprache und Quellen werden vor dem Download geprüft";
+    else if (episode.waiting_for_language) tile.title = "Wartet auf passende Sprache · weitere Quellen werden geprüft";
     else if (providerNeedsExactEpisodeLanguage(series) && !episodeLanguageChecked(episode)
         && !episode.downloaded && !episode.in_jellyfin && !episode.unreleased) {
       tile.title = episode.language_check_error

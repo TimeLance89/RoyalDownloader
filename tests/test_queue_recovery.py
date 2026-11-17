@@ -19,7 +19,7 @@ def _document(slug: str, revision: int) -> dict:
     }
 
 
-def test_huhu_series_are_cancelled_on_restart_but_films_are_kept(tmp_path):
+def test_huhu_series_and_films_survive_restart(tmp_path):
     path = tmp_path / "download_queue.json"
     slug = "huhu:75219:9-1-1-notruf-l-a-s10e03"
     old = _document(slug, 1)
@@ -28,14 +28,12 @@ def test_huhu_series_are_cancelled_on_restart_but_films_are_kept(tmp_path):
     old["jobs"].append(movie)
     path.write_text(json.dumps(old), encoding="utf-8")
 
-    recovered, migrated = queue_jobs.load_document(path)
+    recovered, _ = queue_jobs.load_document(path)
 
-    assert migrated
-    assert [job["job_id"] for job in recovered["jobs"]] == [movie["job_id"]]
-    retired = recovered["history"][0]
-    assert retired["slug"] == slug
-    assert retired["status"] == "cancelled"
-    assert retired["next_retry_at"] == 0
+    assert [job["slug"] for job in recovered["jobs"]] == [slug, movie["slug"]]
+    assert recovered["jobs"][0]["status"] == "waiting_provider"
+    assert recovered["jobs"][0]["next_retry_at"] == 9000
+    assert recovered["history"] == []
 
 
 def test_previous_verified_snapshot_is_preserved_before_each_replace(tmp_path):

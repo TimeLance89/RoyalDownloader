@@ -154,7 +154,7 @@ def test_missing_german_episode_searches_every_enabled_matching_source_and_prese
     body = discovery.SeriesEpisodeLanguagesBody(provider="serienstream", slugs=[slug], title="Exact Show", tmdb_id=123)
     try:
         result = asyncio.run(discovery.api_series_episode_languages(body))
-        assert sorted(calls) == ["filmpalast", "moflix"]
+        assert sorted(calls) == ["filmpalast", "huhu", "moflix"]
         assert result["available"] == {slug: True}
         assert result["languages"] == {slug: ["de"]}
         assert result["source_providers"] == {slug: ["filmpalast"]}
@@ -163,7 +163,7 @@ def test_missing_german_episode_searches_every_enabled_matching_source_and_prese
         assert sources[0].url == slug
         assert [source.provider for source in sources[1:]] == ["filmpalast"]
         asyncio.run(discovery.api_series_episode_languages(body))
-        assert len(calls) == 2, "completed source searches are shared with retries"
+        assert len(calls) == 3, "completed source searches are shared with retries"
     finally:
         broker.close()
 
@@ -310,3 +310,47 @@ def test_late_source_results_remain_available_to_next_request(monkeypatch):
     finally:
         release.set()
         broker.close()
+
+
+@pytest.mark.parametrize("alternative", [False, True])
+def test_rejected_huhu_audio_overrides_cached_de_and_keeps_alternatives(monkeypatch, tmp_path, alternative):
+    import server  # noqa: F401
+    import api.api_discovery_router as discovery
+    import api.api_library_router as library
+    import application_services.download_lifecycle as lifecycle
+    from features.episode_language_probe import EpisodeLanguageProbes
+    from media import rejected_episode_audio as rejected
+
+    languages = EpisodeLanguageProbes(workers=1)
+    sources = EpisodeSourceProbes(workers=1)
+    slug = "huhu:75219:exact-show-s10e02"
+    monkeypatch.setattr(rejected, "_path", lambda: tmp_path / "rejected.sqlite3")
+    assert rejected.reject_huhu_audio((75219, 10, 2))
+    # Seed the old German provider claim before the audio verdict.
+    languages.submit(("huhu", slug, ("de",)), lambda: ["de"], provider="huhu").result(timeout=2)
+    monkeypatch.setattr("features.episode_language_probe.language_probes", languages)
+    monkeypatch.setattr("features.episode_source_probe.episode_source_probes", sources)
+    runtime = SimpleNamespace(content_languages={"de"}, series_cache={},
+        movie_source_cache={}, movie_source_cache_lock=threading.Lock(), fallback_provider_errors={})
+    monkeypatch.setattr(discovery, "state", runtime)
+    monkeypatch.setattr(discovery, "provider_priority", lambda kind: ["huhu", "filmpalast"] if kind == "series" else [])
+    monkeypatch.setattr(discovery, "episode_languages_for_slug", lambda *_: pytest.fail("rejected primary queried"))
+    monkeypatch.setattr(library, "record_watchlist_episode_languages", lambda *_: None)
+    monkeypatch.setattr(library, "record_watchlist_episode_language_pending", lambda *_: None)
+    movie = FilmpalastMovie("Exact Show S10E02", "https://fixture.invalid/episode", provider="filmpalast",
+        hosters=[HosterInfo("VOE", "https://fixture.invalid/stream", "de")])
+    calls = []
+    monkeypatch.setattr(lifecycle, "find_episode_fallbacks",
+        lambda *args, **kwargs: calls.append(kwargs) or ([movie] if alternative else []))
+    try:
+        result = asyncio.run(discovery.api_series_episode_languages(discovery.SeriesEpisodeLanguagesBody(
+            provider="huhu", slugs=[slug], title="Exact Show", tmdb_id=75219, probe_id="rejected-source")))
+        assert result["available"][slug] is alternative
+        assert result["waiting_for_language"] == ([] if alternative else [slug])
+        assert slug not in result.get("pending", [])
+        assert result["languages"][slug] == (["de"] if alternative else [])
+        assert calls
+        assert any(row["provider"] == "huhu" and row["status"] == "language_rejected" for row in result["progress"])
+    finally:
+        languages.close()
+        sources.close()

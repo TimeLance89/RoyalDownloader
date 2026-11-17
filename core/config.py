@@ -142,7 +142,7 @@ CONTENT_LANGUAGE_DEFAULTS = provider_language_keys()
 UPDATE_MODE_MANUAL = "manual"
 UPDATE_MODE_AUTOMATIC = "automatic"
 UPDATE_MODES = {UPDATE_MODE_MANUAL, UPDATE_MODE_AUTOMATIC}
-PROVIDER_CATALOG_REVISION = 9
+PROVIDER_CATALOG_REVISION = 10
 
 
 _PROJECT_DATA_DIR = Path(__file__).resolve().parents[1] / "data"
@@ -661,13 +661,18 @@ def _migrate_provider_catalog(values: dict) -> dict:
             anime_enabled.append("aniworld")
         updates["anime_provider_enabled"] = ",".join(anime_enabled)
 
-    for setting in ("series_provider_priority", "series_provider_enabled"):
-        raw = updates.get(setting, values.get(setting))
-        if raw is not None:
-            providers = str(raw).split(",")
-            remaining = [key for key in providers if key.strip().casefold() != "huhu"]
-            if remaining != providers:
-                updates[setting] = ",".join(remaining)
+    if revision < 10:
+        priority = updates.get("series_provider_priority", values.get("series_provider_priority"))
+        if priority is not None and "huhu" not in {key.strip().casefold() for key in priority.split(",")}:
+            order = normalize_provider_order(priority, SERIES_PROVIDER_DEFAULTS)
+            order.remove("huhu")
+            order.insert(SERIES_PROVIDER_DEFAULTS.index("huhu"), "huhu")
+            updates["series_provider_priority"] = ",".join(order)
+        enabled = updates.get("series_provider_enabled", values.get("series_provider_enabled"))
+        if enabled is not None:
+            selection = normalize_provider_selection(enabled, SERIES_PROVIDER_DEFAULTS)
+            if "huhu" not in selection:
+                updates["series_provider_enabled"] = ",".join([*selection, "huhu"])
 
     _update_all(updates)
     return {**values, **updates}

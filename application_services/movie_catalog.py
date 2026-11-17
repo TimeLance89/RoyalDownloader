@@ -295,11 +295,9 @@ def load_movie_for_slug(slug: str) -> Optional[FilmpalastMovie]:
     elif slug.startswith(MOFLIX_PREFIX):
         with state.moflix_lock:
             movie = get_moflix_scraper().get_movie(slug)
-    elif slug.startswith(HUHU_MOVIE_PREFIX):
+    elif slug.startswith(("huhu:", HUHU_MOVIE_PREFIX)):
         with state.huhu_lock:
             movie = get_huhu_scraper().get_movie(slug)
-    elif provider == "huhu":
-        return None
     elif slug.startswith(EINSCHALTEN_PREFIX):
         movie = EinschaltenScraper(progress_cb=log).get_movie(slug)
     elif slug.startswith(KINOX_PREFIX):

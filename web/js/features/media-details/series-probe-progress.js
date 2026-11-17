@@ -2,6 +2,7 @@ const labels = {
   checking: "Prüft Stream-Sprachen", searching: "Sucht Serie, Episode und Quellen", waiting: "Wartet auf Prüfung",
   found: "Passende Sprache gefunden", checked: "Quellen geprüft",
   no_match: "Noch kein passender Treffer", retry: "Vorübergehend nicht erreichbar",
+  language_rejected: "Wartet auf passende Sprache",
 };
 
 export function createEpisodeProbeProgress(status) {
