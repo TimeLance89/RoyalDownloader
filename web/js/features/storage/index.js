@@ -395,7 +395,15 @@ export function createStorage(root) {
     scope.listen(document, "visibilitychange", () => { if (!document.hidden) void refreshStatus(true); });
   }
   installStorageUi(root);
-  const autopilot = createStorageAutopilot(root, { onChanged: () => void refreshStatus(false) });
+  async function refreshAfterAutopilotMutation() {
+    // A regular storage poll may have started before a mount confirmation was
+    // saved. Reusing that in-flight request could render stale mount status.
+    // First let it finish, then fetch a fresh overview after the mutation.
+    const current = scope;
+    if (statusRequest) await statusRequest;
+    if (current?.active && scope === current) await refreshStatus(false);
+  }
+  const autopilot = createStorageAutopilot(root, { onChanged: () => void refreshAfterAutopilotMutation() });
   return {
     mount() {
       if (shell?.active) return;

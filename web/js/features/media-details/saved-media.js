@@ -61,7 +61,13 @@ export function createSavedMediaAction(button, note, { client = api } = {}) {
         const payload = await client.post("/api/me/saved-media", {
           media_type: mediaType, tmdb_id: identity, title: String(activeMedia?.title || "Titel").slice(0, 240), saved: !saved,
         }, { signal: current.signal });
-        if (current.active) render(payload);
+        if (current.active) {
+          render(payload);
+          // One source of truth: the home rail now reflects the same personal
+          // wishes as the detail button and the Jellyfin synchronization.
+          const ownerDocument = button.ownerDocument;
+          ownerDocument?.dispatchEvent(new ownerDocument.defaultView.Event("royal:saved-media-changed"));
+        }
       } catch (error) {
         if (current.active && error.name !== "AbortError") note.textContent = `Vormerkung nicht geändert: ${error.message}`;
       } finally {

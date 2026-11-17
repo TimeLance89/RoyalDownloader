@@ -11,12 +11,12 @@ def test_new_discovery_rail_is_visible_and_old_layouts_migrate():
     assert "discovered" in HOME_RAIL_IDS
     defaults = HomeLayoutStore.defaults()
     assert "discovered" not in defaults["hidden_rails"]
-    assert defaults["rail_order"].index("discovered") == 1
+    assert defaults["rail_order"].index("discovered") == defaults["rail_order"].index("saved") + 1
     legacy = HomeLayoutStore.normalize({
         "rail_order": ["personal", "top", "series", "genre", "explore", "gems", "fresh"],
         "hidden_rails": [],
     })
-    assert legacy["rail_order"][1] == "discovered"
+    assert legacy["rail_order"][1:3] == ["saved", "discovered"]
     assert 'id: "discovered"' in (HOME / "layout-model.js").read_text(encoding="utf-8")
 
 

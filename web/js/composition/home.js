@@ -27,11 +27,17 @@ import { createHomeData } from "../features/home/data.js";
 
 import { createCarousel } from "../shared/components/carousel.js";
 import { createContinueWatching } from "../features/home/continue-watching.js";
+import { createHomeSavedMedia } from "../features/home/saved-media.js";
 
 export function composeHome({ discoveryPolicy, movieState, artworkUrls, recommendations, getDiscovery, getIntegrations, getCore, getSearch, getProfile }) {
   const services = {
   seasonalEvents: createSeasonalEvents(document.getElementById("tab-home")),
   discoveryPolicy,
+  savedMedia: createHomeSavedMedia(document.getElementById("tab-home"), {
+    getOwner: () => getProfile().auth.get().user?.id || "",
+    renderHomeRail: (...args) => services.actions.renderHomeRail(...args),
+    updateNavigation: (track) => services.carousel.updateHomeRailNavigation(track),
+  }),
   continueWatching: createContinueWatching(document.getElementById("home-continue-watching"), {
     openItem: (...args) => getDiscovery().moviePresentation.openPlaybackItem(...args),
     openDetails(item, details) {

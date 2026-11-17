@@ -71,8 +71,22 @@ const { fixture } = require("./performance-fixture.cjs");
         accept = true;
         // Re-check actionability after the refresh instead of reusing old
         // screen coordinates while the overview may still be settling.
+        // Distinguish a swallowed WebKit pointer click from an accepted write,
+        // and wait for the server acknowledgement before asserting the UI.
+        const confirmationWrite = page.waitForResponse(response =>
+          new URL(response.url()).pathname === "/api/storage/autopilot/volume"
+          && response.request().method() === "PUT" && response.ok());
         await button.click();
-        await page.waitForFunction(() => document.querySelector("#storage-standard-target-list .storage-standard-target-note strong")?.textContent === "Verfügbar");
+        await confirmationWrite;
+        try {
+          await page.waitForFunction(() =>
+            document.querySelector("#storage-standard-target-list .storage-standard-target-note strong")?.textContent === "Verfügbar",
+            null, { timeout: 15000 });
+        } catch (error) {
+          const health = await page.locator("#storage-autopilot-health").innerText();
+          const busy = await page.locator("#storage-autopilot").getAttribute("aria-busy");
+          throw new Error(`Confirmed mount did not render: writes=${writes.length}, busy=${busy}, health=${health}; ${error.message}`);
+        }
         assert.equal(writes.length, 1);
         assert.match(await page.locator("#storage-autopilot-health").innerText(), /Ein Volume ist stark belegt/);
         assert.equal(await targets.first().locator("button").count(), 0);

@@ -17,6 +17,13 @@ export function createMoviePresentation(catalogRoot, detailRoot, {
   });
   let scope = null, detailScope = null;
   function bind(node, type, callback) { actions.set(node, { type, callback }); }
+  function updateDiscoveryReason(label, result) {
+    const reasons = locale().startsWith("en")
+      ? { rising: "Trending up", new: "New in catalog" }
+      : { rising: "Aufsteiger", new: "Neu im Katalog" };
+    label.textContent = reasons[result.discovery_reason] || "";
+    label.hidden = !label.textContent;
+  }
   function dispatch(event) {
     for (let node = event.target; node; node = node.parentElement) {
       const action = actions.get(node);
@@ -207,6 +214,8 @@ export function createMoviePresentation(catalogRoot, detailRoot, {
     row.setAttribute("aria-label", [result.title, result.year].filter(Boolean).join(", "));
     const title = row.querySelector(".result-card-title");
     if (title) title.textContent = result.title;
+    const reason = row.querySelector(".result-card-discovery-reason");
+    if (reason) updateDiscoveryReason(reason, result);
     if (visual) {
       syncResultCardPoster(visual, media);
       const posterBadge = visual.querySelector(".result-card-library-badge");
@@ -297,6 +306,9 @@ export function createMoviePresentation(catalogRoot, detailRoot, {
     title.className = "result-card-title";
     title.translate = false;
     title.textContent = result.title;
+    const reason = document.createElement("span");
+    reason.className = "result-card-discovery-reason";
+    updateDiscoveryReason(reason, result);
     const subtitle = document.createElement("span");
     subtitle.className = "result-card-subtitle";
     subtitle.textContent = (media.genres || []).slice(0, 2).join(" · ") || "Film";
@@ -314,7 +326,7 @@ export function createMoviePresentation(catalogRoot, detailRoot, {
     const jellyfin = document.createElement("span");
     setFpJellyfinBadge(jellyfin, mediaJellyfinStatus(result));
     meta.append(rating, year, status, jellyfin);
-    copy.append(title, subtitle, meta);
+    copy.append(title, reason, subtitle, meta);
 
     const queueToggle = document.createElement("button");
     queueToggle.type = "button";

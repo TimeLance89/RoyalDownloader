@@ -1,14 +1,20 @@
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
+import { createMovieWorldExplorer } from "./movie-world-explorer.js";
 
 export function createMovieBrowse(root, {
   movieState, getActiveTab, syncSearchClearButtons, closeSearchSuggestions, rememberSearch, applyFpResults,
   setActiveGenreFilter, renderFpResults, updateFpInfiniteState, refreshMovieFeatureCandidates,
   syncFpCatalogFromHome, refreshFpCatalogInBackground, refreshFpJellyfinStatus, getGenres, applyFpSmartFilters,
-  resetFpSmartFilters, setFilter, cancelMetadata, client = api,
+  resetFpSmartFilters, setFilter, cancelMetadata, openMovieCollection, client = api,
 }) {
   const byId = id => root.querySelector(`#${id}`);
   let scope = null, request = null, cancelRequest = null;
+  const explorer = createMovieWorldExplorer(root, {
+    client, getSelected: () => movieState.world,
+    onSelect: id => void showWorld(id),
+    onComplete: id => openMovieCollection(id),
+  });
   const current = id => scope?.active && request?.scope.active
     && request.id === id && movieState.requestSeq === id;
   function worldParams(page = 1) {
@@ -22,10 +28,14 @@ export function createMovieBrowse(root, {
     movieState.world = "";
     const select = byId("movie-filter-world");
     if (select) select.value = "";
+    explorer.setSelected("");
+    explorer.setCollections([]);
   }
   async function showWorld(world) {
     if (!scope?.active) return;
     movieState.world = world;
+    explorer.setSelected(world);
+    explorer.setCollections([]);
     if (!world) { await fpShowList("new"); return; }
     clearFpSearchContext();
     movieState.category = "world";
@@ -45,6 +55,7 @@ export function createMovieBrowse(root, {
       const data = await load(worldParams(), requestId);
       if (!current(requestId)) return;
       applyFpResults(data);
+      explorer.setCollections(data.collections || []);
       movieState.previewFromHome = false;
     } catch (error) {
       if (!current(requestId)) return;
@@ -272,6 +283,7 @@ export function createMovieBrowse(root, {
     mount() {
       if (scope?.active) return;
       scope = createScope();
+      explorer.mount(scope);
       // Filme
       scope.listen(byId("fp-search-btn"), "click", fpSearch);
       scope.listen(byId("fp-search-clear"), "click", async () => {
@@ -302,6 +314,7 @@ export function createMovieBrowse(root, {
       const Observer = root.ownerDocument?.defaultView?.MutationObserver;
       if (Observer) {
         const observer = new Observer(() => {
+          explorer.refreshLanguage();
           if (movieState.world) void showWorld(movieState.world);
           else applyFpSmartFilters();
         });

@@ -44,6 +44,7 @@ export function mountApplication({ state, downloadsDomain, coreDomain, discovery
       search: searchDomain.homeSearch,
       recommendations: homeDomain.recommendations,
       continueWatching: homeDomain.continueWatching,
+      savedMedia: homeDomain.savedMedia,
       carousel: homeDomain.carousel,
       hero: homeDomain.hero,
       refresh() { homeDomain.hero.reset(); homeDomain.actions.renderHome(); },

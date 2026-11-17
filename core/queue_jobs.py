@@ -20,12 +20,17 @@ ACTIVE_STATES = {
 }
 TERMINAL_STATES = {"completed", "failed", "cancelled"}
 JOB_STATES = ACTIVE_STATES | TERMINAL_STATES
+RETIRED_SERIES_SOURCE_REASON = "Huhu ist für Serien deaktiviert."
 _MIGRATION_NAMESPACE = uuid.UUID("f9d1f659-685d-4ed8-a4d8-82764a904f3b")
 _EPISODE_RE = re.compile(r"(?:^|[-_:])s\d{1,3}e\d{1,4}(?:$|[-_:])", re.I)
 
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def is_retired_series_slug(slug: str) -> bool:
+    return _text(slug).casefold().startswith("huhu:")
 
 
 def _nonnegative_int(value: Any) -> int:
@@ -170,6 +175,15 @@ def normalize_document(
         job = normalize_job(raw, active=True, recover_active=recover_active)
         if not job or job["job_id"] in seen_ids or job["slug"] in seen_slugs:
             continue
+        if recover_active and is_retired_series_slug(job["slug"]):
+            migrated = True
+            if job["status"] in ACTIVE_STATES:
+                job.update(
+                    status="cancelled",
+                    error=RETIRED_SERIES_SOURCE_REASON,
+                    next_retry_at=0.0,
+                    wait_reason="",
+                )
         if job["status"] in TERMINAL_STATES:
             job["completed_at"] = job.get("completed_at") or time.time()
             recovered_history.append(job)

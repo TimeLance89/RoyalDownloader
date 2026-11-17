@@ -4,6 +4,7 @@
 
 import hashlib
 import uuid
+from core.queue_jobs import is_retired_series_slug
 
 from application_services.runtime import (
     import_backend_namespace,
@@ -540,7 +541,7 @@ def _retry_queue_job(
         if job.get("status") not in {"failed", "cancelled"}:
             return None
         slug = str(job.get("slug") or "")
-        if not slug or slug in state.queue_job_by_slug:
+        if not slug or is_retired_series_slug(slug) or slug in state.queue_job_by_slug:
             return None
         state.queue_history.pop(index)
         job.update({

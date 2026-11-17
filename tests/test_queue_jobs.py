@@ -60,6 +60,48 @@ def test_legacy_queue_migration_keeps_stable_id_after_restart(tmp_path):
     assert second["jobs"][1]["media_type"] == "series"
 
 
+def test_old_huhu_episode_cannot_be_enqueued_or_retried(monkeypatch):
+    slug = "huhu:75219:9-1-1-notruf-l-a-s10e03"
+    monkeypatch.setattr(api_queue_router, "_taste_context", lambda _: ({}, {}))
+    monkeypatch.setattr(api_queue_router, "build_queue_payload", lambda: {})
+    monkeypatch.setattr(api_queue_router, "_scheduled_episode_reason", lambda _: pytest.fail("source checked"))
+    monkeypatch.setattr(api_queue_router, "_require_persistent_snapshot", lambda *_: None)
+
+    result = asyncio.run(api_queue_router.api_queue_add(api_queue_router.QueueAddBody(slugs=[slug])))
+    assert result["added"] == 0
+    assert result["skipped_details"][slug] == queue_jobs.RETIRED_SERIES_SOURCE_REASON
+    assert slug not in server.state.picked
+
+    old = queue_jobs.new_job(slug)
+    old["status"] = "cancelled"
+    server.state.queue_history.append(old)
+    assert server._retry_queue_job(old["job_id"]) is None
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(api_queue_router.api_queue_job_retry(old["job_id"]))
+    assert error.value.status_code == 409
+
+
+def test_manual_subscription_cancel_survives_source_change(monkeypatch):
+    from application_services.automation import _watchlist_episode_is_actionable
+
+    original = "serienstream:example-show-s02e04"
+    replacement = "moflix:123:example-show-s02e04"
+    entry = {"base_slug": "serienstream:example-show", "known_slugs": [original]}
+    monkeypatch.setattr(server.state, "watchlist", [entry])
+    monkeypatch.setattr(server.state, "watchlist_new_slugs", {})
+    stored = []
+    monkeypatch.setattr(api_queue_router, "_require_persistent_snapshot", lambda resource, snapshot:
+        stored.append((resource, snapshot)))
+
+    api_queue_router._suppress_cancelled_subscription_episodes({original})
+
+    assert stored[0][0] == "watchlist"
+    restored_entry = stored[0][1][0]
+    assert restored_entry["manual_cancelled_episodes"] == ["2:4"]
+    assert not _watchlist_episode_is_actionable(restored_entry, replacement)
+    assert _watchlist_episode_is_actionable(restored_entry, "moflix:123:example-show-s02e05")
+
+
 def test_atomic_queue_write_preserves_previous_document_on_replace_failure(tmp_path, monkeypatch):
     path = tmp_path / "download_queue.json"
     original = {"schema_version": 2, "jobs": [queue_jobs.new_job("movie:a")], "history": []}

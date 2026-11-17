@@ -112,3 +112,34 @@ def test_publication_keeps_ugos_inherited_acl_intact():
             raise AssertionError("chmod must not be called on UGOS ACL media")
 
     DownloadJob._make_published_media_readable(UgosAclMedia())
+
+
+def test_publication_grants_owner_read_access():
+    class GroupReadableMedia:
+        def stat(self):
+            return type("Stat", (), {"st_mode": stat.S_IFREG | 0o044})()
+
+        def chmod(self, mode):
+            permissions.append(stat.S_IMODE(mode))
+
+    permissions = []
+    DownloadJob._make_published_media_readable(GroupReadableMedia())
+    assert permissions == [0o444]
+
+
+def test_download_completion_preserves_ugos_acl(monkeypatch):
+    import server
+    from application_services import download_lifecycle
+
+    class UgosAclMedia:
+        def is_file(self):
+            return True
+
+        def stat(self):
+            return type("Stat", (), {"st_mode": stat.S_IFREG})()
+
+        def chmod(self, _mode):
+            raise AssertionError("completion must preserve the inherited ACL")
+
+    monkeypatch.setattr(download_lifecycle, "Path", lambda _path: UgosAclMedia())
+    download_lifecycle._ensure_jellyfin_media_readable("/movies/example.mp4")

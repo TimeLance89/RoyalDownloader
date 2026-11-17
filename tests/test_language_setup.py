@@ -116,6 +116,19 @@ def test_subscription_queue_contract_uses_its_retained_language(monkeypatch):
     assert server._ensure_queue_job(slug, movie)["content_language"] == "de"
 
 
+def test_english_provider_track_cannot_override_german_auto_download(monkeypatch):
+    from application_services import content_language_policy
+
+    slug = "serienstream:retained-s01e01"
+    movie = FilmpalastMovie("Retained", slug, provider="serienstream")
+    movie._subscription_content_languages = ["de"]
+    monkeypatch.setattr(content_language_policy, "selected_episode_language", lambda *_: "en")
+    monkeypatch.setattr(server.state, "queue_jobs", {})
+    monkeypatch.setattr(server.state, "queue_job_by_slug", {})
+
+    assert server._ensure_queue_job(slug, movie)["content_language"] == "de"
+
+
 def test_manual_subscribed_episode_keeps_german_without_auto_download_attribute(monkeypatch):
     base = "serienstream:chicago-pd"
     movie = FilmpalastMovie("Chicago P.D. S13E07", f"{base}-s13e07", provider="serienstream",

@@ -1,6 +1,5 @@
 from types import SimpleNamespace
 import asyncio
-import threading
 
 import pytest
 
@@ -122,24 +121,14 @@ def test_huhu_episode_sources_keep_only_german_direct_hoster_urls():
     assert payload["episode"] == {"ids": {}, "season": 2, "episode": 4}
 
 
-def test_huhu_language_check_rejects_english_only_episode(monkeypatch):
+def test_huhu_episode_api_rejects_legacy_requests():
+    from fastapi import HTTPException
     import api.api_discovery_router as discovery
 
-    german_slug = "huhu:123:exact-show-s09e15"
-    english_slug = "huhu:123:exact-show-s09e17"
-    monkeypatch.setattr(discovery, "provider_priority", lambda _kind: ["huhu"])
-    monkeypatch.setattr(discovery, "state", SimpleNamespace(
-        content_languages={"de"}, huhu_lock=threading.RLock(),
-    ))
-    monkeypatch.setattr(discovery, "get_huhu_scraper", lambda: SimpleNamespace(
-        get_episode_languages=lambda slug: ("de",) if slug == german_slug else ("en",),
-    ))
-
-    body = discovery.HuhuEpisodeLanguagesBody(slugs=[german_slug, english_slug])
-    result = asyncio.run(discovery.api_huhu_episode_languages(body))
-
-    assert result["available"] == {german_slug: True, english_slug: False}
-    assert result["languages"] == {german_slug: ["de"], english_slug: ["en"]}
+    body = discovery.HuhuEpisodeLanguagesBody(slugs=["huhu:123:exact-show-s09e15"])
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(discovery.api_huhu_episode_languages(body))
+    assert error.value.status_code == 409
 
 
 def test_huhu_english_only_source_is_not_a_german_episode():
@@ -171,28 +160,23 @@ def test_huhu_protection_responses_are_respected(status, text, reason):
     assert error.value.reason == reason
 
 
-def test_existing_installation_enables_huhu_once_and_keeps_it_configurable(monkeypatch):
+def test_catalog_migration_removes_huhu_from_series_only(monkeypatch):
     writes = []
     monkeypatch.setattr(config, "_update_all", lambda values: writes.append(values) or True)
     old = {
-        "series_provider_priority": "serienstream,moflix,megakino,filmpalast",
-        "series_provider_enabled": "serienstream,moflix,megakino,filmpalast",
+        "provider_catalog_revision": "8",
+        "series_provider_priority": "serienstream,huhu,moflix",
+        "series_provider_enabled": "huhu,serienstream",
+        "movie_provider_enabled": "huhu,filmpalast",
     }
 
     migrated = config._migrate_provider_catalog(old)
 
-    assert migrated["series_provider_priority"].split(",")[:3] == [
-        "serienstream", "huhu", "moflix",
-    ]
-    assert "huhu" in migrated["series_provider_enabled"].split(",")
-    assert len(writes) == 1
-
-    # Nach der Migration darf ein Benutzer Huhu wieder deaktivieren; der
-    # Revisionsmarker verhindert eine erneute Zwangsaktivierung.
-    migrated["series_provider_enabled"] = "serienstream,moflix"
-    assert config._migrate_provider_catalog(migrated)["series_provider_enabled"] == (
-        "serienstream,moflix"
-    )
+    assert migrated["series_provider_priority"] == "serienstream,moflix"
+    assert migrated["series_provider_enabled"] == "serienstream"
+    assert migrated["movie_provider_enabled"] == old["movie_provider_enabled"]
+    assert "huhu" not in config.SERIES_PROVIDER_DEFAULTS
+    assert "huhu" in config.MOVIE_PROVIDER_DEFAULTS
     assert len(writes) == 1
 
 
@@ -222,7 +206,7 @@ def test_movie_provider_migration_puts_filmpalast_then_huhu_and_filmfrei_last(
     assert "huhu" in migrated["movie_provider_enabled"].split(",")
     assert "filmo" in migrated["movie_provider_enabled"].split(",")
     assert writes == [{
-        "provider_catalog_revision": "8",
+        "provider_catalog_revision": str(config.PROVIDER_CATALOG_REVISION),
         "movie_provider_priority": migrated["movie_provider_priority"],
         "movie_provider_enabled": migrated["movie_provider_enabled"],
     }]
@@ -243,7 +227,7 @@ def test_filmo_migration_preserves_revision_three_user_choices(monkeypatch):
     assert "filmo" in migrated["movie_provider_priority"].split(",")
     assert "filmo" in migrated["movie_provider_enabled"].split(",")
     assert "huhu" not in migrated["movie_provider_enabled"].split(",")
-    assert writes[0]["provider_catalog_revision"] == "8"
+    assert writes[0]["provider_catalog_revision"] == str(config.PROVIDER_CATALOG_REVISION)
 
 
 def test_english_provider_migration_enables_both_media_once(monkeypatch):
@@ -263,7 +247,7 @@ def test_english_provider_migration_enables_both_media_once(monkeypatch):
             providers = migrated[f"{media}_provider_{setting}"].split(",")
             assert all(providers.count(provider) == 1 for provider in additions)
     assert len(writes) == 1
-    assert migrated["provider_catalog_revision"] == "8"
+    assert migrated["provider_catalog_revision"] == str(config.PROVIDER_CATALOG_REVISION)
 
     migrated["series_provider_enabled"] = "serienstream"
     assert config._migrate_provider_catalog(migrated)["series_provider_enabled"] == "serienstream"

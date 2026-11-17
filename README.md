@@ -278,6 +278,29 @@ and its [SHA-256 checksum](docs/checksums/RoyalDownloader-TV-2.0.54-native.apk.s
 
 ## Quick start
 
+### Easy Install — Windows & NAS (for first-time users)
+
+The native **RoyalDownloader-Setup.exe** is built using **C# / .NET 10 / WPF**.
+It starts without an installed Python interpreter or other global prerequisites.
+Download a successful test artifact from the [native Windows installer build](https://github.com/TimeLance89/RoyalDownloader/actions/workflows/native-installer-windows.yml).
+
+Windows mode creates a **private managed Python runtime only for the RoyalDownloader server**
+within its newly created program folder; it does **not** alter an existing Python 3.14
+installation, PATH or registry. NAS mode performs its work remotely over host-key-verified
+SSH/SFTP and Docker, without installing Python on the Windows computer.
+Chrome and FFmpeg are not blanket installer prerequisites.
+
+Details: [Native Easy Install / safety notes](docs/EASY_INSTALL_NATIVE.md).
+
+**Important:** The EXE is not included in a source-code ZIP and is not yet a
+signed retail installer. Read the
+[native Easy Install guide and security limitations](docs/EASY_INSTALL_NATIVE.md).
+A successful CI smoke test is not a substitute for a test on your Windows/NAS
+model.
+
+### Manual installation (advanced users)
+
+
 ### Docker Compose · recommended for NAS and home servers
 
 You'll need **Docker Engine**, **Docker Compose v2**, a **TMDB API key/read

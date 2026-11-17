@@ -200,11 +200,15 @@ def _mix_series_provider_results(
     provider_results,
     priority,
     claimed_identities: Optional[set[tuple]] = None,
+    *,
+    recent_first: bool = False,
 ):
     """Balance logical series identities by language instead of provider count."""
 
-    if not _mixed_german_english_enabled():
-        return _ORIGINAL_MIX_SERIES(provider_results, priority, claimed_identities)
+    if recent_first or not _mixed_german_english_enabled():
+        return _ORIGINAL_MIX_SERIES(
+            provider_results, priority, claimed_identities, recent_first=recent_first,
+        )
 
     years_by_title = defaultdict(set)
     for results in provider_results.values():
@@ -466,7 +470,11 @@ def _ensure_queue_job(slug: str, movie=None, *, job_id: str = ""):
         explicit_track = normalize_content_language(
             selected_episode_language(provider, slug)
         )
-        if explicit_track:
+        subscription_languages = {
+            normalize_content_language(value)
+            for value in (getattr(movie, "_subscription_content_languages", None) or ())
+        } - {""}
+        if explicit_track and (not subscription_languages or explicit_track in subscription_languages):
             # Explicit provider track selectors (for example MKissa RAW=JA)
             # are stronger evidence than the global DE/EN installation lanes.
             language = explicit_track
@@ -481,9 +489,9 @@ def _ensure_queue_job(slug: str, movie=None, *, job_id: str = ""):
                     entry or {"base_slug": episode[0]}, state.content_languages,
                     getattr(state, "subscription_content_languages", {}),
                 )
-            selected = {
+            selected = subscription_languages or {
                 normalize_content_language(value)
-                for value in (getattr(movie, "_subscription_content_languages", None) or desired)
+                for value in desired
                 if normalize_content_language(value)
             }
             offered = _source_languages(movie) & selected

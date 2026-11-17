@@ -28,7 +28,8 @@ def create_saved_media_router(store, current_user, sync):
         items = store.items(str(user["id"]))
         keys = {f"{item['media_type']}:{item['tmdb_id']}" for item in items}
         status = sync.status(user)
-        return {"items": items, "sync": {**status, "ready": [key for key in status["ready"] if key in keys]}}
+        return {"owner_user_id": str(user["id"]), "items": items,
+                "sync": {**status, "ready": [key for key in status["ready"] if key in keys]}}
 
     @router.get("/api/me/saved-media")
     @router.get("/api/v1/me/saved-media")

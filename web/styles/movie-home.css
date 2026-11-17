@@ -929,3 +929,24 @@
   #tab-home .home-hero-actions { margin-top: 16px; }
   #tab-home .home-hero-controls { bottom: 42px; }
 }
+
+
+/* Persönliche Merkliste – nutzt dieselben 16:9-Karten wie Royal Discovery. */
+#tab-home [data-home-rail="saved"] .home-card-art { position: relative; }
+#tab-home [data-home-rail="saved"] .royal-saved-ribbon {
+  position: absolute;
+  z-index: 5;
+  top: 7px;
+  left: 7px;
+  padding: 4px 9px;
+  border: 1px solid rgba(248, 198, 118, .45);
+  border-radius: 99px;
+  color: #ffe7b2;
+  background: rgba(32, 23, 18, .86);
+  backdrop-filter: blur(10px);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  pointer-events: none;
+}
+#tab-home [data-home-rail="saved"][hidden] { display: none !important; }

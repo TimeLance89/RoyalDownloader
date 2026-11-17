@@ -163,8 +163,10 @@ def test_api_rejects_owner_spoofing_and_never_reads_other_users(tmp_path):
     response = client.post("/api/v1/me/saved-media", json=body)
     assert response.status_code == 200
     assert [item["tmdb_id"] for item in response.json()["items"]] == [7]
+    assert response.json()["owner_user_id"] == "a"
     assert response.json()["sync"]["ready"] == ["movie:7"]
     assert [item["tmdb_id"] for item in client.get("/api/me/saved-media").json()["items"]] == [7]
+    assert client.get("/api/me/saved-media").json()["owner_user_id"] == "a"
     current = None
     assert client.get("/api/me/saved-media").status_code == 401
     assert client.post("/api/me/saved-media", json=body).status_code == 401

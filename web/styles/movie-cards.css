@@ -270,3 +270,8 @@
 #tab-serien #series-results .result-card:hover .series-card-seasons {
   color: #f0f2f5;
 }
+:where(#tab-filme #fp-results) .result-card-discovery-reason {
+  color: var(--accent, #e2ba68);
+  font-size: .75rem;
+  font-weight: 600;
+}

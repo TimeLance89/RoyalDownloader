@@ -407,7 +407,14 @@ class VOEBrowserPool:
                 raise RuntimeError("Pool ist geschlossen")
             if not self._ready:
                 self._start()
-            return self._do_extract(target_url, wait_seconds, referer)
+            try:
+                return self._do_extract(target_url, wait_seconds, referer)
+            finally:
+                if not self._ready:
+                    try:
+                        self._cleanup_failed_start()
+                    except Exception:
+                        logger.warning("Browser owner could not be reaped after extraction", exc_info=True)
 
     def close(self):
         """The owning thread cleans processes before it closes its event loop."""
@@ -681,6 +688,7 @@ class VOEBrowserPool:
         try:
             return future.result(timeout=wait_seconds + 8)
         except TimeoutError:
+            self._ready = False
             future.cancel()
             self._log(f"Browser-Extraktion nach {wait_seconds + 8}s abgebrochen.")
             return None
@@ -707,6 +715,7 @@ class VOEBrowserPool:
         import nodriver.cdp.network as cdp_net
         import nodriver.cdp.page as cdp_page
         import nodriver.cdp.runtime as cdp_runtime
+        import nodriver.cdp.target as cdp_target
 
         m3u8_urls: List[str] = []
         mpd_urls: List[str] = []
@@ -736,6 +745,9 @@ class VOEBrowserPool:
             _remember_stream(event.response.url, "response")
 
         self._log(f"Lade VOE: {target_url[:70]}")
+        connection = self._browser.connection
+        before = await asyncio.wait_for(connection.send(cdp_target.get_targets()), timeout=3)
+        existing = {target.target_id for target in before}
         tab = await self._browser.get("about:blank", new_tab=True)
         try:
             # Handler vor der Navigation registrieren, sonst gehen fruehe
@@ -770,12 +782,19 @@ class VOEBrowserPool:
             except Exception:
                 pass
         finally:
-            # Immer frischer Tab pro Film. Das verhindert den beobachteten
-            # "Session with given id not found"-Fehler nach closeTarget.
             try:
-                await tab.close()
+                # A page can open additional tabs. Close all page targets created
+                # during this extraction via the browser, even if a tab is hung.
+                targets = await asyncio.wait_for(connection.send(cdp_target.get_targets()), timeout=3)
+                closing = [connection.send(cdp_target.close_target(target.target_id))
+                           for target in targets
+                           if target.type_ == "page" and target.target_id not in existing]
+                closed = await asyncio.wait_for(asyncio.gather(*closing), timeout=3)
+                if not all(closed):
+                    self._ready = False
             except Exception:
-                pass
+                self._ready = False
+                logger.warning("Browser tab did not close; recycling browser owner")
 
         if m3u8_urls:
             return StreamInfo(m3u8_urls[0], "hls", media_titles)

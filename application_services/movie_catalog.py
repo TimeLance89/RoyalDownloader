@@ -9,6 +9,7 @@ from core.runtime_cache import BoundedTTLCache
 
 import threading
 from application_services.catalog_prefetch import schedule_prefetch as admit_prefetch
+from application_services.movie_discovery_rank import movie_browse_configuration, rank_movie_browse
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
 
@@ -277,11 +278,10 @@ def load_movie_for_slug(slug: str) -> Optional[FilmpalastMovie]:
     if re.fullmatch(r"tmdb:\d+", slug or "", flags=re.IGNORECASE):
         sources = resolve_tmdb_movie_sources(slug.split(":", 1)[1])
         return sources[0] if sources else None
-    requested_slug = slug
-    monster_virtual = parse_monster_virtual_episode(requested_slug)
-    provider = provider_for_value(requested_slug)
+    monster_virtual = parse_monster_virtual_episode(slug)
+    provider = provider_for_value(slug)
     if monster_virtual is not None:
-        slug = monster_source_episode_slug(requested_slug) or requested_slug
+        slug = monster_source_episode_slug(slug) or slug
     if slug.startswith(FILMFREI24_PREFIX):
         movie = FilmFrei24Scraper(progress_cb=log).get_movie(slug)
     elif slug.startswith(FILMO_PREFIX):
@@ -295,9 +295,11 @@ def load_movie_for_slug(slug: str) -> Optional[FilmpalastMovie]:
     elif slug.startswith(MOFLIX_PREFIX):
         with state.moflix_lock:
             movie = get_moflix_scraper().get_movie(slug)
-    elif slug.startswith((HUHU_PREFIX, HUHU_MOVIE_PREFIX)):
+    elif slug.startswith(HUHU_MOVIE_PREFIX):
         with state.huhu_lock:
             movie = get_huhu_scraper().get_movie(slug)
+    elif provider == "huhu":
+        return None
     elif slug.startswith(EINSCHALTEN_PREFIX):
         movie = EinschaltenScraper(progress_cb=log).get_movie(slug)
     elif slug.startswith(KINOX_PREFIX):
@@ -348,8 +350,7 @@ def load_movie_for_slug(slug: str) -> Optional[FilmpalastMovie]:
         scraper = get_fp_scraper()
         with state.fp_lock:
             movie = scraper.get_movie(slug)
-    movie = _apply_provider_metadata(movie, provider)
-    if movie is None:
+    if (movie := _apply_provider_metadata(movie, provider)) is None:
         return None
     if monster_virtual is not None:
         item, episode_number = monster_virtual
@@ -1015,16 +1016,13 @@ def _mix_movie_provider_results(
 
 
 def movie_catalog_page(mode: str, page: int = 1, genre: str = "") -> dict:
-    """Erzeugt eine stabile globale 32er-Seite aus allen Filmkatalogen.
-
-    Einseitige Anbieter speisen ihren gesamten Startbestand in die globalen
-    Seiten ein. Weitere Quellseiten werden jeweils als abgeschlossene Welle
-    gemischt und nur hinten angehängt, damit frühere Seitengrenzen stabil bleiben.
-    """
+    """Mix provider pages and append deeper source waves at stable page offsets."""
     page = max(1, min(int(page), MOVIE_MAX_GLOBAL_PAGE))
     mode = "genre" if mode == "genre" else mode if mode in {"new", "top"} else "new"
     genre = canonical_movie_genre(genre)
     priority = provider_priority("movies")
+    if mode == "new":
+        priority, configured, languages = movie_browse_configuration(priority)
     active = [
         provider for provider in priority
         if mode != "genre" or _provider_supports_movie_genre(provider, genre)
@@ -1062,6 +1060,11 @@ def movie_catalog_page(mode: str, page: int = 1, genre: str = "") -> dict:
     catalog_entries = _mix_movie_provider_results(
         first_wave, priority, claimed_identities, newest_first=mode == "new",
     )
+    discovery_reasons = {}
+    if mode == "new":
+        catalog_entries, discovery_reasons = rank_movie_browse(
+            catalog_entries, first_wave, configured, languages,
+        )
 
     paginated = [provider for provider in active if provider in MOVIE_PAGINATED_PROVIDERS]
     exhausted = {
@@ -1157,6 +1160,7 @@ def movie_catalog_page(mode: str, page: int = 1, genre: str = "") -> dict:
         )
     return {
         "results": [result for _provider, result in page_entries],
+        "discovery_reasons": discovery_reasons,
         "page": page,
         "page_complete": page_complete,
         "refresh_pending": refresh_pending,

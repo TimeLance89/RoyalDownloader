@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>RoyalDownloader-Setup</AssemblyName>
+    <RootNamespace>RoyalDownloader.Setup.Native</RootNamespace>
+    <ApplicationIcon></ApplicationIcon>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="SSH.NET" Version="2026.0.0" />
+    <EmbeddedResource Include="Assets\royal-source.zip" LogicalName="RoyalSource.zip" Condition="Exists('Assets\royal-source.zip')" />
+    <EmbeddedResource Include="Assets\royal-source.tar.gz" LogicalName="RoyalSource.tar.gz" Condition="Exists('Assets\royal-source.tar.gz')" />
+    <EmbeddedResource Include="Assets\uv.exe" LogicalName="BundledUv.exe" Condition="Exists('Assets\uv.exe')" />
+    <EmbeddedResource Include="Assets\.env.example" LogicalName="EnvTemplate" Condition="Exists('Assets\.env.example')" />
+    <EmbeddedResource Include="Assets\source-manifest.json" LogicalName="SourceManifest" Condition="Exists('Assets\source-manifest.json')" />
+  </ItemGroup>
+</Project>

@@ -853,7 +853,8 @@ def _enqueue_hoster_attempt(
         quality=result.quality,
         final_path=str(out_path),
         content_language=(
-            result.content_language
+            required_language
+            or result.content_language
             or _movie_content_language(movie, fallback=movie_slug)
         ),
     )

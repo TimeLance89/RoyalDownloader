@@ -15,6 +15,7 @@ def test_home_layout_defaults_keep_existing_rails_and_offer_more(tmp_path):
 
     assert layout["hero_visible"] is True
     assert layout["rail_order"] == list(HOME_RAIL_IDS)
+    assert layout["rail_order"].index("saved") == layout["rail_order"].index("discovered") - 1
     assert layout["hidden_rails"] == [
         "new_movies", "new_series", "high_rated", "movies", "library",
     ]
@@ -60,3 +61,14 @@ def test_home_layout_api_uses_shared_server_store(monkeypatch, tmp_path):
     assert loaded["hero_visible"] is False
     assert loaded["rail_order"][0] == "movies"
     assert loaded["hidden_rails"] == ["top"]
+
+
+
+def test_existing_home_layout_migrates_personal_wishlist_before_discovery(tmp_path):
+    path = tmp_path / "home_layout.json"
+    old_order = ["library", "personal", "discovered", "top"]
+    path.write_text(json.dumps({"rail_order": old_order, "hidden_rails": ["top"]}), encoding="utf-8")
+    migrated = HomeLayoutStore(path).public_layout()
+    assert migrated["rail_order"][:4] == ["library", "personal", "saved", "discovered"]
+    assert migrated["hidden_rails"] == ["top"]
+    assert "saved" not in migrated["hidden_rails"]

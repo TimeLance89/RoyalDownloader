@@ -22,6 +22,7 @@ from starlette.responses import JSONResponse
 
 import core.config as appconfig
 
+from api.api_christmas_router import create_christmas_router
 from api.api_people_router import create_people_router
 from features.monster_series_extension import (
     inject_monster_search_results,
@@ -246,7 +247,10 @@ def create_discovery_router(backend) -> APIRouter:
         "SeriesCatalogColdLoadLimit": backend.SeriesCatalogColdLoadLimit,
         "_SeriesCatalogEntry": backend._SeriesCatalogEntry,
     })
-    return router
+    discovery = APIRouter(tags=["discovery"])
+    discovery.routes.extend(router.routes)
+    discovery.routes.extend(create_christmas_router(backend).routes)
+    return discovery
 
 
 # ── Start-page composition ────────────────────────────────────────────────
@@ -381,6 +385,15 @@ async def api_genres():
 
 
 # ── Filme: Suche / Listen / Genre ───────────────────────────────────────────
+@router.get("/api/v1/movie-worlds/catalog")
+@router.get("/api/movie-worlds/catalog")
+async def api_movie_world_catalog():
+    """Curated navigation metadata; no TMDB key required just to browse categories."""
+    from integrations.tmdb_movie_worlds import public_movie_world_catalog
+
+    return public_movie_world_catalog()
+
+
 @router.get("/api/v1/movie-collections")
 @router.get("/api/movie-collections")
 async def api_movie_collections(query: str = ""):
@@ -463,6 +476,9 @@ async def api_movies(mode: str = "search", query: str = "", genre: str = "", pag
     for result in result_dicts:
         if result.get("provider"):
             result["title"] = clean_movie_title(result.get("title", ""))
+        reason = data.get("discovery_reasons", {}).get(result.get("slug"))
+        if reason:
+            result["discovery_reason"] = reason
     # Jellyfin ist eine nachgelagerte Badge-Anreicherung. Der separate
     # /jellyfin/matches-Aufruf der Weboberflaeche aktualisiert sie asynchron;
     # eine grosse oder schlafende NAS-Bibliothek blockiert dadurch nicht mehr
@@ -1428,10 +1444,7 @@ def _check_serienstream_episode_cooldown() -> None:
 
 def episode_languages_for_slug(provider: str, slug: str) -> list[str]:
     if provider == "huhu":
-        with state.huhu_lock:
-            values = get_huhu_scraper().get_episode_languages(slug)
-        return sorted({normalize_content_language(value) for value in values
-                       if normalize_content_language(value)})
+        return []
     if provider == "serienstream":
         _check_serienstream_episode_cooldown()
     movie = load_movie_for_slug(slug)
@@ -1461,7 +1474,7 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
     provider = body.provider.strip().casefold()
     active_series = await run_in_threadpool(provider_priority, "series")
     enabled_series = getattr(state, "provider_enabled", {}).get("series", active_series)
-    if provider not in active_series and provider not in enabled_series:
+    if provider == "huhu" or (provider not in active_series and provider not in enabled_series):
         raise HTTPException(409, f"{provider} ist in den Serienquellen deaktiviert.")
     slugs = list(dict.fromkeys(body.slugs))
     if body.content_languages is not None and any(
@@ -1540,8 +1553,6 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
                     if lock is not None and cache is not None:
                         with lock:
                             keys = {f"{source}:{_norm_title(value)}" for value in (title, *body.aliases)}
-                            if source == "huhu" and body.tmdb_id:
-                                keys.add(f"{source}:tmdb:{body.tmdb_id}")
                             for cache_key in keys:
                                 cached = cache.get(cache_key)
                                 if cached and cached[1] is None:
@@ -1641,32 +1652,7 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
 @router.post("/api/v1/series/huhu-episode-languages")
 @router.post("/api/series/huhu-episode-languages")
 async def api_huhu_episode_languages(body: HuhuEpisodeLanguagesBody):
-    if "huhu" not in (await run_in_threadpool(provider_priority, 'series')):
-        raise HTTPException(409, "HUHU ist in den Serienquellen deaktiviert.")
-    slugs = list(dict.fromkeys(body.slugs))
-    if any(
-        not slug.startswith("huhu:") or parse_episode_slug(slug) is None
-        for slug in slugs
-    ):
-        raise HTTPException(400, "Nur HUHU-Episoden können hier geprüft werden.")
-    def _work():
-        available = {}
-        languages = {}
-        scraper = get_huhu_scraper()
-        for slug in slugs:
-            with state.huhu_lock:
-                source_languages = scraper.get_episode_languages(slug)
-            languages[slug] = list(source_languages)
-            # HUHU wird als deutsche Quelle geführt. Deshalb ist nur eine
-            # ausdrücklich als deutsch gemeldete Quelle auswählbar.
-            available[slug] = "de" in source_languages
-        return {"available": available, "languages": languages}
-
-    try:
-        return await run_in_threadpool(_work)
-    except Exception as exc:
-        log(f"HUHU-Episodensprachen konnten nicht geprüft werden: {exc}", "warn")
-        raise HTTPException(502, "HUHU-Sprachprüfung ist gerade nicht verfügbar.") from exc
+    raise HTTPException(409, "Huhu ist in den Serienquellen deaktiviert.")
 
 
 # ── Anime ───────────────────────────────────────────────────────────────────

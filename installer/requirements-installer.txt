@@ -1,0 +1,3 @@
+# Installer-only dependencies; none are injected into the Royal server runtime.
+paramiko==4.0.0
+pyinstaller==6.16.0

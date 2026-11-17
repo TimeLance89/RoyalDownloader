@@ -36,6 +36,7 @@ export function createHomeLayout(root, modal, { client = api, carousel, render, 
   function createHomeRailElement(definition) {
     const section = document.createElement("section");
     section.className = "home-rail home-layout-optional-rail";
+    section.hidden = definition.id === "saved";
     section.dataset.homeRail = definition.id;
     section.setAttribute("aria-labelledby", `${definition.trackId}-title`);
     const header = document.createElement("header");

@@ -9,6 +9,23 @@ const { fixture } = require("./performance-fixture.cjs");
     try {
       const requests = [];
       let failNext = false;
+      await page.route("**/api/movie-worlds/catalog", async route => route.fulfill({
+        json: {
+          groups: [
+            { id: "animation", de: "Disney & Animation", en: "Disney & animation" },
+            { id: "heroes", de: "Helden & Universen", en: "Heroes & universes" },
+            { id: "fantasy", de: "Fantasy & Magie", en: "Fantasy & magic" },
+            { id: "studios", de: "Filmstudios", en: "Film studios" },
+          ],
+          worlds: [
+            { id: "disney", group: "animation", type: "discover", de: "Disney Filme", en: "Disney movies" },
+            { id: "pixar", group: "animation", type: "discover", de: "Pixar", en: "Pixar" },
+            { id: "marvel", group: "heroes", type: "discover", de: "Marvel", en: "Marvel" },
+            { id: "harry-potter", group: "fantasy", type: "collections", de: "Harry Potter", en: "Harry Potter" },
+            { id: "warner-bros", group: "studios", type: "discover", de: "Warner Bros.", en: "Warner Bros." },
+          ],
+        },
+      }));
       await page.route("**/api/movies?**", async route => {
         const params = new URL(route.request().url()).searchParams;
         requests.push(Object.fromEntries(params));
@@ -24,7 +41,9 @@ const { fixture } = require("./performance-fixture.cjs");
           cover_url: "/fixture-art.svg", content_language: "", is_movie: true,
         }));
         await route.fulfill({ json: { results, category: world ? "world" : "new", page: number,
-          has_more: number < 2, total_results: 40, sources: [] } });
+          has_more: number < 2, total_results: 40, sources: [],
+          collections: world === "harry-potter" ? [{ collection_id: 1241, title: "Harry Potter Collection" }] : [],
+        } });
       });
       await page.locator(`${mobile ? ".mobile-tabs" : ".tabs"} .tab-btn[data-tab="filme"]:visible`).first().click();
       await page.locator("#movie-filter-world").selectOption("disney");
@@ -45,11 +64,19 @@ const { fixture } = require("./performance-fixture.cjs");
       assert.equal(requests.at(-1).language, "en");
       assert.equal(await page.locator("#genre-count").isVisible(), true);
       assert.equal(await page.locator('#movie-filter-world option[value="disney"]').textContent(), "Disney movies");
-      assert.equal(await page.locator('#movie-filter-world optgroup').last().getAttribute("label"), "Heroes & universes");
+      assert.equal(await page.locator('#movie-filter-world optgroup').last().getAttribute("label"), "Film studios");
       await page.locator("#movie-filter-world").scrollIntoViewIfNeeded();
       assert.equal(await page.locator("#movie-filter-world").evaluate(el => el.getBoundingClientRect().right <= innerWidth), true);
       await mkdir("artifacts/movie-worlds", { recursive: true });
       await page.screenshot({ path: `artifacts/movie-worlds/${mobile ? "mobile" : "desktop"}.png` });
+      await page.locator(".movie-world-explore-toggle").click();
+      await page.locator(".movie-world-explorer-search").fill("Harry");
+      assert.equal(await page.locator(".movie-world-tile[data-world-id='harry-potter']").count(), 1);
+      assert.equal(await page.locator(".movie-world-tile").count(), 1);
+      await page.locator(".movie-world-tile[data-world-id='harry-potter']").click();
+      await page.waitForFunction(() => document.querySelector("#fp-results .result-card-title")?.textContent.includes("harry-potter"));
+      assert.equal(requests.at(-1).world, "harry-potter");
+      assert.equal(await page.locator(".movie-world-complete-action").isVisible(), true);
       await page.locator("#movie-filter-reset").click();
       await page.waitForFunction(() => !fixtureApp.discovery.movieState.loadingMore);
       assert.equal(await page.locator("#movie-filter-world").inputValue(), "");

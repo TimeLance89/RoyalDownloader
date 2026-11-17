@@ -325,8 +325,8 @@ def validate_media_file(path: Path) -> tuple:
         return False, (detail[-1][:200] if detail else "ffprobe konnte die Datei nicht lesen")
     try:
         info = json.loads(proc.stdout or "{}")
-        streams = info.get("streams") or []
-    except (TypeError, json.JSONDecodeError):
+        streams = [stream for stream in (info.get("streams") or []) if isinstance(stream, dict)]
+    except (AttributeError, TypeError, json.JSONDecodeError):
         return False, "ffprobe lieferte keine gültigen Mediendaten"
     durations = []
     for raw_duration in [
@@ -344,7 +344,8 @@ def validate_media_file(path: Path) -> tuple:
         return False, "ffprobe lieferte keine gültige Mediendauer"
     if not any(stream.get("codec_type") == "video" for stream in streams):
         return False, "kein Videostream gefunden"
-    if not any(stream.get("codec_type") == "audio" for stream in streams):
+    audio_streams = [stream for stream in streams if stream.get("codec_type") == "audio"]
+    if not audio_streams:
         return False, "kein Audiostream gefunden"
     if duration < MIN_MEDIA_DURATION_SECONDS:
         return False, f"unplausible Videodauer ({duration:.1f} Sekunden)"
@@ -819,9 +820,9 @@ class DownloadJob:
             # UGOS Pro stellt geerbte UGREEN-ACLs mit POSIX-Modus 000 dar.
             # chmod loescht auf diesen Dateien die UGREEN-ACL und kann dadurch
             # Jellyfin die Wiedergabe verweigern (Permission denied).
-            if (mode & 0o777) == 0:
+            if (mode & 0o777) == 0 or (mode & 0o444) == 0o444:
                 return
-            path.chmod(mode | 0o044)
+            path.chmod(mode | 0o444)
         except OSError:
             # Manche NAS-Dateisysteme verwalten Zugriffe ausschließlich über
             # ACLs und verweigern chmod. Die erfolgreiche Veröffentlichung
@@ -1271,11 +1272,13 @@ class DownloadJob:
             self.total_bytes = total or None
             self.downloaded_bytes = downloaded
             started = time.monotonic()
+            next_progress_at = started
             speed_watchdog = None if self.allow_slow else _ByteGrowthWatchdog(started_at=started)
             if speed_watchdog:
                 speed_watchdog.window_bytes = downloaded
             if saved is not None and total:
                 self.on_progress(downloaded / total * 100, "HTTP-Download wird fortgesetzt …")
+                next_progress_at = started + 1.0
             flags = os.O_WRONLY | (os.O_APPEND if mode == "ab" else os.O_TRUNC)
             if hasattr(os, "O_NOFOLLOW"):
                 flags |= os.O_NOFOLLOW
@@ -1309,9 +1312,10 @@ class DownloadJob:
                                 f"{SLOW_FAILURE_PREFIX} "
                                 f"({self._format_speed(speed_watchdog.last_rate_bps)})"
                             )
-                        if total > 0:
+                        if total > downloaded and now >= next_progress_at:
                             self.eta_seconds = int(max(0, total - downloaded) / max(self.average_speed_bps, 1))
                             self.on_progress(downloaded / total * 100, f"{downloaded // 1024 // 1024} MB")
+                            next_progress_at = now + 1.0
                     file.flush()
                     os.fsync(file.fileno())
             finally:
@@ -1333,6 +1337,9 @@ class DownloadJob:
                     return False, f"Staging nicht nutzbar: {detail}"
                 store.commit_to_staging(output, self.staging_path)
                 store.discard()
+            if total > 0:
+                self.eta_seconds = 0
+                self.on_progress(100.0, f"{downloaded // 1024 // 1024} MB")
             return True, "Direct HTTP OK"
         except Exception as exc:
             detail = str(exc).casefold()
