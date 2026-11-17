@@ -1444,7 +1444,9 @@ def _check_serienstream_episode_cooldown() -> None:
 
 def episode_languages_for_slug(provider: str, slug: str) -> list[str]:
     if provider == "huhu":
-        return []
+        with state.huhu_lock:
+            values = get_huhu_scraper().get_episode_languages(slug)
+        return sorted({normalize_content_language(value) for value in values if normalize_content_language(value)})
     if provider == "serienstream":
         _check_serienstream_episode_cooldown()
     movie = load_movie_for_slug(slug)
@@ -1474,7 +1476,7 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
     provider = body.provider.strip().casefold()
     active_series = await run_in_threadpool(provider_priority, "series")
     enabled_series = getattr(state, "provider_enabled", {}).get("series", active_series)
-    if provider == "huhu" or (provider not in active_series and provider not in enabled_series):
+    if provider not in active_series and provider not in enabled_series:
         raise HTTPException(409, f"{provider} ist in den Serienquellen deaktiviert.")
     slugs = list(dict.fromkeys(body.slugs))
     if body.content_languages is not None and any(
@@ -1502,7 +1504,9 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
         from providers.models import FilmpalastMovie
 
         probe_progress.start(body.probe_id)
+        from media.rejected_episode_audio import huhu_episode_rejected
         languages, pending, source_providers = {}, [], {}
+        rejected_huhu = {slug for slug in slugs if huhu_episode_rejected(slug, body.tmdb_id)}
         first_base = parse_episode_slug(slugs[0])[0]
         preferences = getattr(state, "subscription_content_languages", {})
         desired = subscription_content_languages(
@@ -1520,6 +1524,9 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
         title = str(getattr(series, "title", "") or body.title).strip()
         deadline = time.monotonic() + EPISODE_PROBE_BUDGET_SECONDS
         def submit_primary(slug):
+            if provider == "huhu" and slug in rejected_huhu:
+                probe_progress.update(body.probe_id, slug, provider, "language_rejected")
+                return None
             future = language_probes.submit((provider, slug, tuple(sorted(enabled))),
                 lambda: episode_languages_for_slug(provider, slug),
                 retry_unmatched=(lambda values: bool(set(values) & enabled)) if body.attempt else None, provider=provider)
@@ -1527,6 +1534,8 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
             return future
 
         def read_primary(slug, future):
+            if provider == "huhu" and slug in rejected_huhu:
+                return []
             if future is not None and future.done():
                 try:
                     values = future.result()
@@ -1543,6 +1552,8 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
             _, season, episode = parse_episode_slug(slug)
             key = (slug, title, tuple(body.aliases), body.tmdb_id, alternatives, tuple(sorted(enabled)))
             def lookup(source):
+                if source == "huhu" and slug in rejected_huhu:
+                    return []
                 if source == "serienstream":
                     _check_serienstream_episode_cooldown()
                 if body.attempt:
@@ -1571,6 +1582,10 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
                 timeout=max(0, timeout), on_jobs=on_jobs,
                 retry_unmatched=(lambda found: any(_source_languages(movie) & enabled for movie in found)) if body.attempt else None)
 
+            if slug in rejected_huhu:
+                sources = [source for source in sources if source.provider != "huhu"]
+                if "huhu" in alternatives:
+                    probe_progress.update(body.probe_id, slug, "huhu", "language_rejected")
             return sources, still_searching
 
         ordinary = tuple(key for key in alternatives if key != "serienstream")
@@ -1625,7 +1640,7 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
                         cache[slug] = [placeholder, *matching]
             if values is not None:
                 languages[slug] = values
-            if not values or (searching.get(slug) and not set(values) & enabled):
+            if (not values and slug not in rejected_huhu) or (searching.get(slug) and not set(values) & enabled):
                 pending.append(slug)
             elif series is not None and parse_episode_slug(slug)[0] == first_base and set(values) & enabled:
                 language_probes.record_release(slug, values)
@@ -1633,6 +1648,9 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
         record_watchlist_episode_language_pending(pending)
         payload = {"available": {slug: bool(set(values) & enabled) for slug, values in languages.items()},
                    "languages": languages, "selected_content_languages": sorted(enabled)}
+        payload["waiting_for_language"] = [
+            slug for slug in rejected_huhu if not set(languages.get(slug) or []) & enabled
+        ]
         if pending:
             payload["pending"] = list(dict.fromkeys(pending))
         if source_providers:
@@ -1652,7 +1670,32 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
 @router.post("/api/v1/series/huhu-episode-languages")
 @router.post("/api/series/huhu-episode-languages")
 async def api_huhu_episode_languages(body: HuhuEpisodeLanguagesBody):
-    raise HTTPException(409, "Huhu ist in den Serienquellen deaktiviert.")
+    if "huhu" not in (await run_in_threadpool(provider_priority, 'series')):
+        raise HTTPException(409, "HUHU ist in den Serienquellen deaktiviert.")
+    slugs = list(dict.fromkeys(body.slugs))
+    if any(
+        not slug.startswith("huhu:") or parse_episode_slug(slug) is None
+        for slug in slugs
+    ):
+        raise HTTPException(400, "Nur HUHU-Episoden können hier geprüft werden.")
+    def _work():
+        available = {}
+        languages = {}
+        scraper = get_huhu_scraper()
+        for slug in slugs:
+            with state.huhu_lock:
+                source_languages = scraper.get_episode_languages(slug)
+            languages[slug] = list(source_languages)
+            # HUHU wird als deutsche Quelle geführt. Deshalb ist nur eine
+            # ausdrücklich als deutsch gemeldete Quelle auswählbar.
+            available[slug] = "de" in source_languages
+        return {"available": available, "languages": languages}
+
+    try:
+        return await run_in_threadpool(_work)
+    except Exception as exc:
+        log(f"HUHU-Episodensprachen konnten nicht geprüft werden: {exc}", "warn")
+        raise HTTPException(502, "HUHU-Sprachprüfung ist gerade nicht verfügbar.") from exc
 
 
 # ── Anime ───────────────────────────────────────────────────────────────────

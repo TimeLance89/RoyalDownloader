@@ -53,7 +53,7 @@ def test_series_fallback_uses_stored_title_instead_of_provider_url(monkeypatch):
     )
 
     assert result is expected
-    assert requested == [("House of the Dragon", ["serienstream"])]
+    assert requested == [("House of the Dragon", ["serienstream", "huhu"])]
 
 
 def test_deferred_series_detail_is_already_marked_subscribed(monkeypatch):

@@ -1,6 +1,7 @@
 import { appStore } from "../../core/store.js";
 import { playbackIdentity, playbackDenied } from "../../shared/playback-access.js";
 import { formatMovieTime } from "./movie-player-controls.js";
+import { needsEpisodeLanguageProof, episodeLanguageChecked } from "./series-language-policy.js";
 
 const ticksPerSecond = 10_000_000;
 const keyOf = (season, episode) => `${season}:${episode}`;
@@ -61,8 +62,12 @@ export function createSeriesBrowser(root, { client, canPlay, openItem, chooseDow
     const time = item?.position_ticks ? formatMovieTime(item.position_ticks / ticksPerSecond) : "";
     const playable = Boolean(item);
     const downloadable = !playable && canDownload(row.download);
+    const checking = needsEpisodeLanguageProof(series) && !episodeLanguageChecked(row.download, series);
     const label = playable ? (time ? `▶ Weiterschauen ${time}` : item.played ? "▶ Erneut ansehen" : "▶ Abspielen")
-      : downloadable ? "↓ Zum Download" : row.download?.unreleased ? "Noch nicht erschienen" : "Nicht abspielbar";
+      : row.download?.unreleased ? "Noch nicht erschienen"
+        : row.download?.queued ? "Vorgemerkt"
+          : downloadable ? (checking ? "Quellen prüfen" : "↓ Zum Download")
+            : row.download?.waiting_for_language ? "Wartet auf passende Sprache" : "Quelle ausstehend";
     const button = node("button", featured ? "series-next-action btn btn-accent" : "series-watch-action btn btn-ghost", label);
     button.type = "button";
     button.disabled = !playable && !downloadable;
@@ -86,7 +91,9 @@ export function createSeriesBrowser(root, { client, canPlay, openItem, chooseDow
   function renderWatch(all, next) {
     const rows = all.filter(row => row.season === season);
     const signature = JSON.stringify([season, context, next, rows.map(row => [row.season, row.episode,
-      row.item, row.download?.title, row.download?.name, row.download?.unreleased, canDownload(row.download)]),
+      row.item, row.download?.title, row.download?.name, row.download?.unreleased, row.download?.queued,
+      row.download?.waiting_for_language, row.download?.language_checked,
+      row.download?.huhu_language_checked, canDownload(row.download)]),
       canDownload(next?.download)]);
     if (signature === watchSignature) return;
     watchSignature = signature;
@@ -125,7 +132,11 @@ export function createSeriesBrowser(root, { client, canPlay, openItem, chooseDow
       const runtime = item?.duration_ticks ? `${Math.round(item.duration_ticks / ticksPerSecond / 60)} Min.` : "";
       const status = item ? (item.played && !item.position_ticks ? "Gesehen" : "In Jellyfin")
         : row.download?.in_jellyfin ? "Im Profil nicht abspielbar"
-          : row.download?.unreleased ? "Demnächst" : "Fehlt in Jellyfin";
+          : row.download?.unreleased ? "Demnächst"
+            : row.download?.queued ? "Im Downloadplan"
+              : row.download?.waiting_for_language ? "Wartet auf passende Sprache"
+                : needsEpisodeLanguageProof(series) && !episodeLanguageChecked(row.download, series)
+                  ? "Quellenprüfung ausstehend" : "Fehlt in Jellyfin";
       copy.append(node("small", "", [status, runtime].filter(Boolean).join(" · ")));
       card.append(art, copy, playButton(row));
       list.append(card);

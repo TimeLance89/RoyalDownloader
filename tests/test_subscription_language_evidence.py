@@ -181,3 +181,16 @@ def test_switched_subscription_on_monolingual_source_checks_alternatives(monkeyp
     slug = series.all_episodes[0].slug
     assert languages[slug] == (["en"] if available else None)
     assert checks[slug]["languages"] == languages[slug]
+
+
+def test_new_matching_source_releases_previous_audio_mismatch(subscription):
+    entry, series, state = subscription
+    slug = series.all_episodes[0].slug
+    entry["episode_states"][slug] = "waiting_for_language"
+    entry["waiting_language_slugs"] = [slug]
+    entry["failed_downloads"] = {slug: {"audio_language_mismatch": True}}
+    library._update_watchlist_language_states(entry, {slug: ["de"]})
+    assert slug in state.watchlist_new_slugs[series.base_slug]
+    assert entry["episode_states"][slug] == "available"
+    assert not entry["waiting_language_slugs"]
+    assert not entry["failed_downloads"]

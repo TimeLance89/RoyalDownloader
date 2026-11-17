@@ -1198,6 +1198,9 @@ def _update_watchlist_language_states(entry, languages):
         states[slug] = status
         if status == "available":
             pending.add(slug)
+            failure = (entry.get("failed_downloads") or {}).get(slug)
+            if isinstance(failure, dict) and failure.get("audio_language_mismatch"):
+                entry["failed_downloads"].pop(slug, None)
         else:
             pending.discard(slug)
             (entry.get("failed_downloads") or {}).pop(slug, None)

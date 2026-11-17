@@ -87,12 +87,22 @@ const { fixture } = require('./performance-fixture.cjs');
         seriesBrowser.update({title:'Series',seasons:[]});
         await tick();
         const memberSeries = !seriesRoot.querySelector('#series-watch-episodes').hidden && seriesRoot.querySelectorAll('.series-watch-action').length === 1;
+        seriesBrowser.update({title:'Series', provider:'huhu', seasons:[{season:1, episodes:[
+          {season:1, episode:1}, {season:1, episode:2, waiting_for_language:true},
+          {season:1, episode:3, queued:true},
+        ]}]});
+        const watchRows = [...seriesRoot.querySelectorAll('.series-watch-row')];
+        const languageWaitIsNeutral = watchRows[1].querySelector('small').textContent === 'Wartet auf passende Sprache'
+          && watchRows[1].querySelector('button').textContent === 'Wartet auf passende Sprache'
+          && watchRows[1].querySelector('button').disabled;
+        const queuedEpisodeIsPlanned = watchRows[2].querySelector('small').textContent === 'Im Downloadplan'
+          && watchRows[2].querySelector('button').textContent === 'Vorgemerkt';
         rejectSeries = true;
         store.set({user:{id:'c',role:'member',enabled:true,updated_at:'mapping-changed'}});
         await tick();
         const seriesCleared = seriesRoot.querySelector('#series-watch-episodes').hidden && seriesRoot.querySelectorAll('.series-watch-action').length === 0;
         seriesBrowser.close(); seriesScope.dispose();
-        return { memberSeries, seriesCleared, memberResume, staleReadDiscarded, deniedDisabled, memberOpens, closedOnMappingChange, lateSessionReleased, memberRail, railCleared };
+        return { languageWaitIsNeutral, queuedEpisodeIsPlanned, memberSeries, seriesCleared, memberResume, staleReadDiscarded, deniedDisabled, memberOpens, closedOnMappingChange, lateSessionReleased, memberRail, railCleared };
       });
       for (const [name, passed] of Object.entries(result)) assert.equal(passed, true, `${engine}: ${name}`);
       assert.deepEqual(run.errors, []);
