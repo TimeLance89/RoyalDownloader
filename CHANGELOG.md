@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+
+## v2.2.0 – 2026-11-17
+
+### Discovery and installation
+
+- Add searchable Film Worlds for studios and franchises with library-aware
+  collection completion, a personal Merkliste carousel and fresher discovery feeds.
+- Add the native Windows/NAS installation wizard with verified source payloads,
+  a managed Windows runtime and NAS SSH host-key confirmation.
+
+### Series reliability and language verification
+
+- Preserve active queue identities across subscription provider changes and
+  incomplete language checks, including jobs whose pending markers expired.
+- Prevent duplicate fallback entries while honoring manual episode exclusions.
+- Add adaptive local spoken-language verification with two initial samples
+  and up to two reserve samples, and persistent exclusions for rejected Huhu episodes.
+- Re-enable explicitly German-labelled Huhu series sources and classify language
+  waits neutrally in the inbox and episode views.
+- Add the authenticated live Download-Check page for source, transfer and audio evidence.
+- Improve Jellyfin duplicate-series playback, episode descriptions, direct
+  HTTP resume, source routing and stream-proven audio metadata.
+
 ## v2.1.0 – 2026-11-09
 
 ### Royal becomes a media center
