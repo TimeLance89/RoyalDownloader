@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/TimeLance89/RoyalDownloader/releases/tag/v2.1.0"><img alt="Latest release: v2.1.0" src="docs/assets/release-version-v2.svg" /></a>
+  <a href="https://github.com/TimeLance89/RoyalDownloader/releases/tag/v2.2.0"><img alt="Latest release: v2.2.0" src="docs/assets/release-version-v2.svg" /></a>
   <a href="https://github.com/TimeLance89/RoyalDownloader/actions/workflows/quality.yml"><img alt="Quality checks" src="https://github.com/TimeLance89/RoyalDownloader/actions/workflows/quality.yml/badge.svg?branch=main" /></a>
   <a href="docs/DOCKER.md"><img alt="Docker Compose" src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&amp;logoColor=white" /></a>
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/License-Apache%202.0-bb8852" /></a>
@@ -21,7 +21,7 @@
   <a href="#quick-start">Get started</a> ·
   <a href="#fire-tv-app">Fire TV app</a> ·
   <a href="#a-look-inside">Screenshots</a> ·
-  <a href="#whats-new-in-21">Version 2.1</a> ·
+  <a href="#whats-new-in-22">Version 2.2</a> ·
   <a href="#documentation">Documentation</a>
 </p>
 
@@ -214,24 +214,24 @@ inbox stays accessible from the mobile navigation.
 
 <sub>Gallery images come from checked-in browser captures. The mobile examples use deterministic offline content and artwork fixtures; actual content and appearance may differ.</sub>
 
-## What's new in 2.1
+## What's new in 2.2
 
-**v2.1.0 is the media-center release:** Royal now connects browsing and acquiring
-content with watching your own library. The version introduces no intentional
-breaking change to the existing API or persistent-data contracts.
+**v2.2.0 improves discovery, installation and series reliability.** Browse
+searchable Film Worlds and your personal Merkliste on Home, install through the
+native Windows/NAS wizard, and follow series transfers and language checks live.
 
 | Experience | New in this release |
 | --- | --- |
-| **Watch in the browser** | Integrated film and episode player, Jellyfin-negotiated direct play or HLS, seeking, fullscreen and supported picture-in-picture |
-| **Pick up where you stopped** | Saved-time play buttons, personal Continue watching carousel and progress written back to Jellyfin |
-| **Browse your series** | Library-aware series details, seasons, episodes and in-player previous/next navigation |
-| **Manage the list** | Open details, hide an entry, mark it watched and undo recent supported actions |
-| **Share Royal with your household** | Playback for members and administrators, checked against each account's linked Jellyfin profile |
-| **Keep playback isolated** | Private stream sessions and resources, permission checks and account/profile-change handling |
-| **Read existing segment metadata** | Authenticated backend access to Jellyfin Intro/Outro markers for clients; no new skip controls in the web player |
-| **Reliable storage confirmation** | Unchanged storage polling preserves the button being clicked instead of losing the confirmation |
+| **Explore Film Worlds** | Searchable studio and franchise catalogs with library-aware collection completion |
+| **Open your Merkliste** | A personal saved-media carousel on Home with profile-scoped artwork and updates |
+| **Install with a wizard** | Native Windows/NAS setup with verified source payloads and SSH host-key confirmation |
+| **Keep series queued** | Active episode identities survive provider changes and incomplete language checks |
+| **Check spoken audio** | Optional local Whisper verification with two initial samples and up to two reserve samples |
+| **Remember rejected sources** | Confirmed foreign-language Huhu episodes are excluded persistently |
+| **Read neutral waiting states** | Inbox and episode views distinguish language waits from download problems |
+| **Inspect live transfers** | The authenticated Download-Check page at `/check/` shows source, transfer and audio evidence |
 
-Read the [v2.1.0 release notes](docs/releases/v2.1.0.md),
+Read the [v2.2.0 release notes](docs/releases/v2.2.0.md),
 [media-center guide](docs/MEDIA_CENTER.md) or [full changelog](CHANGELOG.md).
 
 ## How it works
@@ -272,7 +272,7 @@ requested spoken language. A subtitle label is not evidence of an audio track.
 Use the RoyalDownloader TV client on your Fire TV and connect it to your running
 Royal server. The APK is provided as a release download (about 4 MB).
 
-**TV app v2.0.54 and server v2.1.0 are versioned separately.** The download is the
+**TV app v2.0.54 and server v2.2.0 are versioned separately.** The download is the
 supplied native APK, unchanged. See the [installation notes and signing details](docs/FIRE_TV.md)
 and its [SHA-256 checksum](docs/checksums/RoyalDownloader-TV-2.0.54-native.apk.sha256).
 
@@ -282,7 +282,7 @@ and its [SHA-256 checksum](docs/checksums/RoyalDownloader-TV-2.0.54-native.apk.s
 
 The native **RoyalDownloader-Setup.exe** is built using **C# / .NET 10 / WPF**.
 It starts without an installed Python interpreter or other global prerequisites.
-Download a successful test artifact from the [native Windows installer build](https://github.com/TimeLance89/RoyalDownloader/actions/workflows/native-installer-windows.yml).
+Download the [v2.2.0 Windows/NAS installer](https://github.com/TimeLance89/RoyalDownloader/releases/download/v2.2.0/RoyalDownloader-Setup.exe) and its [SHA-256 checksum](https://github.com/TimeLance89/RoyalDownloader/releases/download/v2.2.0/RoyalDownloader-Setup.exe.sha256).
 
 Windows mode creates a **private managed Python runtime only for the RoyalDownloader server**
 within its newly created program folder; it does **not** alter an existing Python 3.14
@@ -306,10 +306,10 @@ model.
 You'll need **Docker Engine**, **Docker Compose v2**, a **TMDB API key/read
 token** for first-run setup, and writable persistent movie and series folders.
 
-**1. Clone the v2.1.0 Stable release and prepare the environment.**
+**1. Clone the v2.2.0 Stable release and prepare the environment.**
 
 ```bash
-git clone --branch v2.1.0 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
+git clone --branch v2.2.0 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
 cd RoyalDownloader
 cp .env.example .env
 mkdir -p data runtime
@@ -377,7 +377,7 @@ With Python 3.12+, Chrome/Chromium and the platform's media dependencies
 available:
 
 ```bash
-git clone --branch v2.1.0 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
+git clone --branch v2.2.0 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
 cd RoyalDownloader
 python3 -m pip install -r requirements.lock
 python3 server.py
@@ -417,7 +417,7 @@ without one. See [setup and troubleshooting](docs/MEDIA_CENTER.md).
 
 Back up `.env`, `data/`, `runtime/` and your current revision before updating.
 Keep existing media mounts, accounts, integration credentials and queue state.
-Follow [the v2.1.0 upgrade notes](docs/releases/v2.1.0.md#upgrade) for a pinned
+Follow [the v2.2.0 upgrade notes](docs/releases/v2.2.0.md#upgrade) for a pinned
 Docker update or use the verified Stable updater.
 
 After updating, check your media-center connection and each household member's
