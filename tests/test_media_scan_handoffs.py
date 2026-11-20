@@ -127,6 +127,32 @@ def test_missing_catalog_metadata_does_not_lose_valid_media_request(monkeypatch)
     assert calls == [("download", "final.mkv", {})]
 
 
+@pytest.mark.parametrize("cached", [True, False])
+def test_subscription_handoff_keeps_series_identity_after_cache_or_provider_change(monkeypatch, cached):
+    from providers.models import parse_episode_slug
+    slug = 'vidrift:42-s1e3'
+    state = SimpleNamespace(
+        watchlist_lock=threading.RLock(),
+        watchlist=[{'base_slug': 'serienstream:series', 'title': 'Series', 'tmdb_id': '42', 'known_slugs': [slug]}],
+        series_cache={'vidrift:42': SimpleNamespace(title='Alternate Title')} if cached else {},
+        fp_movies={slug: SimpleNamespace(title='Series S01E03')},
+    )
+    monkeypatch.setattr(media_scans, 'backend_value', {'state': state, 'parse_episode_slug': parse_episode_slug}.__getitem__)
+    assert media_scans._download_evidence(slug) == {
+        'kind': 'series', 'title': 'Series', 'tmdb_id': '42', 'season': 1, 'episode': 3,
+    }
+
+
+def test_manual_episode_without_cache_uses_episode_title_in_series_inventory(monkeypatch):
+    from providers.models import parse_episode_slug
+    slug = 'series-s04e06'
+    state = SimpleNamespace(watchlist_lock=threading.RLock(), watchlist=[], series_cache={},
+                            fp_movies={slug: SimpleNamespace(title='FROM S04E06')})
+    monkeypatch.setattr(media_scans, 'backend_value', {'state': state, 'parse_episode_slug': parse_episode_slug}.__getitem__)
+    evidence = media_scans._download_evidence(slug)
+    assert evidence == {'kind': 'series', 'title': 'FROM', 'tmdb_id': '', 'season': 4, 'episode': 6}
+
+
 def test_recognition_uses_existing_movie_and_series_identity_rules(monkeypatch):
     from integrations.jellyfin_client import JellyfinClient
     backend = {

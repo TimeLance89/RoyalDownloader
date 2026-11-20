@@ -6,6 +6,7 @@ from application_services.runtime import backend_value
 from core.runtime_paths import data_dir
 from integrations.jellyfin_scans import ScanManager, interval
 from integrations.jellyfin_reads import inventory_reads
+from providers.models import strip_episode_suffix
 
 _lock = threading.Lock()
 _manager = None
@@ -61,8 +62,18 @@ def _download_evidence(slug):
     parsed = backend_value("parse_episode_slug")(slug)
     if parsed:
         series = state.series_cache.get(parsed[0])
-        if series:
-            return {"kind": "series", "title": series.title, "tmdb_id": getattr(series, "tmdb_id", ""), "season": parsed[1], "episode": parsed[2]}
+        with state.watchlist_lock:
+            entry = next((item for item in state.watchlist
+                          if item.get("base_slug") == parsed[0] or slug in (item.get("known_slugs") or [])), {})
+            title = entry.get("title") or getattr(series, "title", "")
+            tmdb_id = entry.get("tmdb_id") or getattr(series, "tmdb_id", "")
+        movie = state.fp_movies.get(slug)
+        if not title and movie:
+            title = strip_episode_suffix(movie.title)
+        # An episode remains an episode after a cache refresh or provider
+        # switch. Searching the film inventory cannot confirm its publication.
+        return {"kind": "series", "title": title, "tmdb_id": tmdb_id,
+                "season": parsed[1], "episode": parsed[2]}
     movie = state.fp_movies.get(slug)
     return {"kind": "movie", "title": movie.title, "year": str(getattr(movie, "year", ""))} if movie else {}
 

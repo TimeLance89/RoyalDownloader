@@ -83,7 +83,7 @@ test("an explicit zero open count is respected and legacy counts are never guess
   assert.deepEqual(slugs(inbox, model, "new"), ["legacy", "string-counts"]);
 });
 
-test("EN-only and upcoming episodes remain visible without becoming a problem", () => {
+test("normal language and release waits do not create inbox notices", () => {
   const inbox = loadInbox();
   const model = inbox.buildSubscriptionInbox([
     subscription("chicago-fire", {
@@ -91,11 +91,8 @@ test("EN-only and upcoming episodes remain visible without becoming a problem", 
       open_count: 0, failed_count: 0,
     }),
   ]);
-  const item = model.entries[0];
-  assert.equal(item.hasIssue, false);
-  assert.equal(item.waitingLanguageCount, 2);
-  assert.equal(item.upcomingCount, 1);
-  assert.deepEqual(slugs(inbox, model, "all"), ["chicago-fire"]);
+  assert.equal(model.entries.length, 0);
+  assert.deepEqual(slugs(inbox, model, "all"), []);
   assert.deepEqual(slugs(inbox, model, "issue"), []);
 });
 
@@ -318,7 +315,7 @@ test("header badge signals unread downloads, open episodes and errors", () => {
   assert.ok(passiveBadge.classList.contains("hidden"));
   assert.ok(!passiveBell.classList.contains("is-active"));
   assert.equal(passive.document.getElementById("notif-trigger-label").textContent, "Alles aktuell");
-  assert.equal(passive.document.getElementById("notif-summary").textContent, "3 Einträge");
+  assert.equal(passive.document.getElementById("notif-summary").textContent, "Keine Meldungen");
 
   const attention = renderFixture([
     subscription("problem-one", { failed_count: 1, status: "failed" }),
@@ -460,15 +457,30 @@ test("a newer live snapshot wins over a pending acknowledgement refresh", async 
   assert.equal(calls.applied.length, 0);
 });
 
-test('unchecked episode languages remain in the inbox without becoming available or an error', () => {
+test('unchecked episode sources are monitored without creating inbox notices', () => {
   const fixture = renderFixture([subscription('pending', { status: 'language_pending', language_pending_count: 2, open_count: 0 })]);
   fixture.inbox.renderNotifBell();
   const model = fixture.inbox.buildSubscriptionInbox(fixture.state.wl.items);
-  assert.equal(model.entries.length, 1);
-  assert.equal(model.entries[0].languagePendingCount, 2);
+  assert.equal(model.entries.length, 0);
   assert.equal(model.counts.new, 0);
   assert.equal(model.counts.issue, 0);
-  assert.match(fixture.document.getElementById('notif-list').textContent, /Sprachprüfung ausstehend/);
+  assert.doesNotMatch(fixture.document.getElementById('notif-list').textContent, /Sprachprüfung ausstehend/);
+});
+
+test('downloaded tab shows receipts without unrelated pending checks or issues', () => {
+  const fixture = renderFixture([subscription('mixed', {
+    downloaded_count: 1, open_count: 1, failed_count: 1, queued_count: 2,
+    language_pending_count: 3, upcoming_count: 1,
+    last_unread_downloaded_episode: { season: 1, episode: 2, downloaded_at: 100 },
+  })]);
+  fixture.document.querySelectorAll('[data-notif-filter]')
+    .find(button => button.dataset.notifFilter === 'downloaded').fire('click');
+  fixture.inbox.renderNotifBell();
+  const list = fixture.document.getElementById('notif-list');
+  assert.match(list.textContent, /1 Folge geladen/);
+  assert.match(list.textContent, /S01E02/);
+  assert.doesNotMatch(list.textContent, /Problem|fehlgeschlagen|ausstehend|demnächst|Folge offen|Downloadplan/);
+  assert.equal(list.querySelector('.notif-item-check'), null);
 });
 
 
@@ -482,4 +494,18 @@ test("removed messages stay hidden through polls while genuine episode changes r
   const hidden = value => value === key;
   assert.equal(model.buildSubscriptionInbox([first], {}, hidden).counts.all, 0);
   assert.equal(model.buildSubscriptionInbox([{ ...first, inbox_episode_revision: "episode-b" }], {}, hidden).counts.all, 1);
+});
+
+test("passive source checks cannot resurrect a dismissed download receipt", () => {
+  const { subscriptionKey } = require("../../web/js/features/notifications/dismissals.js");
+  const receipt = { season: 1, episode: 2, downloaded_at: 100 };
+  const entry = { base_slug: "series", downloaded_count: 1, status: "language_pending",
+    language_pending_count: 5, inbox_episode_revision: "empty", last_unread_downloaded_episode: receipt };
+  const key = subscriptionKey(entry);
+  const progressed = { ...entry, status: "waiting_for_language", language_pending_count: 3,
+    waiting_language_count: 2, upcoming_count: 1, episode_states: { other: "waiting_for_language" } };
+  assert.equal(subscriptionKey(progressed), key);
+  assert.equal(model.buildSubscriptionInbox([progressed], {}, value => value === key).counts.all, 0);
+  const fresh = { ...progressed, last_unread_downloaded_episode: { ...receipt, episode: 3, downloaded_at: 200 } };
+  assert.notEqual(subscriptionKey(fresh), key);
 });

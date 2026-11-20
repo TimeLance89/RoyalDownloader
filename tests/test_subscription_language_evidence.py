@@ -179,7 +179,7 @@ def test_switched_subscription_on_monolingual_source_checks_alternatives(monkeyp
     monkeypatch.setattr(download_lifecycle, "find_episode_fallbacks", fallback)
     languages, checks = library._watchlist_episode_language_evidence(entry, series, entry["episode_states"])
     slug = series.all_episodes[0].slug
-    assert languages[slug] == (["en"] if available else None)
+    assert languages[slug] == (["de", "en"] if available else ["de"])
     assert checks[slug]["languages"] == languages[slug]
 
 
@@ -194,3 +194,98 @@ def test_new_matching_source_releases_previous_audio_mismatch(subscription):
     assert entry["episode_states"][slug] == "available"
     assert not entry["waiting_language_slugs"]
     assert not entry["failed_downloads"]
+
+
+def test_failed_alternative_does_not_erase_known_foreign_language(monkeypatch, subscription):
+    from application_services import download_lifecycle
+    entry, series, _ = subscription
+    monkeypatch.setattr("application_services.movie_catalog.provider_priority",
+                        lambda kind: ["huhu", "serienstream"] if kind == "series" else [])
+    calls = []
+    alternate_start = []
+    monkeypatch.setattr(library, "episode_languages_for_slug", lambda p, s: calls.append(s) or ["en"])
+    def unavailable(*args, **kwargs):
+        # All primary episode checks precede the first alternative lookup.
+        alternate_start.append(len(calls))
+        raise RuntimeError("Alternative catalog offline")
+    monkeypatch.setattr(download_lifecycle, "find_episode_fallbacks", unavailable)
+    languages, _ = library._watchlist_episode_language_evidence(entry, series, entry["episode_states"])
+    states = classify_subscription_episode_states(series.all_episodes, "all",
+        enabled_content_languages={"de"}, exact_content_languages=languages)
+    assert sum(value == "waiting_for_language" for value in states.values()) == 20
+    assert sum(value == "language_pending" for value in states.values()) == 3
+    assert alternate_start and alternate_start[0] == 20
+
+
+@pytest.mark.parametrize("deadline,actionable", [(99, True), (100, True), (101, False), (None, True)])
+def test_source_wait_becomes_actionable_when_retry_is_due(monkeypatch, deadline, actionable):
+    slug = "fixture-s01e01"
+    monkeypatch.setattr(automation.time, "time", lambda: 100)
+    entry = {"waiting_release_slugs": [slug], "waiting_source_retries": {},
+             "episode_states": {slug: "available"}}
+    if deadline is not None:
+        entry["waiting_source_retries"][slug] = deadline
+    assert automation._watchlist_episode_is_actionable(entry, slug) is actionable
+
+
+def test_manual_check_runs_automatic_dispatch_after_classifying(monkeypatch, subscription):
+    import asyncio
+    _, _, _state = subscription
+    calls = []
+    monkeypatch.setattr(library, "check_watchlist_entries", lambda *a, **k: calls.append("check") or 1)
+    monkeypatch.setattr(automation, "_auto_download_new_episodes", lambda: calls.append("dispatch"))
+    monkeypatch.setattr(library, "watchlist_payload", lambda: {})
+    monkeypatch.setattr(library, "broadcast", lambda _: None)
+    result = asyncio.run(library.api_watchlist_check(library.WatchlistCheckBody()))
+    assert calls == ["check", "dispatch"]
+    assert result["checked"] == 1
+
+
+def test_manually_cancelled_episode_is_not_advertised_or_probed(monkeypatch, subscription):
+    entry, series, _ = subscription
+    slug = series.all_episodes[0].slug
+    entry['manual_cancelled_episodes'] = ['1:1']
+    monkeypatch.setattr(library, 'compute_downloaded_episodes', lambda _: set())
+    monkeypatch.setattr(library, '_unreleased_episode_slugs', lambda *_: set())
+    calls = []
+    monkeypatch.setattr(library, 'episode_languages_for_slug', lambda p, s: calls.append(s) or ['de'])
+    client = SimpleNamespace(configured=False)
+    calculated = library._calculate_watchlist_entry_state(entry, series, client, None, None)
+    assert slug not in calculated['episode_states']
+    assert slug not in calculated['missing_slugs']
+    assert slug not in calls
+
+
+def test_accepted_subscription_is_saved_before_next_provider_failure(monkeypatch, subscription):
+    from copy import deepcopy
+    entry, series, state = subscription
+    entry.update(title='Fixture', sample_url='first', last_checked=1)
+    second = {'base_slug': 'second', 'title': 'Second', 'sample_url': 'second', 'last_checked': 2}
+    state.watchlist.append(second)
+    state.jellyfin_cache_lock = threading.RLock()
+    state.jellyfin_config_generation = state.jellyfin_episode_data_generation = 1
+    state.jellyfin_cfg = {}
+    state.jellyfin_episodes_available = state.jellyfin_series_available = False
+    state.jellyfin_user_episodes_available = False
+    state.series_cache = {}
+    state.picked = set()
+    saved, events = [], []
+    def get_series(value, title):
+        if value == 'first':
+            return series
+        assert saved and saved[0][0]['last_checked'] > 1
+        assert events, 'The UI must receive first-subscription progress before the second lookup'
+        raise RuntimeError('second provider unavailable')
+    monkeypatch.setattr(library, 'media_client', lambda _: SimpleNamespace(configured=False))
+    monkeypatch.setattr(library, 'get_series_for_value', get_series)
+    monkeypatch.setattr(library, 'get_tmdb_series', lambda *_: None)
+    monkeypatch.setattr(library, '_calculate_watchlist_entry_state', lambda *_: {
+        'mode': 'all', 'cleanup_mode': 'keep', 'known_slugs': [], 'missing_slugs': set(), 'episode_states': {},
+    })
+    monkeypatch.setattr(library, '_persist_watchlist_background', lambda: saved.append(deepcopy(state.watchlist)))
+    monkeypatch.setattr(library, 'watchlist_payload', dict)
+    monkeypatch.setattr(library, 'broadcast', events.append)
+    monkeypatch.setattr(library, 'log', lambda *_: None)
+    assert library._check_watchlist_entries_impl([second, entry]) == 1
+    assert not entry['last_error']
+    assert second['last_error'] == 'second provider unavailable'

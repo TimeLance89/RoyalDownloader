@@ -27,8 +27,7 @@ export function buildSubscriptionInbox(items, health = {}, hidden = () => false)
     downloadedCount: notificationCount(entry.downloaded_count),
     hasIssue: notificationHasIssue(entry),
   })).filter(item => !hidden(item.key)).filter((item) => (
-    item.openCount || item.queuedCount || item.waitingLanguageCount || item.languagePendingCount || item.upcomingCount
-      || item.waitingSourceCount || item.downloadedCount || item.hasIssue
+    item.openCount || item.queuedCount || item.downloadedCount || item.hasIssue
   ));
   const error = String(health?.error || "").trim();
   const globalKey = inboxKey("global", error);
