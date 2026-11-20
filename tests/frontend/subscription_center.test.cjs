@@ -495,3 +495,17 @@ test("removed messages stay hidden through polls while genuine episode changes r
   assert.equal(model.buildSubscriptionInbox([first], {}, hidden).counts.all, 0);
   assert.equal(model.buildSubscriptionInbox([{ ...first, inbox_episode_revision: "episode-b" }], {}, hidden).counts.all, 1);
 });
+
+test("passive source checks cannot resurrect a dismissed download receipt", () => {
+  const { subscriptionKey } = require("../../web/js/features/notifications/dismissals.js");
+  const receipt = { season: 1, episode: 2, downloaded_at: 100 };
+  const entry = { base_slug: "series", downloaded_count: 1, status: "language_pending",
+    language_pending_count: 5, inbox_episode_revision: "empty", last_unread_downloaded_episode: receipt };
+  const key = subscriptionKey(entry);
+  const progressed = { ...entry, status: "waiting_for_language", language_pending_count: 3,
+    waiting_language_count: 2, upcoming_count: 1, episode_states: { other: "waiting_for_language" } };
+  assert.equal(subscriptionKey(progressed), key);
+  assert.equal(model.buildSubscriptionInbox([progressed], {}, value => value === key).counts.all, 0);
+  const fresh = { ...progressed, last_unread_downloaded_episode: { ...receipt, episode: 3, downloaded_at: 200 } };
+  assert.notEqual(subscriptionKey(fresh), key);
+});

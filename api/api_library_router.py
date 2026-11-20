@@ -1202,7 +1202,15 @@ def _update_watchlist_language_states(entry, languages):
     states = entry.get("episode_states") or {}
     pending = state.watchlist_new_slugs.setdefault(entry["base_slug"], set())
     desired = subscription_content_languages(entry, state.content_languages, getattr(state, "subscription_content_languages", {}))
+    cancelled = normalize_episode_history(entry.get("manual_cancelled_episodes"))
     for slug, values in languages.items():
+        parsed = parse_episode_slug(slug)
+        if parsed and parsed[1:] in cancelled:
+            pending.discard(slug)
+            states.pop(slug, None)
+            for field in ("upcoming_slugs", "waiting_release_slugs"):
+                entry[field] = [value for value in entry.get(field, []) if value != slug]
+            continue
         status = episode_language_state(values, desired)
         if states.get(slug) == "upcoming":
             if status != "available":

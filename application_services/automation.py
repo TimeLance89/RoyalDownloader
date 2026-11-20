@@ -81,6 +81,10 @@ def _playable_episode_source(slug: str, primary):
         aliases=tuple(entry.get("aliases") or ()),
         source_slug=slug,
         limit=1,
+        tmdb_id=str(entry.get("tmdb_id") or ""),
+        content_languages=subscription_content_languages(
+            entry, state.content_languages, getattr(state, "subscription_content_languages", {}),
+        ),
     )
     return fallbacks[0] if fallbacks else None
 
