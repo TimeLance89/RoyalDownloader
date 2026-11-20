@@ -179,7 +179,7 @@ def test_switched_subscription_on_monolingual_source_checks_alternatives(monkeyp
     monkeypatch.setattr(download_lifecycle, "find_episode_fallbacks", fallback)
     languages, checks = library._watchlist_episode_language_evidence(entry, series, entry["episode_states"])
     slug = series.all_episodes[0].slug
-    assert languages[slug] == (["en"] if available else None)
+    assert languages[slug] == (["de", "en"] if available else ["de"])
     assert checks[slug]["languages"] == languages[slug]
 
 
@@ -194,3 +194,63 @@ def test_new_matching_source_releases_previous_audio_mismatch(subscription):
     assert entry["episode_states"][slug] == "available"
     assert not entry["waiting_language_slugs"]
     assert not entry["failed_downloads"]
+
+
+def test_failed_alternative_does_not_erase_known_foreign_language(monkeypatch, subscription):
+    from application_services import download_lifecycle
+    entry, series, _ = subscription
+    monkeypatch.setattr("application_services.movie_catalog.provider_priority",
+                        lambda kind: ["huhu", "serienstream"] if kind == "series" else [])
+    calls = []
+    alternate_start = []
+    monkeypatch.setattr(library, "episode_languages_for_slug", lambda p, s: calls.append(s) or ["en"])
+    def unavailable(*args, **kwargs):
+        # All primary episode checks precede the first alternative lookup.
+        alternate_start.append(len(calls))
+        raise RuntimeError("Alternative catalog offline")
+    monkeypatch.setattr(download_lifecycle, "find_episode_fallbacks", unavailable)
+    languages, _ = library._watchlist_episode_language_evidence(entry, series, entry["episode_states"])
+    states = classify_subscription_episode_states(series.all_episodes, "all",
+        enabled_content_languages={"de"}, exact_content_languages=languages)
+    assert sum(value == "waiting_for_language" for value in states.values()) == 20
+    assert sum(value == "language_pending" for value in states.values()) == 3
+    assert alternate_start and alternate_start[0] == 20
+
+
+@pytest.mark.parametrize("deadline,actionable", [(99, True), (100, True), (101, False), (None, True)])
+def test_source_wait_becomes_actionable_when_retry_is_due(monkeypatch, deadline, actionable):
+    slug = "fixture-s01e01"
+    monkeypatch.setattr(automation.time, "time", lambda: 100)
+    entry = {"waiting_release_slugs": [slug], "waiting_source_retries": {},
+             "episode_states": {slug: "available"}}
+    if deadline is not None:
+        entry["waiting_source_retries"][slug] = deadline
+    assert automation._watchlist_episode_is_actionable(entry, slug) is actionable
+
+
+def test_manual_check_runs_automatic_dispatch_after_classifying(monkeypatch, subscription):
+    import asyncio
+    _, _, _state = subscription
+    calls = []
+    monkeypatch.setattr(library, "check_watchlist_entries", lambda *a, **k: calls.append("check") or 1)
+    monkeypatch.setattr(automation, "_auto_download_new_episodes", lambda: calls.append("dispatch"))
+    monkeypatch.setattr(library, "watchlist_payload", lambda: {})
+    monkeypatch.setattr(library, "broadcast", lambda _: None)
+    result = asyncio.run(library.api_watchlist_check(library.WatchlistCheckBody()))
+    assert calls == ["check", "dispatch"]
+    assert result["checked"] == 1
+
+
+def test_manually_cancelled_episode_is_not_advertised_or_probed(monkeypatch, subscription):
+    entry, series, _ = subscription
+    slug = series.all_episodes[0].slug
+    entry['manual_cancelled_episodes'] = ['1:1']
+    monkeypatch.setattr(library, 'compute_downloaded_episodes', lambda _: set())
+    monkeypatch.setattr(library, '_unreleased_episode_slugs', lambda *_: set())
+    calls = []
+    monkeypatch.setattr(library, 'episode_languages_for_slug', lambda p, s: calls.append(s) or ['de'])
+    client = SimpleNamespace(configured=False)
+    calculated = library._calculate_watchlist_entry_state(entry, series, client, None, None)
+    assert slug not in calculated['episode_states']
+    assert slug not in calculated['missing_slugs']
+    assert slug not in calls

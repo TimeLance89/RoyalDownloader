@@ -54,10 +54,13 @@ def _watchlist_episode_is_actionable(entry: dict, slug: str) -> bool:
     episode_state = (entry.get("episode_states") or {}).get(slug)
     if episode_state in {"waiting_for_language", "language_pending", "upcoming"}:
         return False
+    if slug in (entry.get("waiting_release_slugs") or []):
+        retry = (entry.get("waiting_source_retries") or {}).get(slug)
+        if time.time() < float(retry or 0):
+            return False
     return slug not in {
         *(entry.get("waiting_language_slugs") or []),
         *(entry.get("language_pending_slugs") or []),
-        *(entry.get("waiting_release_slugs") or []),
         *(entry.get("upcoming_slugs") or []),
     }
 

@@ -164,6 +164,7 @@ def test_auto_download_rejects_language_and_release_wait_states():
     entry = {
         "waiting_language_slugs": ["fire-country-s04e13"],
         "waiting_release_slugs": ["future-release"],
+        "waiting_source_retries": {"future-release": 9999999999},
         "upcoming_slugs": ["future-episode"],
         "episode_states": {"9-1-1-s09e17": "waiting_for_language"},
     }
