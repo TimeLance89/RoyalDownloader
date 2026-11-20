@@ -73,3 +73,74 @@ def test_confirmed_foreign_audio_is_not_published(monkeypatch, tmp_path):
     assert job.failure_kind == "audio_language_mismatch"
     assert events == [("mismatch", "EN")]
     assert not job.out_path.exists()
+
+
+@pytest.mark.parametrize('first', ['missing_tracks', 'missing_duration', 'invalid_json', 'timeout', 'error'])
+def test_incomplete_fast_metadata_probe_retries_normal_analysis_once(monkeypatch, first):
+    import subprocess
+    calls = []
+    valid = {'streams': [{'index': 1}], 'format': {'duration': '400'}}
+    def run(args, timeout):
+        calls.append((args, timeout))
+        if len(calls) == 1:
+            if first == 'timeout':
+                raise subprocess.TimeoutExpired(args, timeout)
+            if first == 'error':
+                raise subprocess.CalledProcessError(1, args)
+            value = {'streams': []} if first == 'missing_tracks' else {'streams': [{'index': 1}]}
+            return SimpleNamespace(stdout='invalid' if first == 'invalid_json' else json.dumps(value))
+        return SimpleNamespace(stdout=json.dumps(valid))
+    monkeypatch.setattr(audio, '_run', run)
+    assert audio._probe_audio(Path('transport.mp4'), lambda: False) == valid
+    assert [timeout for _, timeout in calls] == [8, 20]
+    assert '-probesize' in calls[0][0] and '-probesize' not in calls[1][0]
+
+
+def test_fast_probe_success_does_not_repeat_metadata_scan(monkeypatch):
+    calls = []
+    valid = {'streams': [{'index': 1}], 'format': {'duration': '400'}}
+    monkeypatch.setattr(audio, '_run', lambda args, timeout: calls.append(args) or SimpleNamespace(stdout=json.dumps(valid)))
+    assert audio._probe_audio(Path('episode.mp4'), lambda: False) == valid
+    assert len(calls) == 1
+
+
+def test_cancelled_fast_probe_never_starts_full_scan(monkeypatch):
+    cancelled = [False]
+    calls = []
+    def run(args, timeout):
+        calls.append(args)
+        cancelled[0] = True
+        return SimpleNamespace(stdout='{}')
+    monkeypatch.setattr(audio, '_run', run)
+    assert audio._probe_audio(Path('episode.mp4'), lambda: cancelled[0]) == {}
+    assert len(calls) == 1
+
+
+def test_audio_probe_timeouts_are_bounded_and_worker_is_released(monkeypatch):
+    import subprocess
+    calls = []
+    monkeypatch.setattr(audio, '_runtime', lambda: (Path('whisper-cli'), Path('model.bin')))
+    def run(args, timeout):
+        calls.append(timeout)
+        raise subprocess.TimeoutExpired(args, timeout)
+    monkeypatch.setattr(audio, '_run', run)
+    assert audio.verify_german_audio(Path('episode.mp4'), lambda: False, lambda *_: None)[0] == 'unavailable'
+    assert calls == [8, 20]
+    assert audio._worker.acquire(blocking=False)
+    audio._worker.release()
+
+
+def test_sample_extraction_retries_without_short_analysis(monkeypatch, tmp_path):
+    import subprocess
+    calls = []
+    def run(args, timeout):
+        calls.append((args, timeout))
+        if len(calls) == 1:
+            raise subprocess.CalledProcessError(1, args)
+        return SimpleNamespace(stderr='auto-detected language: de (p = 0.99)')
+    monkeypatch.setattr(audio, '_run', run)
+    assert audio._sample_languages(Path('episode.mp4'), 1, 400, tmp_path,
+                                   (Path('whisper-cli'), Path('model.bin')), (0.23,), lambda: False) == [('de', 0.99)]
+    assert [timeout for _, timeout in calls] == [8, 15, 30]
+    assert '-probesize' in calls[0][0] and '-probesize' not in calls[1][0]
+    assert all('-y' in args for args, _ in calls[:2])
