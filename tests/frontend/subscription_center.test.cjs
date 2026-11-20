@@ -509,3 +509,10 @@ test("passive source checks cannot resurrect a dismissed download receipt", () =
   const fresh = { ...progressed, last_unread_downloaded_episode: { ...receipt, episode: 3, downloaded_at: 200 } };
   assert.notEqual(subscriptionKey(fresh), key);
 });
+
+test("download receipts distinguish confirmed and inconclusive audio", () => {
+  const episode = { season: 15, episode: 5, downloaded_at: 100, audio_check_status: "unclear" };
+  assert.match(model.inboxDownloadDetail({ last_unread_downloaded_episode: episode }), /Sprachprüfung unklar/);
+  assert.doesNotMatch(model.inboxDownloadDetail({ last_unread_downloaded_episode: episode }), /Deutsch bestätigt/);
+  assert.match(model.inboxDownloadDetail({ last_unread_downloaded_episode: { ...episode, audio_check_status: "confirmed" } }), /Deutsch bestätigt/);
+});

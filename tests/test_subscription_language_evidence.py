@@ -17,6 +17,7 @@ def subscription(monkeypatch):
     series = FilmpalastSeries("Fixture", "serienstream:fixture", "https://s.to/serie/fixture", seasons={1: episodes})
     entry = {"base_slug": series.base_slug, "episode_states": {e.slug: "available" for e in episodes}}
     state = SimpleNamespace(watchlist=[entry], watchlist_lock=threading.RLock(),
+                            queue_claim_lock=threading.RLock(),
                             watchlist_new_slugs={series.base_slug: {e.slug for e in episodes}},
                             content_languages={"de"})
     monkeypatch.setattr(library, "state", state)
@@ -279,7 +280,7 @@ def test_accepted_subscription_is_saved_before_next_provider_failure(monkeypatch
     monkeypatch.setattr(library, 'media_client', lambda _: SimpleNamespace(configured=False))
     monkeypatch.setattr(library, 'get_series_for_value', get_series)
     monkeypatch.setattr(library, 'get_tmdb_series', lambda *_: None)
-    monkeypatch.setattr(library, '_calculate_watchlist_entry_state', lambda *_: {
+    monkeypatch.setattr(library, '_calculate_watchlist_entry_state', lambda *_, **__: {
         'mode': 'all', 'cleanup_mode': 'keep', 'known_slugs': [], 'missing_slugs': set(), 'episode_states': {},
     })
     monkeypatch.setattr(library, '_persist_watchlist_background', lambda: saved.append(deepcopy(state.watchlist)))
