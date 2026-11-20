@@ -1776,6 +1776,10 @@ def _check_watchlist_entries_impl(
                             "items": calculated["cleanup_items"],
                         })
                     checked += 1
+            # Publish accepted progress before the next provider can stall.
+            # A later outage or restart must not lose earlier subscriptions.
+            _persist_watchlist_background()
+            broadcast({"type": "watchlist_update", **watchlist_payload()})
         except Exception as exc:
             _set_error(entry, revision, str(exc))
             log(f"Fehler beim Prüfen von «{entry_snapshot.get('title', '')}»: {exc}", "warn")

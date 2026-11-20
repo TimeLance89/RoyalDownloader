@@ -254,3 +254,38 @@ def test_manually_cancelled_episode_is_not_advertised_or_probed(monkeypatch, sub
     assert slug not in calculated['episode_states']
     assert slug not in calculated['missing_slugs']
     assert slug not in calls
+
+
+def test_accepted_subscription_is_saved_before_next_provider_failure(monkeypatch, subscription):
+    from copy import deepcopy
+    entry, series, state = subscription
+    entry.update(title='Fixture', sample_url='first', last_checked=1)
+    second = {'base_slug': 'second', 'title': 'Second', 'sample_url': 'second', 'last_checked': 2}
+    state.watchlist.append(second)
+    state.jellyfin_cache_lock = threading.RLock()
+    state.jellyfin_config_generation = state.jellyfin_episode_data_generation = 1
+    state.jellyfin_cfg = {}
+    state.jellyfin_episodes_available = state.jellyfin_series_available = False
+    state.jellyfin_user_episodes_available = False
+    state.series_cache = {}
+    state.picked = set()
+    saved, events = [], []
+    def get_series(value, title):
+        if value == 'first':
+            return series
+        assert saved and saved[0][0]['last_checked'] > 1
+        assert events, 'The UI must receive first-subscription progress before the second lookup'
+        raise RuntimeError('second provider unavailable')
+    monkeypatch.setattr(library, 'media_client', lambda _: SimpleNamespace(configured=False))
+    monkeypatch.setattr(library, 'get_series_for_value', get_series)
+    monkeypatch.setattr(library, 'get_tmdb_series', lambda *_: None)
+    monkeypatch.setattr(library, '_calculate_watchlist_entry_state', lambda *_: {
+        'mode': 'all', 'cleanup_mode': 'keep', 'known_slugs': [], 'missing_slugs': set(), 'episode_states': {},
+    })
+    monkeypatch.setattr(library, '_persist_watchlist_background', lambda: saved.append(deepcopy(state.watchlist)))
+    monkeypatch.setattr(library, 'watchlist_payload', dict)
+    monkeypatch.setattr(library, 'broadcast', events.append)
+    monkeypatch.setattr(library, 'log', lambda *_: None)
+    assert library._check_watchlist_entries_impl([second, entry]) == 1
+    assert not entry['last_error']
+    assert second['last_error'] == 'second provider unavailable'
