@@ -1299,8 +1299,11 @@ def _calculate_watchlist_entry_state(
     jf_episodes: list[dict] | None,
     jf_user_episodes: list[dict] | None,
     jf_series: list[dict] | None = None,
+    availability_checked_at: float | None = None,
 ) -> dict:
     """Berechnet den Zustand ohne globale Watchlist-Daten zu verändern."""
+    if availability_checked_at is None:
+        availability_checked_at = time.time()
     previous_keys = {
         parsed[1:]
         for slug in entry.get("known_slugs", [])
@@ -1331,6 +1334,15 @@ def _calculate_watchlist_entry_state(
         )
         if jf_episodes is not None else set()
     )
+    present_episode_keys = set(jf_existing) | {
+        parsed[1:] for slug in downloaded if (parsed := parse_episode_slug(slug)) is not None
+    }
+    receipt_slugs = {item.get("slug") for item in entry.get("downloaded_episode_notifications") or []}
+    receipt_history = []
+    if receipt_slugs:
+        with state.queue_claim_lock:
+            receipt_history = [{key: job.get(key) for key in ("slug", "status", "completed_at", "audio_check_status")}
+                               for job in getattr(state, "queue_history", []) if job.get("slug") in receipt_slugs]
     cleanup_history = normalize_episode_history(entry.get("cleanup_history"))
     jf_existing.update(cleanup_history)
     if vanished_keys:
@@ -1416,11 +1428,17 @@ def _calculate_watchlist_entry_state(
         "episode_states": episode_states,
         "episode_language_checks": language_checks,
         "cleanup_items": cleanup_items,
+        "receipt_inventory": {"present": present_episode_keys, "evaluated": current_keys,
+                              "checked_at": availability_checked_at, "history": receipt_history},
     }
 
 
 def _apply_watchlist_entry_state(entry: dict, calculated: dict) -> set[str]:
     """Übernimmt ein Ergebnis und meldet nicht mehr benötigte Queue-Slugs."""
+    if inventory := calculated.get("receipt_inventory"):
+        from features.subscription_receipts import reconcile_download_receipts
+
+        reconcile_download_receipts(entry, **inventory)
     queued_slugs = {
         slug for slug in getattr(state, "picked", ())
         if slug in entry.get("known_slugs", ())
@@ -1624,6 +1642,7 @@ def _check_watchlist_entries_impl(
         jellyfin_generation = state.jellyfin_config_generation
         cfg = dict(state.jellyfin_cfg)
     jf_client = media_client(cfg)
+    inventory_checked_at = time.time()
     jf_episodes = get_jellyfin_episodes(force=refresh_jellyfin) if jf_client.configured else None
     jf_series = get_jellyfin_series(force=refresh_jellyfin) if jf_client.configured else None
     with state.jellyfin_cache_lock:
@@ -1745,6 +1764,7 @@ def _check_watchlist_entries_impl(
                 entry_snapshot["cover_url"] = series.cover_url
             calculated = _calculate_watchlist_entry_state(
                 entry_snapshot, series, jf_client, jf_episodes, jf_user_episodes, jf_series,
+                availability_checked_at=inventory_checked_at,
             )
             with state.jellyfin_cache_lock:
                 if (

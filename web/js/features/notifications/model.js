@@ -94,6 +94,10 @@ export function inboxDownloadDetail(entry) {
   const when = timestamp ? new Date(timestamp * 1000).toLocaleString("de-DE", {
     day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
   }) : "";
-  return [`Zuletzt geladen: ${downloadedEpisodeLabel(entry) || "Folge"}`, when]
+  const audio = episode?.audio_check_status;
+  const language = audio === "confirmed" ? "Deutsch bestätigt"
+    : audio === "unclear" ? "Sprachprüfung unklar"
+      : audio === "unavailable" ? "Sprachprüfung nicht verfügbar" : "";
+  return [`Zuletzt geladen: ${downloadedEpisodeLabel(entry) || "Folge"}`, when, language]
     .filter(Boolean).join(" · ");
 }
