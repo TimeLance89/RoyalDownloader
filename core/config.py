@@ -69,6 +69,8 @@ def _normalize_download_notifications(value) -> List[dict]:
             "downloaded_at": downloaded_at,
             "read": bool(notification.get("read")),
         }
+        if notification.get("audio_check_status") in {"confirmed", "unclear", "unavailable"}:
+            normalized["audio_check_status"] = notification["audio_check_status"]
         previous = by_slug.get(slug)
         if previous is None or downloaded_at > previous["downloaded_at"]:
             by_slug[slug] = normalized
