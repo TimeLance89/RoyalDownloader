@@ -14,6 +14,7 @@ from tempfile import TemporaryDirectory
 _worker = threading.Lock()
 _detection = re.compile(r"auto-detected language: ([a-z]+) \(p\s*=\s*(\d+(?:\.\d+)?)\)")
 _confidence_threshold = 0.90
+_input_probe_args = ["-analyzeduration", "1000000", "-probesize", "1000000"]
 
 
 def _runtime():
@@ -41,11 +42,19 @@ def _sample_languages(path, index, duration, directory, runtime, fractions, canc
         if cancelled():
             return []
         sample = str(Path(directory) / f"sample-{fraction}.wav")
-        _run([
-            "ffmpeg", "-nostdin", "-v", "error", "-threads", "1", "-ss", str(duration * fraction),
-            "-i", str(path), "-map", f"0:{index}", "-t", "10",
-            "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", sample,
-        ], 8)
+        for options, timeout in ((_input_probe_args, 8), ([], 15)):
+            if cancelled():
+                return []
+            try:
+                _run([
+                    "ffmpeg", "-nostdin", "-y", "-v", "error", "-threads", "1", "-ss", str(duration * fraction),
+                    *options, "-i", str(path), "-map", f"0:{index}", "-t", "10",
+                    "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", sample,
+                ], timeout)
+                break
+            except (OSError, subprocess.SubprocessError):
+                if not options:
+                    raise
         samples.extend(("-f", sample))
     if cancelled():
         return []
@@ -53,8 +62,34 @@ def _sample_languages(path, index, duration, directory, runtime, fractions, canc
     result = _run([
         str(executable), "-m", str(model), "--detect-language",
         "--no-gpu", "--threads", "1", *samples,
-    ], 30)
+    ], 30 * len(fractions))
     return [(lang, float(score)) for lang, score in _detection.findall(result.stderr)][:len(fractions)]
+
+
+def _probe_audio(path, cancelled):
+    # Transport streams may use an .mp4 filename. The default input analysis
+    # can exceed the whole probe timeout even though short analysis is enough.
+    # Retry incomplete/failed short probes once with normal analysis instead
+    # of silently treating missing tracks as a definitive language result.
+    for options, timeout in ((_input_probe_args, 8), ([], 20)):
+        if cancelled():
+            return {}
+        try:
+            probe = _run([
+                "ffprobe", "-v", "error", *options, "-select_streams", "a",
+                "-show_entries", "stream=index:stream_tags=language:format=duration",
+                "-of", "json", str(path),
+            ], timeout)
+            info = json.loads(probe.stdout)
+            if not isinstance(info, dict):
+                raise ValueError("Ungültige Mediendaten")
+            duration = float((info.get("format") or {}).get("duration") or 0)
+            if info.get("streams") and math.isfinite(duration) and duration >= 30:
+                return info
+        except (OSError, subprocess.SubprocessError, ValueError, TypeError, AttributeError):
+            if not options:
+                raise
+    return info
 
 
 def verify_german_audio(path: Path, cancelled, report) -> tuple[str, str]:
@@ -72,12 +107,9 @@ def verify_german_audio(path: Path, cancelled, report) -> tuple[str, str]:
         if cancelled():
             return "cancelled", "Abgebrochen"
         report("checking", "Prüft zwei Tonproben")
-        probe = _run([
-            "ffprobe", "-v", "error", "-select_streams", "a",
-            "-show_entries", "stream=index:stream_tags=language:format=duration",
-            "-of", "json", str(path),
-        ], 8)
-        info = json.loads(probe.stdout)
+        info = _probe_audio(path, cancelled)
+        if cancelled():
+            return "cancelled", "Abgebrochen"
         tracks = info.get("streams") or []
         german = [track for track in tracks if str((track.get("tags") or {}).get("language")).lower()
                   in {"de", "deu", "ger", "de-de"}]

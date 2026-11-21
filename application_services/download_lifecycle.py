@@ -97,27 +97,10 @@ def _failure_record(previous, message: str) -> dict:
     }
 
 
-def _record_watchlist_download_notification(entry: dict, slug: str) -> bool:
-    parsed = parse_episode_slug(slug)
-    if not parsed or parsed[1] <= 0:
-        return False
-    _base_slug, season, episode = parsed
-    notifications = entry.get("downloaded_episode_notifications")
-    if not isinstance(notifications, list):
-        notifications = []
-    notifications = [
-        item for item in notifications
-        if isinstance(item, dict) and str(item.get("slug") or "") != slug
-    ]
-    notifications.insert(0, {
-        "slug": slug,
-        "season": season,
-        "episode": episode,
-        "downloaded_at": time.time(),
-        "read": False,
-    })
-    entry["downloaded_episode_notifications"] = notifications[:20]
-    return True
+def _record_watchlist_download_notification(entry: dict, slug: str, *, audio_check_status="") -> bool:
+    from features.subscription_receipts import record_download_receipt
+
+    return record_download_receipt(entry, slug, time.time(), audio_check_status)
 
 
 def _watchlist_retry_allowed(slug: str) -> bool:
@@ -229,7 +212,9 @@ def on_job_done(
                 if ok:
                     pending.discard(slug)
                     failures.pop(slug, None)
-                    _record_watchlist_download_notification(entry, slug)
+                    _record_watchlist_download_notification(
+                        entry, slug, audio_check_status=(terminal_job or {}).get("audio_check_status", ""),
+                    )
                     if not pending:
                         state.watchlist_new_slugs.pop(base_slug, None)
                 elif msg != "Abgebrochen":

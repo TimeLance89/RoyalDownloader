@@ -11,8 +11,9 @@ export function inboxKey(kind, value) {
 }
 
 export function subscriptionKey(entry) {
-  const fields = ["base_slug", "open_count", "new_count", "queued_count", "downloaded_count", "failed_count", "status", "last_error", "cleanup_last_error", "waiting_language_count", "language_pending_count", "upcoming_count", "waiting_release_count", "last_unread_downloaded_episode", "last_downloaded_episode", "episode_states", "inbox_episode_revision"];
-  return inboxKey("subscription", fields.map(key => entry[key] ?? null));
+  const fields = ["base_slug", "open_count", "new_count", "queued_count", "downloaded_count", "failed_count", "last_error", "cleanup_last_error", "last_unread_downloaded_episode", "last_downloaded_episode", "inbox_episode_revision"];
+  const status = ["blocked", "failed", "queued", "missing", "waiting_window"].includes(entry.status) ? entry.status : "current";
+  return inboxKey("subscription", [status, ...fields.map(key => entry[key] ?? null)]);
 }
 
 export function createInboxDismissals({ getUser, onChange, client = api }) {

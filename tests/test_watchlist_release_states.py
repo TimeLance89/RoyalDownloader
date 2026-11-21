@@ -69,6 +69,7 @@ def test_episode_without_any_hoster_waits_instead_of_becoming_a_job(monkeypatch)
         watchlist=[entry],
         watchlist_new_slugs={entry["base_slug"]: {slug}},
         watchlist_lock=threading.RLock(),
+        content_languages={"de"},
     )
     monkeypatch.setattr(automation, "state", fake_state)
     monkeypatch.setattr(automation, "find_episode_fallbacks", lambda *_args, **_kwargs: [])
