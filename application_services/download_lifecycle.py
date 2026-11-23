@@ -4,7 +4,10 @@
 
 import math
 
-from core.queue_jobs import SOURCE_RETRY_BUDGET_SECONDS, SOURCE_RETRY_MIN_ATTEMPTS, source_retry_started_at
+from core.queue_jobs import (
+    SOURCE_RETRY_BASE_SECONDS, SOURCE_RETRY_MAX_SECONDS, SOURCE_RETRY_BUDGET_SECONDS,
+    SOURCE_RETRY_MIN_ATTEMPTS, source_retry_after_failure,
+)
 from integrations.jellyfin_reads import background_inventory_reads
 
 from application_services.runtime import (
@@ -867,17 +870,6 @@ def _ensure_provider_retry_worker() -> None:
     threading.Thread(target=_provider_retry_worker, daemon=True).start()
 
 
-SOURCE_RETRY_BASE_SECONDS = 5 * 60
-SOURCE_RETRY_MAX_SECONDS = 6 * 60 * 60
-
-
-def _source_retry_delay(attempt: int) -> int:
-    return min(
-        SOURCE_RETRY_MAX_SECONDS,
-        SOURCE_RETRY_BASE_SECONDS * (2 ** min(max(0, attempt - 1), 7)),
-    )
-
-
 def _defer_provider_episode(
     movie: FilmpalastMovie,
     slug: str,
@@ -899,18 +891,13 @@ def _defer_provider_episode(
         fingerprints = set(logical.get("source_retry_fingerprints") or ())
         fingerprints.update(episode_source_fingerprints(sources))
         if reason in {"source_unavailable", "language_unavailable"}:
-            started_at = source_retry_started_at(logical, now)
-            source_retry_count += 1
-            deadline = started_at + SOURCE_RETRY_BUDGET_SECONDS
-            exhausted = source_retry_count >= SOURCE_RETRY_MIN_ATTEMPTS and now >= deadline
-            if reason == "language_unavailable":
-                language = str(logical.get("content_language") or "").upper()
-                error = f"Wartet auf passende Stream-Sprache ({language})"
-                delay = max(15 * 60, _source_retry_delay(source_retry_count))
-            else:
-                error = "Noch keine nutzbare Quelle verfügbar"
-                delay = _source_retry_delay(source_retry_count)
-            next_retry_at = min(now + delay, deadline) if now < deadline else now + delay
+            language_wait = reason == "language_unavailable"
+            source_retry_count, started_at, next_retry_at, exhausted = source_retry_after_failure(
+                logical, now, minimum_delay=15 * 60 if language_wait else 0,
+            )
+            language = str(logical.get("content_language") or "").upper()
+            error = (f"Wartet auf passende Stream-Sprache ({language})" if language_wait
+                     else "Noch keine nutzbare Quelle verfügbar")
         elif reason == "retry_interrupted":
             next_retry_at = now + SOURCE_RETRY_BASE_SECONDS
             error = "Quellenprüfung unterbrochen"
@@ -1249,7 +1236,6 @@ _SERVICE_EXPORTS = (
     "SOURCE_RETRY_MAX_SECONDS",
     "SOURCE_RETRY_BUDGET_SECONDS",
     "SOURCE_RETRY_MIN_ATTEMPTS",
-    "_source_retry_delay",
     "_defer_provider_episode",
     "_episode_fallback_aliases",
     "_fallback_get_series",

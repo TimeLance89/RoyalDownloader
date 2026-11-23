@@ -16,6 +16,8 @@ from typing import Any
 
 SCHEMA_VERSION = 3
 HISTORY_LIMIT = 500
+SOURCE_RETRY_BASE_SECONDS = 5 * 60
+SOURCE_RETRY_MAX_SECONDS = 6 * 60 * 60
 SOURCE_RETRY_BUDGET_SECONDS = 24 * 60 * 60
 SOURCE_RETRY_MIN_ATTEMPTS = 3
 ACTIVE_STATES = {
@@ -47,6 +49,17 @@ def source_retry_started_at(job: dict, now: float) -> float:
     except (ValueError, TypeError, OverflowError):
         return now
     return min(now, timestamp) if math.isfinite(timestamp) and timestamp > 0 else now
+
+
+def source_retry_after_failure(job: dict, now: float, *, minimum_delay: int = 0):
+    """Return the durable budget and deadline for one unsuccessful source check."""
+    attempts = _nonnegative_int(job.get("source_retry_count")) + 1
+    started = source_retry_started_at(job, now)
+    deadline = started + SOURCE_RETRY_BUDGET_SECONDS
+    exhausted = attempts >= SOURCE_RETRY_MIN_ATTEMPTS and now >= deadline
+    backoff = min(SOURCE_RETRY_MAX_SECONDS, SOURCE_RETRY_BASE_SECONDS * (2 ** min(attempts - 1, 7)))
+    next_retry = now + max(minimum_delay, backoff)
+    return attempts, started, min(next_retry, deadline) if now < deadline else next_retry, exhausted
 
 
 def stable_migration_id(slug: str) -> str:
