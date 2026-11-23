@@ -33,7 +33,8 @@ def test_cached_movie_fallbacks_seed_sources_without_claiming_exhaustion(monkeyp
     fallback = _movie("Primary", "https://huhu.test/fallback", "huhu")
     captured = {}
 
-    def fake_run(jobs, out_root, movie_fallbacks=None, start_queue=True, cancelled=None):
+    def fake_run(jobs, out_root, movie_fallbacks=None, start_queue=True, cancelled=None, *, fallback_only=False):
+        assert fallback_only is False
         captured["fallbacks"] = movie_fallbacks
         assert movie_fallbacks.get("filmfrei24:1") == [fallback]
         assert "filmfrei24:1" not in movie_fallbacks
@@ -54,6 +55,20 @@ def test_cached_movie_fallbacks_seed_sources_without_claiming_exhaustion(monkeyp
 
     assert result == {"filmfrei24:1", "show-s01e01"}
     assert captured["fallbacks"].get("filmfrei24:1") == [fallback]
+
+
+def test_composed_queue_preserves_episode_cooldown_option(monkeypatch, tmp_path):
+    slug = "serienstream:fixture-s01e01"
+    source = _movie("Fixture S01E01", "https://serienstream.test/episode", "serienstream")
+
+    def fake_run(jobs, out_root, *, movie_fallbacks, start_queue, cancelled, fallback_only):
+        assert jobs == [(source, slug)]
+        assert out_root == tmp_path
+        assert fallback_only is True
+        return {slug}
+
+    monkeypatch.setattr(policy, "_ORIGINAL_RUN_DOWNLOAD_QUEUE", fake_run)
+    assert server.run_download_queue([(source, slug)], tmp_path, fallback_only=True) == {slug}
 
 
 def test_live_fallback_uses_tmdb_canonical_alias(monkeypatch):
