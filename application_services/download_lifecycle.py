@@ -663,46 +663,8 @@ def _waiting_retry_due(item: dict, now: float | None = None) -> bool:
     return now >= _waiting_retry_at(item)
 
 
-def _resume_waiting_provider_jobs(first_item: Optional[dict] = None) -> None:
-    preferred = first_item
-    while state.provider_health.request_allowed("serienstream"):
-        with state.queue_claim_lock:
-            now = time.time()
-            item = preferred
-            preferred = None
-            if item is not None and not _waiting_retry_due(item, now):
-                item = None
-            if item is None:
-                item = next(
-                    (
-                        candidate
-                        for candidate in state.provider_waiting_jobs.values()
-                        if _waiting_retry_due(candidate, now)
-                    ),
-                    None,
-                )
-            if item is None:
-                return
-            slug = item["slug"]
-            state.provider_waiting_jobs.pop(slug, None)
-            claimed = slug in state.picked and slug in state.counted_queue_slugs
-        if not claimed:
-            continue
-        try:
-            with state.queue_prepare_lock:
-                run_download_queue(
-                    [(item["movie"], slug)],
-                    item["out_root"],
-                    movie_fallbacks=item["movie_fallbacks"],
-                )
-        except Exception as exc:
-            log(f"Provider-Retry für «{slug}» fehlgeschlagen: {exc}", "warn")
-            _mark_serienstream_blocked("probe_failed", str(exc))
-            _defer_provider_episode(
-                item["movie"], slug, item["out_root"], item["movie_fallbacks"],
-                reason=item.get("wait_reason") or "provider_gate",
-            )
-            return
+def _resume_waiting_provider_jobs(first_item: Optional[dict] = None) -> bool:
+    return _retry_one_waiting_episode(HEALTHY, first_item)
 
 
 def _execute_provider_probe(item: Optional[dict]) -> None:
@@ -727,63 +689,78 @@ def _execute_provider_probe(item: Optional[dict]) -> None:
 
 
 def _retry_one_waiting_fallback() -> bool:
-    """Prüft genau eine wartende Episode erneut ausschließlich bei Fallbacks.
+    """Run one background attempt while SerienStream remains in cooldown."""
+    return _retry_one_waiting_episode(COOLDOWN)
 
-    SerienStream bleibt dabei im Cooldown und wird von ``run_download_queue``
-    nicht angefragt. Das verhindert, dass ein kurzer Huhu-/Moflix-Aussetzer eine
-    Episode unnötig bis zur deutlich späteren SerienStream-Probe festhält.
-    """
+
+def _retry_one_waiting_episode(provider_state: str, preferred: Optional[dict] = None) -> bool:
+    """Reserve at most one retry, after scheduled preparations have had priority."""
     if not state.queue_prepare_lock.acquire(blocking=False):
         return False
     item = None
-    slug = ""
     try:
-        if state.provider_health.status("serienstream")["state"] != COOLDOWN:
+        status = state.provider_health.status("serienstream")
+        if status["state"] != provider_state:
+            return False
+        if provider_state == COOLDOWN and status["remaining_seconds"] <= 0:
+            return False
+        if any(getattr(job, "is_preparation_job", False)
+               for job in state.dl_queue.pending_jobs() + state.dl_queue.active_jobs()):
             return False
         with state.queue_claim_lock:
             now = time.time()
-            item = next(
-                (
-                    candidate
-                    for candidate in state.provider_waiting_jobs.values()
-                    if _waiting_retry_due(candidate, now)
-                ),
-                None,
-            )
+            waiting = state.provider_waiting_jobs
+            for slug in list(waiting):
+                if slug not in state.picked or slug not in state.counted_queue_slugs:
+                    waiting.pop(slug)
+            if (preferred is not None
+                    and waiting.get(preferred["slug"]) is preferred
+                    and _waiting_retry_due(preferred, now)):
+                item = preferred
+            else:
+                item = min(
+                    (candidate for candidate in waiting.values()
+                     if _waiting_retry_due(candidate, now)),
+                    key=_waiting_retry_at,
+                    default=None,
+                )
             if item is None:
                 return False
             slug = item["slug"]
-            state.provider_waiting_jobs.pop(slug, None)
-            if slug not in state.picked or slug not in state.counted_queue_slugs:
-                return False
+            waiting.pop(slug)
             state.preparing_queue_slugs.add(slug)
             _update_queue_job(slug, persist=False, status="preparing")
         parsed = parse_episode_slug(slug)
-        label = (
-            f"S{parsed[1]:02d}E{parsed[2]:02d}" if parsed else slug
-        )
-        log(f"Fallback wird kontrolliert erneut geprüft: {label}.")
+        label = f"S{parsed[1]:02d}E{parsed[2]:02d}" if parsed else slug
+        log(f"Quellen-Wiederholung gestartet: {label}.")
         broadcast({"type": "queue_update", "queue": build_queue_payload()})
-        run_download_queue(
+        queued = run_download_queue(
             [(item["movie"], slug)],
             item["out_root"],
             movie_fallbacks=item["movie_fallbacks"],
+            fallback_only=provider_state == COOLDOWN,
         )
+        if slug not in (queued or ()) and _queue_slug_claimed(slug):
+            raise RuntimeError("Quellenprüfung endete ohne Ergebnis")
         return True
     except Exception as exc:
-        log(f"Fallback-Wiederholung für «{slug}» fehlgeschlagen: {exc}", "warn")
-        if item is not None and slug:
-            _defer_provider_episode(
-                item["movie"], slug, item["out_root"], item["movie_fallbacks"],
-                reason=item.get("wait_reason") or "provider_gate",
-            )
+        if item is None:
+            raise
+        log(f"Quellen-Wiederholung für «{slug}» fehlgeschlagen: {exc}", "warn")
+        reason = item.get("wait_reason") or "provider_gate"
+        if reason == "provider_gate" and provider_state == HEALTHY:
+            reason = "source_unavailable"
+        _defer_provider_episode(
+            item["movie"], slug, item["out_root"], item["movie_fallbacks"], reason=reason,
+        )
         return True
     finally:
-        if slug:
+        if item is not None:
             with state.queue_claim_lock:
-                state.preparing_queue_slugs.discard(slug)
-            broadcast({"type": "queue_update", "queue": build_queue_payload()})
+                state.preparing_queue_slugs.discard(item["slug"])
         state.queue_prepare_lock.release()
+        if item is not None:
+            broadcast({"type": "queue_update", "queue": build_queue_payload()})
 
 
 def _provider_retry_worker() -> None:
@@ -808,8 +785,9 @@ def _provider_retry_worker() -> None:
                 if status["state"] == HEALTHY:
                     if due:
                         _resume_waiting_provider_jobs()
-                        continue
-                    state.provider_retry_wake_event.wait(min(30, max(1.0, due_delay)))
+                    # Yield after each retry, including when a foreground job
+                    # owns the preparation slot.
+                    state.provider_retry_wake_event.wait(2 if due else min(30, max(1.0, due_delay)))
                     state.provider_retry_wake_event.clear()
                     continue
 

@@ -19,7 +19,9 @@ export function queueFocus(groups, currentId = "") {
   const active = items.filter(item => ["downloading", "preparing", "cancelling"].includes(queueStatus(item)));
   const downloads = active.filter(item => queueStatus(item) === "downloading");
   return downloads.find(item => item.job_id === currentId) || downloads[0]
-    || active.find(item => item.job_id === currentId) || active[0] || items.find(item => ["queued", "waiting", "waiting_provider", "paused"].includes(queueStatus(item))) || null;
+    || active.find(item => item.job_id === currentId) || active[0]
+    || items.find(item => ["queued", "waiting", "paused"].includes(queueStatus(item)))
+    || items.find(item => queueStatus(item) === "waiting_provider") || null;
 }
 
 /** Read only already-loaded metadata. Exact identities avoid another show's episode artwork. */

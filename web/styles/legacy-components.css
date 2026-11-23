@@ -732,8 +732,8 @@
   font-weight: 300;
   font-style: italic;
 }
-.queue-history-panel { margin: 2px 0 8px; color: var(--text-dim); font-size: 10px; }
-.queue-history-panel summary { padding: 7px 4px; cursor: pointer; }
+:is(.queue-history-panel, .queue-source-waits) { margin: 2px 0 8px; color: var(--text-dim); font-size: 10px; }
+:is(.queue-history-panel, .queue-source-waits) summary { padding: 7px 4px; cursor: pointer; }
 .queue-history-list { max-height: 180px; overflow-y: auto; display: grid; gap: 4px; }
 .queue-history-item {
   display: grid;

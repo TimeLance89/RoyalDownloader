@@ -201,6 +201,13 @@ test("queue wait copy explains source retries and long-term checks", () => {
     }, now),
     "Provider vorübergehend pausiert · Nächster Test in ~1 Min.",
   );
+  assert.equal(
+    queueWaitCopy({
+      job_status: "waiting_provider", wait_reason: "source_unavailable",
+      source_retry_count: 9, next_retry_at: now - 60,
+    }, now),
+    "Wartet auf Quelle · 9× geprüft · Versuch fällig",
+  );
   assert.equal(queueWaitCopy({ job_status: "queued" }, now), "");
 });
 

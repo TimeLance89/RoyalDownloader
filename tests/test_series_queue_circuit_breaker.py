@@ -618,8 +618,8 @@ def test_waiting_episode_retries_fallback_without_serienstream_probe(
     monkeypatch.setattr(
         server,
         "run_download_queue",
-        lambda jobs, out_root, movie_fallbacks=None: calls.append(
-            (jobs, out_root, movie_fallbacks)
+        lambda jobs, out_root, movie_fallbacks=None, *, fallback_only=False: calls.append(
+            (jobs, out_root, movie_fallbacks, fallback_only)
         ) or {slug},
     )
     monkeypatch.setattr(
@@ -633,6 +633,7 @@ def test_waiting_episode_retries_fallback_without_serienstream_probe(
     assert server._retry_one_waiting_fallback()
     assert len(calls) == 1
     assert calls[0][0] == [(movie, slug)]
+    assert calls[0][3] is True
     assert slug not in server.state.provider_waiting_jobs
     assert slug not in server.state.preparing_queue_slugs
     assert not server.state.queue_prepare_lock.locked()
@@ -1141,3 +1142,76 @@ def test_overlapping_episode_probes_share_one_provider_series_catalog_lookup(mon
             assert calls == [("filmpalast", "Exact Show")]
         finally:
             release.set()
+
+
+def test_source_retries_yield_to_foreground_and_take_one_due_job(monkeypatch, tmp_path):
+    waiting = server.state.provider_waiting_jobs
+    now = server.time.time()
+    for episode, deadline in ((1, now - 30), (2, now - 60), (3, now + 600)):
+        slug = f"serienstream:fairness-show-s01e{episode:02d}"
+        movie = episode_movie("serienstream", slug)
+        job = new_job(slug)
+        server.state.queue_jobs[job["job_id"]] = job
+        server.state.queue_job_by_slug[slug] = job["job_id"]
+        server.state.picked.add(slug)
+        server.state.counted_queue_slugs.add(slug)
+        waiting[slug] = {
+            "movie": movie, "slug": slug, "out_root": tmp_path,
+            "movie_fallbacks": None, "next_retry_at": deadline,
+        }
+
+    pending = [SimpleNamespace(is_preparation_job=True)]
+    monkeypatch.setattr(server.state.dl_queue, "pending_jobs", lambda: list(pending))
+    calls = []
+
+    def prepare(jobs, *_args, fallback_only, **_kwargs):
+        slug = jobs[0][1]
+        assert slug in server.state.preparing_queue_slugs
+        assert fallback_only is False
+        calls.append(slug)
+        return {slug}
+
+    monkeypatch.setattr(server, "run_download_queue", prepare)
+    assert server._resume_waiting_provider_jobs() is False
+    assert len(waiting) == 3
+    pending.clear()
+
+    assert server._resume_waiting_provider_jobs() is True
+    assert calls == ["serienstream:fairness-show-s01e02"]
+    assert len(waiting) == 2
+    assert not server.state.preparing_queue_slugs
+    assert not server.state.queue_prepare_lock.locked()
+
+
+def test_restore_starts_source_retries_while_another_job_is_unresolved(monkeypatch, tmp_path):
+    waiting_slug = "serienstream:restore-show-s01e01"
+    blocked_slug = "serienstream:restore-show-s01e02"
+    for slug in (waiting_slug, blocked_slug):
+        job = new_job(slug)
+        if slug == waiting_slug:
+            job.update(status="waiting_provider", next_retry_at=4000.0, language_checked_at=3900.0)
+        server.state.queue_jobs[job["job_id"]] = job
+        server.state.queue_job_by_slug[slug] = job["job_id"]
+        server.state.picked.add(slug)
+    monkeypatch.setattr(server, "_episode_placeholder", lambda slug: episode_movie("serienstream", slug))
+    monkeypatch.setattr(server, "_content_already_available", lambda _movie, slug: (
+        (True, "blocked") if slug == blocked_slug else (False, "")
+    ))
+    monkeypatch.setattr(server, "_is_jellyfin_safety_block", lambda reason: reason == "blocked")
+    monkeypatch.setattr(server.state, "provider_retry_wake_event", threading.Event())
+    monkeypatch.setattr(server.state, "save_path", str(tmp_path))
+    starts, logs = [], []
+    monkeypatch.setattr(server, "_ensure_provider_retry_worker",
+                        lambda: starts.append(list(server.state.provider_waiting_jobs)))
+
+    def next_pass(seconds):
+        assert seconds == 60
+        assert starts == [[waiting_slug]], logs
+        assert server.state.provider_retry_wake_event.is_set()
+        server.state.picked.discard(blocked_slug)
+
+    from api import api_queue_router
+    monkeypatch.setattr(api_queue_router, "log", lambda *details: logs.append(details))
+    monkeypatch.setattr(api_queue_router, "time", SimpleNamespace(sleep=next_pass))
+    api_queue_router.restore_persisted_queue()
+    assert server.state.provider_waiting_jobs[waiting_slug]["next_retry_at"] == 4000.0

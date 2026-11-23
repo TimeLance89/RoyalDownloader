@@ -82,7 +82,17 @@ async function queueFocusSettled(page, id) {
       await page.waitForTimeout(450);
       assert.equal(await page.locator("#queue-drawer").getAttribute("aria-hidden"), "false");
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+      const waitSummary = page.locator(".queue-source-waits > summary");
+      const waitingEpisode = page.locator('.queue-item[data-job-id="cinema-2"]');
+      assert.equal(await waitSummary.textContent(), "Wartet auf Quelle oder Sprache (1)");
+      assert.equal(await waitingEpisode.isVisible(), false);
+      await waitSummary.click();
+      assert.ok(await waitingEpisode.isVisible());
+      assert.equal(await waitingEpisode.getByRole("button", { name: /erneut prüfen/ }).count(), 1);
+      await waitSummary.click();
+      await page.locator("#queue-list").evaluate(node => { node.scrollTop = 0; });
       if (mobile) {
+        await page.locator("#mobile-queue-close").focus();
         await page.waitForSelector(".queue-wallpaper img.is-visible");
         assert.equal(await page.locator("#queue-dock").getAttribute("aria-modal"), "true");
         assert.equal(await page.evaluate(() => document.activeElement.id), "mobile-queue-close");
@@ -95,13 +105,13 @@ async function queueFocusSettled(page, id) {
         assert.ok(list.y + list.height <= actions.y + 1, "Queue never covers global actions");
         assert.ok(actions.y + actions.height <= stage.y + 1, "Transfer remains below actions");
         assert.ok(stage.y + stage.height <= 844 - 8, "Transfer keeps the bottom safe gutter");
-        for (const selector of ["#mobile-queue-close", ".queue-action-btn", ".queue-drawer-actions button"]) {
+        for (const selector of ["#mobile-queue-close", ".queue-action-btn:visible", ".queue-drawer-actions button"]) {
           for (const button of await page.locator(selector).all()) {
             const rect = await button.boundingBox();
             assert.ok(rect.width >= 43.5 && rect.height >= 43.5, `${selector}: 44px touch targets`);
           }
         }
-        for (const row of await page.locator(".queue-item").all()) {
+        for (const row of await page.locator(".queue-item:visible").all()) {
           const status = await row.locator(".queue-item-status").boundingBox();
           const actions = await row.locator(".queue-item-actions").boundingBox();
           assert.ok(status.x + status.width <= actions.x + 1, "Status and actions never overlap");
@@ -162,9 +172,10 @@ async function queueFocusSettled(page, id) {
       await page.route("**/api/queue/history", route => route.fulfill({ json: { jobs: [] } }));
       for (const [jobId, label, endpoint, direction] of [
         ["cinema-1", "nach oben", "move", "up"], ["cinema-1", "nach unten", "move", "down"],
-        ["cinema-2", "fortsetzen", "resume"], ["cinema-0", "abbrechen", "cancel"],
+        ["cinema-2", "erneut prüfen", "resume"], ["cinema-0", "abbrechen", "cancel"],
       ]) {
         await seed(page, snapshot(8));
+        if (endpoint === "resume") await waitSummary.click();
         await page.locator(`.queue-item[data-job-id="${jobId}"] button[aria-label$="${label}"]`).click();
         await page.waitForFunction(() => !document.querySelector('.queue-item button:disabled'));
         assert.equal(calls.at(-1).path, `/api/queue/jobs/${jobId}/${endpoint}`);
@@ -266,7 +277,10 @@ async function queueFocusSettled(page, id) {
         await page.setViewportSize({ width, height: 844 });
         await queueFocusSettled(page, "mobile-queue-btn");
       }
-      assert.ok(!requests.some(path => /\/api\/(tmdb|providers)/.test(path)), "Presentation performs no metadata/provider searches");
+      // The administrator inbox polls its own incident feed on a timer.
+      const sourceRequests = requests.filter(path =>
+        path !== "/api/providers/incidents" && /\/api\/(tmdb|providers)/.test(path));
+      assert.deepEqual(sourceRequests, [], "Presentation performs no metadata/provider searches");
       assert.deepEqual(run.errors, []);
       console.log(JSON.stringify({ engine, width, passed: true }));
     } finally { await run.close(); }

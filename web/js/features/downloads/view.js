@@ -14,6 +14,11 @@ export function createQueueView(root, {
   const rowCache = new Map(), groupCache = new Map();
   const wallpaper = createQueueWallpaper(root, getArtwork);
   const historyPanel = root.querySelector(".queue-history-panel");
+  const waitingPanel = document.createElement("details");
+  waitingPanel.className = "queue-source-waits";
+  const waitingSummary = document.createElement("summary");
+  const waitingList = document.createElement("div");
+  waitingPanel.append(waitingSummary, waitingList);
   function updateFocus() {
     const groups = state.queue.groups || [];
     const live = rowCache.get(currentJobId)?.row.dataset.status === "downloading"
@@ -62,7 +67,9 @@ function renderQueue(payload) {
   setMobileCount(count);
   root.classList.toggle("has-items", count > 0);
   const list = find("queue-list");
-  const desired = [], retained = new Set(), retainedGroups = new Set();
+  const desired = [], waitingRows = [], retained = new Set(), retainedGroups = new Set();
+  const queueItems = payload.groups.flatMap(group => group.items);
+  const waitingCount = queueItems.filter(item => queueStatus(item) === "waiting_provider").length;
   if (!payload.groups.length) {
     list.replaceChildren(createViewState({ state: "empty", className: "queue-empty",
       title: Number(payload.activity?.active_downloads) > 0 ? "Keine weiteren Downloads vorgemerkt" : "Der Downloadplan ist leer",
@@ -71,26 +78,34 @@ function renderQueue(payload) {
   }
 
   let queuePosition = 0;
-  for (const [groupIndex, group] of payload.groups.entries()) {
-    const groupKey = `${groupIndex}:${group.name}`;
+  let waitingPosition = 0;
+  const partitions = ["ready", "waiting"].flatMap(part =>
+    payload.groups.map((group, groupIndex) => ({
+      part, group, groupIndex,
+      items: group.items.filter(item => (queueStatus(item) === "waiting_provider") === (part === "waiting")),
+    })));
+  for (const { part, group, groupIndex, items } of partitions) {
+    if (!items.length) continue;
+    const groupKey = `${part}:${groupIndex}:${group.name}`;
+    const destination = part === "waiting" ? waitingRows : desired;
     retainedGroups.add(groupKey);
     const heading = groupCache.get(groupKey) || document.createElement("div");
     groupCache.set(groupKey, heading);
     heading.className = "queue-group";
     heading.translate = false;
-    heading.textContent = `${group.name}  (${group.items.length})`;
-    desired.push(heading);
-    for (const item of group.items) {
-      queuePosition += 1;
+    heading.textContent = `${group.name}  (${items.length})`;
+    destination.push(heading);
+    for (const item of items) {
+      const positionNumber = part === "waiting" ? ++waitingPosition : ++queuePosition;
       const key = item.job_id || item.slug;
       retained.add(key);
       const signature = JSON.stringify([item.title, item.slug, item.done, item.job_status, item.status,
         item.content_language, item.provider, item.hoster, item.hoster_label]);
       const cached = rowCache.get(key);
       if (cached?.signature === signature) {
-        cached.row.querySelector(".queue-position").textContent = String(queuePosition).padStart(2, "0");
+        cached.row.querySelector(".queue-position").textContent = String(positionNumber).padStart(2, "0");
         paintProgress(cached.row, item);
-        desired.push(cached.row);
+        destination.push(cached.row);
         continue;
       }
       cached?.scope.dispose();
@@ -107,7 +122,7 @@ function renderQueue(payload) {
         position.dataset.episode = `E${String(episode.episode).padStart(2, "0")}`;
         position.setAttribute("aria-label", `Staffel ${episode.season}, Episode ${episode.episode}`);
       }
-      position.textContent = String(queuePosition).padStart(2, "0");
+      position.textContent = String(positionNumber).padStart(2, "0");
       const content = document.createElement("span");
       content.className = "queue-item-content";
       const title = document.createElement("strong");
@@ -169,12 +184,12 @@ function renderQueue(payload) {
         });
         actions.appendChild(button);
       };
-      if (item.job_id && !["downloading", "cancelling"].includes(item.job_status)) {
+      if (item.job_id && !["downloading", "cancelling", "waiting_provider"].includes(queueStatus(item))) {
         addAction("↑", `${item.title} nach oben`, () => api.queueJobMove(item.job_id, "up"));
         addAction("↓", `${item.title} nach unten`, () => api.queueJobMove(item.job_id, "down"));
       }
-      if (item.job_id && item.job_status === "waiting_provider") {
-        addAction("▶", `${item.title} fortsetzen`, () => api.queueJobResume(item.job_id));
+      if (item.job_id && queueStatus(item) === "waiting_provider") {
+        addAction("▶", `${item.title} erneut prüfen`, () => api.queueJobResume(item.job_id));
       }
       if (item.job_status !== "cancelling") {
         addAction("✕", `${item.title} abbrechen`, () => (
@@ -184,26 +199,27 @@ function renderQueue(payload) {
       row.style.setProperty("--queue-actions-width", `${actions.children.length * 44 + Math.max(0, actions.children.length - 1) * 4 + 8}px`);
       row.append(position, content, status, actions);
       paintProgress(row, item);
-      desired.push(row);
+      destination.push(row);
     }
   }
   for (const key of groupCache.keys()) if (!retainedGroups.has(key)) groupCache.delete(key);
   for (const [key, cached] of rowCache) {
     if (!retained.has(key)) { cached.scope.dispose(); rowCache.delete(key); }
   }
-  if (payload.groups.length) {
-    // Reuse nodes and their focus; unchanged progress snapshots never replace the list.
-    desired.forEach((node, index) => { if (list.children[index] !== node) list.insertBefore(node, list.children[index] || null); });
-    while (list.children.length > desired.length) list.lastElementChild.remove();
+  if (waitingCount) {
+    waitingSummary.textContent = `Wartet auf Quelle oder Sprache (${waitingCount})`;
+    desired.push(waitingPanel);
   }
+  // Reuse nodes and their focus when progress changes without moving jobs.
+  if (payload.groups.length) syncRows(list, desired);
+  syncRows(waitingList, waitingRows);
   syncFpQueueIndicators();
-  const queueItems = payload.groups.flatMap(group => group.items);
   const active = Math.max(
     queueItems.filter(item => ["downloading", "preparing", "cancelling"].includes(queueStatus(item))).length,
     (Number(payload.activity?.active_downloads) || 0) + (Number(payload.activity?.active_preparations) || 0),
   );
-  const pending = queueItems.filter(item => ["queued", "waiting", "waiting_provider", "paused"].includes(queueStatus(item))).length;
-  find("queue-summary").textContent = `${active} aktiv · ${pending} vorgemerkt`;
+  const pending = queueItems.filter(item => ["queued", "waiting", "paused"].includes(queueStatus(item))).length;
+  find("queue-summary").textContent = `${active} aktiv · ${pending} vorgemerkt${waitingCount ? ` · ${waitingCount} zurückgestellt` : ""}`;
   if (!active && !queueItems.some(item => item.job_id === currentJobId && ["downloading", "preparing", "cancelling"].includes(queueStatus(item)))) { currentJobId = ""; currentItem = null; }
   updateFocus();
 
@@ -231,6 +247,13 @@ function renderQueue(payload) {
     setDownloadState("active", "Fallback-Warteschlange läuft",
       `${pendingPreparations} Folgen werden nacheinander geprüft`, null);
   }
+}
+
+function syncRows(container, rows) {
+  rows.forEach((node, index) => {
+    if (container.children[index] !== node) container.insertBefore(node, container.children[index] || null);
+  });
+  while (container.children.length > rows.length) container.lastElementChild.remove();
 }
 
 function formatQueueBytes(value) {

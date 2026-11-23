@@ -619,15 +619,13 @@ def restore_persisted_queue():
     if not unresolved:
         return
     log(f"Stelle {len(unresolved)} gespeicherte Queue-Einträge wieder her …")
-    restored_waiting = 0
     while unresolved:
         prepared: list[str] = []
-        progressed = False
+        restored_waiting = 0
         for slug in list(unresolved):
             with state.queue_claim_lock:
                 if slug not in state.picked:
                     unresolved.discard(slug)
-                    progressed = True
                     continue
                 logical = _queue_job_for_slug(slug) or {}
                 persisted_waiting = logical.get("status") == "waiting_provider"
@@ -651,7 +649,6 @@ def restore_persisted_queue():
                     )
                     _release_removed_queue_slugs({slug})
                     unresolved.discard(slug)
-                    progressed = True
                     continue
                 state.fp_movies[slug] = movie
                 logical = _ensure_queue_job(slug, movie)
@@ -681,30 +678,25 @@ def restore_persisted_queue():
                                 state.total_jobs += 1
                     restored_waiting += 1
                     unresolved.discard(slug)
-                    progressed = True
                     continue
 
                 prepared.append(slug)
                 unresolved.discard(slug)
-                progressed = True
             except Exception as exc:
                 log(f"Queue-Wiederherstellung für «{slug}» wartet: {exc}", "warn")
         if prepared:
             _enqueue_automatic_downloads(prepared)
+        if restored_waiting:
+            _persist_queue_state()
+            _ensure_provider_retry_worker()
+            state.provider_retry_wake_event.set()
+            log(
+                f"{restored_waiting} gespeicherte Episode(n) warten weiterhin "
+                "auf ihre nächste automatische Quellenprüfung."
+            )
         if unresolved:
-            # A temporary Jellyfin/provider outage may legitimately leave work
-            # unresolved. Avoid spinning, but do not forget any job.
+            # An unresolved item must not hold back already restored work.
             time.sleep(60)
-        elif not progressed:
-            break
-
-    if restored_waiting:
-        _persist_queue_state()
-        _ensure_provider_retry_worker()
-        log(
-            f"{restored_waiting} gespeicherte Episode(n) warten weiterhin "
-            "auf ihre nächste automatische Quellenprüfung."
-        )
 
 
 class MovieDownloadPreference(BaseModel):
@@ -1602,7 +1594,7 @@ async def api_queue_job_resume(job_id: str):
             return {
                 "accepted": True,
                 "job": refreshed or job,
-                "message": "Quellenprüfung sofort angestoßen",
+                "message": "Quellenprüfung vorgemerkt",
             }
         if job.get("status") == "paused":
             raise HTTPException(409, detail={
