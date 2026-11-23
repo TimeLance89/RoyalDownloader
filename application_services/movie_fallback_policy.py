@@ -53,6 +53,8 @@ def run_download_queue(
     movie_fallbacks: Optional[dict[str, list[FilmpalastMovie]]] = None,
     start_queue: bool = True,
     cancelled=None,
+    *,
+    fallback_only: bool = False,
 ):
     """Run the existing queue while treating movie fallback caches as seeds.
 
@@ -74,6 +76,7 @@ def run_download_queue(
         movie_fallbacks=seeded_fallbacks,
         start_queue=start_queue,
         cancelled=cancelled,
+        fallback_only=fallback_only,
     )
 
 

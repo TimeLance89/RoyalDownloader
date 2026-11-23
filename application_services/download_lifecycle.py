@@ -4,6 +4,10 @@
 
 import math
 
+from core.queue_jobs import (
+    SOURCE_RETRY_BASE_SECONDS, SOURCE_RETRY_MAX_SECONDS, SOURCE_RETRY_BUDGET_SECONDS,
+    SOURCE_RETRY_MIN_ATTEMPTS, source_retry_after_failure,
+)
 from integrations.jellyfin_reads import background_inventory_reads
 
 from application_services.runtime import (
@@ -15,7 +19,7 @@ from features.monster_series_extension import (
     monster_source_episode_slug,
     parse_monster_virtual_episode,
 )
-from features.episode_source_probe import episode_source_providers
+from features.episode_source_probe import episode_source_fingerprints, episode_source_providers
 from features.subscription_languages import subscription_content_languages
 from media.downloader import DownloadJob
 from providers.aniworld import aniworld_episode_slug
@@ -162,6 +166,23 @@ def on_job_done(
             total_jobs = state.total_jobs
             successful_jobs = len(state.done_slugs)
             failed_jobs = max(0, done_jobs - successful_jobs)
+        exhausted = not ok and current and current.get("wait_reason") == "source_exhausted" and msg != "Abgebrochen"
+        exhausted_subscription = False
+        if exhausted:
+            parsed = parse_episode_slug(slug)
+            with state.watchlist_lock:
+                for entry in state.watchlist:
+                    if slug in entry.get("known_slugs", ()) or (parsed and parsed[0] == entry.get("base_slug")):
+                        exhausted_subscription = True
+                        records = entry.setdefault("exhausted_source_retries", {})
+                        previous = (records.get(slug) or {}).get("fingerprints") or []
+                        observed = current.get("source_retry_fingerprints") or []
+                        records[slug] = {
+                            "fingerprints": sorted(set(previous) | set(observed))[:256],
+                            "next_check": time.time() + SOURCE_RETRY_MAX_SECONDS,
+                        }
+    if exhausted_subscription:
+        _persist_watchlist_background()
     if hoster_url:
         state.hoster_intel.record_download(hoster_url, ok)
     if ok:
@@ -189,6 +210,10 @@ def on_job_done(
             expected_attempt_id=attempt_id,
         )
         _persist_queue_state()
+        if exhausted and terminal_job:
+            store = getattr(state, "personal_requests", None)
+            if store is not None and hasattr(store, "mark_source_retry_classified"):
+                store.mark_source_retry_classified([terminal_job["job_id"]])
         watchlist_changed = False
         parsed_episode = parse_episode_slug(slug)
         with state.watchlist_lock:
@@ -212,6 +237,7 @@ def on_job_done(
                 if ok:
                     pending.discard(slug)
                     failures.pop(slug, None)
+                    (entry.get("exhausted_source_retries") or {}).pop(slug, None)
                     _record_watchlist_download_notification(
                         entry, slug, audio_check_status=(terminal_job or {}).get("audio_check_status", ""),
                     )
@@ -747,9 +773,10 @@ def _retry_one_waiting_episode(provider_state: str, preferred: Optional[dict] = 
         if item is None:
             raise
         log(f"Quellen-Wiederholung für «{slug}» fehlgeschlagen: {exc}", "warn")
-        reason = item.get("wait_reason") or "provider_gate"
-        if reason == "provider_gate" and provider_state == HEALTHY:
-            reason = "source_unavailable"
+        reason = (
+            "provider_gate" if provider_state == COOLDOWN and item.get("wait_reason") == "provider_gate"
+            else "retry_interrupted"
+        )
         _defer_provider_episode(
             item["movie"], slug, item["out_root"], item["movie_fallbacks"], reason=reason,
         )
@@ -843,21 +870,6 @@ def _ensure_provider_retry_worker() -> None:
     threading.Thread(target=_provider_retry_worker, daemon=True).start()
 
 
-SOURCE_RETRY_BASE_SECONDS = 5 * 60
-SOURCE_RETRY_MAX_SECONDS = 6 * 60 * 60
-SOURCE_RETRY_FAST_ATTEMPTS = 10
-SOURCE_RETRY_LONG_SECONDS = 24 * 60 * 60
-
-
-def _source_retry_delay(attempt: int) -> int:
-    if attempt > SOURCE_RETRY_FAST_ATTEMPTS:
-        return SOURCE_RETRY_LONG_SECONDS
-    return min(
-        SOURCE_RETRY_MAX_SECONDS,
-        SOURCE_RETRY_BASE_SECONDS * (2 ** min(max(0, attempt - 1), 7)),
-    )
-
-
 def _defer_provider_episode(
     movie: FilmpalastMovie,
     slug: str,
@@ -865,67 +877,89 @@ def _defer_provider_episode(
     movie_fallbacks: Optional[Dict[str, List[FilmpalastMovie]]] = None,
     *,
     reason: str = "provider_gate",
+    sources=(),
 ) -> bool:
     """Behält eine Episode bei temporären Provider-/Quellenproblemen offen."""
+    exhausted = False
     with state.queue_claim_lock:
         if slug not in state.picked or slug not in state.counted_queue_slugs:
             return False
         logical = _queue_job_for_slug(slug) or {}
+        now = time.time()
         source_retry_count = int(logical.get("source_retry_count") or 0)
-        if reason == "language_unavailable":
-            next_retry_at = time.time() + 15 * 60
+        started_at = float(logical.get("source_retry_started_at") or 0)
+        fingerprints = set(logical.get("source_retry_fingerprints") or ())
+        fingerprints.update(episode_source_fingerprints(sources))
+        if reason in {"source_unavailable", "language_unavailable"}:
+            language_wait = reason == "language_unavailable"
+            source_retry_count, started_at, next_retry_at, exhausted = source_retry_after_failure(
+                logical, now, minimum_delay=15 * 60 if language_wait else 0,
+            )
             language = str(logical.get("content_language") or "").upper()
-            error = f"Wartet auf passende Stream-Sprache ({language})"
-        elif reason == "source_unavailable":
-            source_retry_count += 1
-            retry_delay = _source_retry_delay(source_retry_count)
-            next_retry_at = time.time() + retry_delay
-            error = (
-                "Noch keine nutzbare Quelle verfügbar · Langzeitprüfung aktiv"
-                if source_retry_count > SOURCE_RETRY_FAST_ATTEMPTS
-                else "Noch keine nutzbare Quelle verfügbar"
+            error = (f"Wartet auf passende Stream-Sprache ({language})" if language_wait
+                     else "Noch keine nutzbare Quelle verfügbar")
+        elif reason == "retry_interrupted":
+            next_retry_at = now + SOURCE_RETRY_BASE_SECONDS
+            error = "Quellenprüfung unterbrochen"
+        else:
+            next_retry_at = max(now, float(state.provider_health.next_probe_at("serienstream") or 0))
+            error = "Provider vorübergehend pausiert"
+        retry = {
+            "source_retry_count": source_retry_count,
+            "source_retry_started_at": started_at,
+            "source_retry_fingerprints": sorted(fingerprints)[:256],
+        }
+        if exhausted:
+            _update_queue_job(
+                slug, persist=False, wait_reason="source_exhausted", next_retry_at=0.0,
+                **retry,
             )
         else:
-            next_retry_at = max(
-                time.time(),
-                float(state.provider_health.next_probe_at("serienstream") or 0),
-            )
-            error = "Provider vorübergehend pausiert"
-        # A source-less episode is intentionally moved behind currently
-        # actionable work. Repeated failures therefore rotate fairly instead
-        # of pinning the front of a very large logical queue.
-        if reason in {"source_unavailable", "language_unavailable"}:
-            state.provider_waiting_jobs.pop(slug, None)
-        state.provider_waiting_jobs[slug] = {
-            "movie": movie,
-            "slug": slug,
-            "out_root": Path(out_root),
-            "movie_fallbacks": movie_fallbacks,
-            "wait_reason": reason,
-            "next_retry_at": next_retry_at,
-        }
-        _update_queue_job(
-            slug,
-            persist=False,
-            status="waiting_provider",
-            source_retry_count=source_retry_count,
-            next_retry_at=next_retry_at,
-            wait_reason=reason,
-            error=error,
-            progress=0.0,
-            downloaded_bytes=0,
-            total_bytes=0,
-            speed_bps=0.0,
-            eta_seconds=0,
+            _park_episode_retry(movie, slug, out_root, movie_fallbacks, reason, next_retry_at, error, retry)
+    if exhausted:
+        on_job_done(
+            False, "Keine nutzbare Quelle gefunden", movie.title, Path(""), slug=slug,
+            job_id=str(logical.get("job_id") or ""), attempt_id=str(logical.get("attempt_id") or ""),
         )
-        if reason in {"source_unavailable", "language_unavailable"}:
-            job_id = state.queue_job_by_slug.get(slug)
-            if job_id and hasattr(state.queue_jobs, "move_to_end"):
-                state.queue_jobs.move_to_end(job_id)
+        return True
     _persist_queue_state()
     broadcast({"type": "queue_update", "queue": build_queue_payload()})
     _ensure_provider_retry_worker()
     return True
+
+
+def _park_episode_retry(movie, slug, out_root, movie_fallbacks, reason, next_retry_at, error, retry):
+    # A source-less episode is intentionally moved behind currently
+    # actionable work. Repeated failures therefore rotate fairly instead
+    # of pinning the front of a very large logical queue.
+    if reason in {"source_unavailable", "language_unavailable"}:
+        state.provider_waiting_jobs.pop(slug, None)
+    state.provider_waiting_jobs[slug] = {
+        "movie": movie,
+        "slug": slug,
+        "out_root": Path(out_root),
+        "movie_fallbacks": movie_fallbacks,
+        "wait_reason": reason,
+        "next_retry_at": next_retry_at,
+    }
+    _update_queue_job(
+        slug,
+        persist=False,
+        status="waiting_provider",
+        next_retry_at=next_retry_at,
+        wait_reason=reason,
+        error=error,
+        progress=0.0,
+        downloaded_bytes=0,
+        total_bytes=0,
+        speed_bps=0.0,
+        eta_seconds=0,
+        **retry,
+    )
+    if reason in {"source_unavailable", "language_unavailable"}:
+        job_id = state.queue_job_by_slug.get(slug)
+        if job_id and hasattr(state.queue_jobs, "move_to_end"):
+            state.queue_jobs.move_to_end(job_id)
 
 
 def _episode_fallback_aliases(movie_slug: str, title: str) -> tuple[str, ...]:
@@ -1200,9 +1234,8 @@ _SERVICE_EXPORTS = (
     "_ensure_provider_retry_worker",
     "SOURCE_RETRY_BASE_SECONDS",
     "SOURCE_RETRY_MAX_SECONDS",
-    "SOURCE_RETRY_FAST_ATTEMPTS",
-    "SOURCE_RETRY_LONG_SECONDS",
-    "_source_retry_delay",
+    "SOURCE_RETRY_BUDGET_SECONDS",
+    "SOURCE_RETRY_MIN_ATTEMPTS",
     "_defer_provider_episode",
     "_episode_fallback_aliases",
     "_fallback_get_series",

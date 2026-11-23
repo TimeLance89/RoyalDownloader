@@ -556,6 +556,8 @@ def _retry_queue_job(
             "eta_seconds": None,
             "error": "",
             "source_retry_count": 0,
+            "source_retry_started_at": 0.0,
+            "source_retry_fingerprints": [],
             "next_retry_at": 0.0,
             "wait_reason": "",
             "final_path": "",

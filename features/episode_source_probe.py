@@ -1,7 +1,9 @@
 """Shared, bounded background episode searches across enabled series sources."""
+import hashlib
 import threading
 import time
 from concurrent.futures import wait
+from urllib.parse import parse_qsl, urlsplit
 
 from features.episode_probe_scheduler import ProviderProbeScheduler
 from providers.catalog import PROVIDER_CATALOG
@@ -17,6 +19,27 @@ def episode_source_providers(series_providers, anime_providers):
         *(provider for provider in anime_providers if provider == "aniworld"),
     ])
     return tuple(sorted(providers, key=lambda provider: provider == "serienstream"))
+
+
+def episode_source_fingerprint(movie, hoster):
+    """Keep a stable hoster identity without persisting URLs or signed queries."""
+    try:
+        url = urlsplit(hoster.url)
+        if url.scheme not in {"http", "https"} or not url.hostname:
+            return ""
+    except ValueError:
+        return ""
+    ids = sorted((key, value) for key, value in parse_qsl(url.query)
+                 if key.casefold() in {"id", "v", "video", "file"})
+    key = (movie.provider or "", hoster.name.casefold(), url.hostname, url.path, ids)
+    return hashlib.sha256(repr(key).encode()).hexdigest()[:32]
+
+
+def episode_source_fingerprints(movies):
+    return {
+        identity for movie in movies for hoster in movie.hosters
+        if (identity := episode_source_fingerprint(movie, hoster))
+    }
 
 
 class EpisodeSourceProbes:
