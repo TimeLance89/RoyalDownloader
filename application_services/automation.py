@@ -2,6 +2,9 @@
 # Runtime service publication is intentionally invisible to static name resolution.
 # ruff: noqa: F821
 
+from copy import copy
+
+from features.episode_source_probe import episode_source_fingerprint
 from features.subscription_languages import subscription_content_languages
 from features.watchlist_policy import normalize_episode_history
 
@@ -90,13 +93,43 @@ def _playable_episode_source(slug: str, primary):
 
 
 WATCHLIST_SOURCE_RETRY_SECONDS = 30 * 60
+WATCHLIST_EXHAUSTED_SOURCE_CHECK_SECONDS = 6 * 60 * 60
 
 
 def _watchlist_source_retry_allowed(slug: str) -> bool:
     with state.watchlist_lock:
         entry = _watchlist_entry_for_episode(slug)
         retry = (entry or {}).get("waiting_source_retries") or {}
-        return time.time() >= float(retry.get(slug, 0) or 0)
+        exhausted = ((entry or {}).get("exhausted_source_retries") or {}).get(slug) or {}
+        return time.time() >= max(float(retry.get(slug, 0) or 0), float(exhausted.get("next_check") or 0))
+
+
+def _new_subscription_episode_source(entry, slug, fingerprints):
+    from application_services.download_queue import _episode_candidates
+    from application_services.content_language_policy import _source_languages
+
+    episode = parse_episode_slug(slug)
+    if not episode:
+        return None
+    desired = set(subscription_content_languages(
+        entry, state.content_languages, getattr(state, "subscription_content_languages", {}),
+    ))
+    placeholder = _episode_placeholder(slug)
+    for candidate in _episode_candidates(placeholder, slug, episode, (), True, None, [False]):
+        fresh = copy(candidate)
+        new_hosters = []
+        for hoster in candidate.hosters:
+            identity = episode_source_fingerprint(candidate, hoster)
+            if not identity or identity in fingerprints:
+                continue
+            fresh.hosters = [hoster]
+            if desired.intersection(_source_languages(fresh)):
+                new_hosters.append(hoster)
+        if new_hosters:
+            fresh.hosters = new_hosters
+            fresh._subscription_new_source = True
+            return fresh
+    return None
 
 
 def _auto_download_new_episodes():
@@ -133,6 +166,7 @@ def _auto_download_new_episodes():
             return
 
         prepared_slugs: List[str] = []
+        source_probes_left = 4
         for slug in pending:
             if not _watchlist_retry_allowed(slug):
                 continue
@@ -159,7 +193,23 @@ def _auto_download_new_episodes():
                         continue
                     state.picked.add(slug)
                     claimed.append(slug)
-            if provider_for_value(slug) == "serienstream":
+            with state.watchlist_lock:
+                entry = _watchlist_entry_for_episode(slug)
+                exhausted = ((entry or {}).get("exhausted_source_retries") or {}).get(slug)
+                if exhausted and source_probes_left:
+                    exhausted["next_check"] = time.time() + WATCHLIST_EXHAUSTED_SOURCE_CHECK_SECONDS
+                    fingerprints = set(exhausted.get("fingerprints") or ())
+            if exhausted:
+                movie = None
+                if source_probes_left:
+                    source_probes_left -= 1
+                    movie = _new_subscription_episode_source(entry, slug, fingerprints)
+                if movie is None:
+                    with state.queue_claim_lock:
+                        state.picked.discard(slug)
+                    claimed.remove(slug)
+                    continue
+            elif provider_for_value(slug) == "serienstream":
                 # The subscription has already checked availability. Keep the
                 # logical identity and let the queue choose the provider.
                 movie = _episode_placeholder(slug)

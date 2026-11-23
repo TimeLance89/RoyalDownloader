@@ -16,6 +16,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
+from core.queue_jobs import SOURCE_RETRY_BUDGET_SECONDS, SOURCE_RETRY_MIN_ATTEMPTS, source_retry_started_at
 from features.watchlist_policy import normalize_episode_history, serialize_episode_history
 
 from providers.mkissa import SOURCE_PREFIX as MKISSA_PREFIX
@@ -656,6 +657,13 @@ def restore_persisted_queue():
                 if persisted_waiting and parse_episode_slug(slug):
                     next_retry_at = float(logical.get("next_retry_at", 0) or 0)
                     wait_reason = str(logical.get("wait_reason") or "source_unavailable")
+                    if (wait_reason in {"source_unavailable", "language_unavailable"}
+                            and int(logical.get("source_retry_count") or 0) >= SOURCE_RETRY_MIN_ATTEMPTS):
+                        now = time.time()
+                        deadline = source_retry_started_at(logical, now) + SOURCE_RETRY_BUDGET_SECONDS
+                        if next_retry_at > max(now, deadline):
+                            next_retry_at = max(now, deadline)
+                            _update_queue_job(slug, persist=False, next_retry_at=next_retry_at)
                     # Upgrade legacy DE/EN source retries: validate actual tracks
                     # promptly once instead of inheriting a hours-long backoff.
                     if (wait_reason == "source_unavailable"

@@ -245,7 +245,8 @@ def _episode_candidates(movie, slug, episode, known, refresh, cancelled, gate_se
     # Keep the explicitly selected source usable, including anime-only catalogs.
     if original_provider not in providers:
         providers.insert(len(providers) - int("serienstream" in providers), original_provider)
-    providers.sort(key=lambda provider: provider == "serienstream")
+    preferred = _movie_provider(movie, slug) if getattr(movie, "_subscription_new_source", False) else ""
+    providers.sort(key=lambda provider: (provider != preferred, provider == "serienstream"))
     known = [movie, *known]
     title = strip_episode_suffix(movie.title) or movie.title
     aliases = None
@@ -318,7 +319,7 @@ def run_download_queue(
     geladen. Provider-Sperren lassen ihren logischen Queue-Claim offen."""
     out_root.mkdir(parents=True, exist_ok=True)
     unsupported_domains: set = set()
-    gated_jobs: List[tuple] = []   # (movie, slug) die am Captcha-Gate hingen
+    gated_jobs: List[tuple] = []
     queued_slugs: set = set()
 
     for movie, movie_slug in jobs:
@@ -409,7 +410,7 @@ def run_download_queue(
             if ep_info and gate_seen[0] and provider_for_value(movie_slug) == "serienstream":
                 # s.to-Gate aktiv UND kein Fallback nutzbar – bis zur nächsten
                 # Provider-Probe zurückstellen (NICHT als erledigt zählen).
-                gated_jobs.append((original_movie, movie_slug))
+                gated_jobs.append((original_movie, movie_slug, source_movies))
                 log("  Zurückgestellt – serienstream Captcha-Gate aktiv (Fallback erfolglos)", "warn")
             elif ep_info and not (cancelled and cancelled()) and _queue_slug_claimed(movie_slug):
                 # Eine heute nicht extrahierbare Episode ist nicht automatisch
@@ -428,9 +429,9 @@ def run_download_queue(
                             for source in source_movies
                         ) else "source_unavailable"
                     ),
+                    sources=source_movies,
                 ):
                     queued_slugs.add(movie_slug)
-                    log("  Keine nutzbare Quelle – automatische Wiederholung vorgemerkt", "warn")
                 elif _queue_slug_claimed(movie_slug):
                     on_job_done(
                         False,
@@ -472,8 +473,8 @@ def run_download_queue(
             cancelled=cancelled,
             gate_seen=gate_seen,
             episode_candidates=episode_candidates,
-            gate_retry=lambda reason="provider_gate", primary=original_movie, slug=movie_slug: _defer_provider_episode(
-                primary, slug, out_root, movie_fallbacks, reason=reason,
+            gate_retry=lambda reason="provider_gate", primary=original_movie, slug=movie_slug, sources=source_movies: _defer_provider_episode(
+                primary, slug, out_root, movie_fallbacks, reason=reason, sources=sources,
             ),
         )
         if enqueued:
@@ -483,11 +484,12 @@ def run_download_queue(
     # für einen einzelnen Vorbereitungsjob ohne Erfolg.
     if gated_jobs:
         deferred = 0
-        for gated_movie, gated_slug in gated_jobs:
+        for gated_movie, gated_slug, gated_sources in gated_jobs:
             if (cancelled and cancelled()) or not _queue_slug_claimed(gated_slug):
                 continue
             if _defer_provider_episode(
                 gated_movie, gated_slug, out_root, movie_fallbacks,
+                sources=gated_sources,
             ):
                 deferred += 1
                 queued_slugs.add(gated_slug)

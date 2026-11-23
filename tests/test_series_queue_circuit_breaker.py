@@ -479,28 +479,46 @@ def test_source_unavailable_episode_stays_pending_with_backoff(monkeypatch):
     assert server.state.done_jobs == 0
 
 
-def test_source_unavailable_enters_long_term_retry_after_fast_window(monkeypatch):
+def test_source_budget_ends_job_but_records_subscription_sources(monkeypatch):
     slug = "serienstream:exact-show-s02e04"
-    movie = episode_movie("serienstream", slug, hosters=False)
-    job = new_job(slug, job_id="source-long-term")
-    job["source_retry_count"] = server.SOURCE_RETRY_FAST_ATTEMPTS
+    movie = episode_movie("serienstream", slug)
+    now = 100_000.0
+    job = new_job(slug, job_id="finished", created_at=now - 100_000)
+    job.update(source_retry_started_at=now - server.SOURCE_RETRY_BUDGET_SECONDS, source_retry_count=8)
     server.state.queue_jobs[job["job_id"]] = job
     server.state.queue_job_by_slug[slug] = job["job_id"]
     server.state.picked.add(slug)
     server.state.counted_queue_slugs.add(slug)
-    monkeypatch.setattr(server.time, "time", lambda: 1_000.0)
+    server.state.total_jobs = 1
+    entry = {"base_slug": "serienstream:exact-show", "known_slugs": [slug]}
+    monkeypatch.setattr(server.state, "watchlist", [entry])
+    monkeypatch.setattr(server, "_persist_watchlist_background", lambda: True)
+    monkeypatch.setattr(server.time, "time", lambda: now)
+
+    assert server._defer_provider_episode(movie, slug, Path("/tmp"), reason="provider_gate")
+    assert job["source_retry_count"] == 8
+    assert slug in server.state.picked
 
     assert server._defer_provider_episode(
-        movie, slug, Path("/tmp"), reason="source_unavailable",
+        movie, slug, Path("/tmp"), reason="source_unavailable", sources=[movie],
     )
 
-    logical = server.state.queue_jobs["source-long-term"]
-    assert logical["status"] == "waiting_provider"
-    assert logical["source_retry_count"] == server.SOURCE_RETRY_FAST_ATTEMPTS + 1
-    assert logical["next_retry_at"] == 1_000.0 + server.SOURCE_RETRY_LONG_SECONDS
-    assert logical["wait_reason"] == "source_unavailable"
-    assert "Langzeitprüfung" in logical["error"]
-    assert slug in server.state.provider_waiting_jobs
+    assert slug not in server.state.picked
+    assert slug not in server.state.provider_waiting_jobs
+    assert slug not in server.state.counted_queue_slugs
+    terminal = server.state.queue_history[0]
+    assert terminal["status"] == "failed"
+    assert terminal["wait_reason"] == "source_exhausted"
+    assert terminal["source_retry_count"] == 9
+    assert terminal["error"] == "Keine nutzbare Quelle gefunden"
+    record = entry["exhausted_source_retries"][slug]
+    assert len(record["fingerprints"]) == 1
+    assert record["fingerprints"] == terminal["source_retry_fingerprints"]
+
+    retried = server._retry_queue_job(terminal["job_id"])
+    assert retried["source_retry_count"] == 0
+    assert retried["source_retry_started_at"] == 0
+    assert retried["source_retry_fingerprints"] == []
 
 
 def test_source_waiting_episode_rotates_behind_actionable_queue_work(monkeypatch):
@@ -1057,8 +1075,8 @@ def test_existing_de_job_distinguishes_wrong_audio_from_broken_matching_source(m
     assert logical["language_checked_at"] == 1000.0
     assert server.state.done_jobs == 0
     if expected_reason == "language_unavailable":
-        assert logical["next_retry_at"] == 1900.0
-        assert logical["source_retry_count"] == 8
+        assert logical["next_retry_at"] == 1000.0 + server.SOURCE_RETRY_MAX_SECONDS
+        assert logical["source_retry_count"] == 9
         assert "DE" in logical["error"]
         primary.content_language = "en"
         server.state.fp_movies[slug] = primary
@@ -1183,13 +1201,20 @@ def test_source_retries_yield_to_foreground_and_take_one_due_job(monkeypatch, tm
     assert not server.state.queue_prepare_lock.locked()
 
 
-def test_restore_starts_source_retries_while_another_job_is_unresolved(monkeypatch, tmp_path):
+@pytest.mark.parametrize("wait_reason,next_retry_at", [
+    ("source_unavailable", 100_000.0),
+    ("provider_gate", 150_000.0),
+])
+def test_restore_starts_source_retries_while_another_job_is_unresolved(
+    monkeypatch, tmp_path, wait_reason, next_retry_at,
+):
     waiting_slug = "serienstream:restore-show-s01e01"
     blocked_slug = "serienstream:restore-show-s01e02"
     for slug in (waiting_slug, blocked_slug):
         job = new_job(slug)
         if slug == waiting_slug:
-            job.update(status="waiting_provider", next_retry_at=4000.0, language_checked_at=3900.0)
+            job.update(status="waiting_provider", wait_reason=wait_reason, next_retry_at=150_000.0,
+                       language_checked_at=99_000.0, source_retry_count=9, source_retry_started_at=1000.0)
         server.state.queue_jobs[job["job_id"]] = job
         server.state.queue_job_by_slug[slug] = job["job_id"]
         server.state.picked.add(slug)
@@ -1212,6 +1237,6 @@ def test_restore_starts_source_retries_while_another_job_is_unresolved(monkeypat
 
     from api import api_queue_router
     monkeypatch.setattr(api_queue_router, "log", lambda *details: logs.append(details))
-    monkeypatch.setattr(api_queue_router, "time", SimpleNamespace(sleep=next_pass))
+    monkeypatch.setattr(api_queue_router, "time", SimpleNamespace(sleep=next_pass, time=lambda: 100_000.0))
     api_queue_router.restore_persisted_queue()
-    assert server.state.provider_waiting_jobs[waiting_slug]["next_retry_at"] == 4000.0
+    assert server.state.provider_waiting_jobs[waiting_slug]["next_retry_at"] == next_retry_at

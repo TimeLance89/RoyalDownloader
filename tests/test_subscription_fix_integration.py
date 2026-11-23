@@ -151,3 +151,39 @@ def test_late_language_result_cannot_reopen_manually_cancelled_episode(monkeypat
     library.record_watchlist_episode_languages({flow.slug: ['de']})
     assert flow.slug not in flow.state.watchlist_new_slugs.get(flow.entry['base_slug'], set())
     assert not wakes
+
+
+def test_exhausted_subscription_requires_a_new_matching_hoster(monkeypatch, flow):
+    from application_services import download_queue
+    from features.episode_source_probe import episode_source_fingerprint
+
+    clock = [1000.0]
+    monkeypatch.setattr(automation.time, "time", lambda: clock[0])
+    library._update_watchlist_language_states(flow.entry, {flow.slug: ["de"]})
+    flow.movie.provider = "vidrift"
+    old = flow.movie.hosters[0]
+    record = {"fingerprints": [episode_source_fingerprint(flow.movie, old)], "next_check": 0}
+    flow.entry["exhausted_source_retries"] = {flow.slug: record}
+    flow.movie.hosters = [
+        HosterInfo("VOE", old.url + "?token=rotated", "de"),
+        HosterInfo("VOE", "https://fixture.invalid/new-en", "en"),
+    ]
+    lookups = []
+
+    def sources(*args):
+        lookups.append(True)
+        return [flow.movie]
+
+    monkeypatch.setattr(download_queue, "_episode_candidates", sources)
+    monkeypatch.setattr(automation, "_episode_placeholder", lambda _: flow.movie)
+    automation._auto_download_new_episodes()
+    automation._auto_download_new_episodes()
+    assert not flow.enqueued and lookups == [True]
+    assert flow.entry["exhausted_source_retries"][flow.slug] is record
+
+    new = HosterInfo("VOE", "https://fixture.invalid/new-de", "de")
+    flow.movie.hosters.append(new)
+    clock[0] = record["next_check"]
+    automation._auto_download_new_episodes()
+    assert flow.enqueued == [flow.slug]
+    assert flow.state.fp_movies[flow.slug].hosters == [new]

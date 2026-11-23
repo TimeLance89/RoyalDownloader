@@ -27,6 +27,11 @@ export function queueWaitCopy(job, nowSeconds = Date.now() / 1000) {
       .filter(Boolean).join(" · ");
   }
 
+  if (job?.wait_reason === "retry_interrupted") {
+    const timing = relativeRetryLabel(job?.next_retry_at, nowSeconds);
+    return ["Quellenprüfung unterbrochen", timing].filter(Boolean).join(" · ");
+  }
+
   if (job?.wait_reason === "source_unavailable") {
     const longTerm = /langzeitprüfung/i.test(String(job?.error || ""));
     const timing = relativeRetryLabel(job?.next_retry_at, nowSeconds, { longTerm });

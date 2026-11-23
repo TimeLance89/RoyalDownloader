@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import threading
@@ -15,6 +16,8 @@ from typing import Any
 
 SCHEMA_VERSION = 3
 HISTORY_LIMIT = 500
+SOURCE_RETRY_BUDGET_SECONDS = 24 * 60 * 60
+SOURCE_RETRY_MIN_ATTEMPTS = 3
 ACTIVE_STATES = {
     "queued", "preparing", "waiting_provider", "downloading", "paused", "cancelling",
 }
@@ -33,6 +36,17 @@ def _nonnegative_int(value: Any) -> int:
         return max(0, int(value or 0))
     except (TypeError, ValueError):
         return 0
+
+
+def source_retry_started_at(job: dict, now: float) -> float:
+    started = job.get("source_retry_started_at")
+    if not started and _nonnegative_int(job.get("source_retry_count")):
+        started = job.get("created_at")
+    try:
+        timestamp = float(started or now)
+    except (ValueError, TypeError, OverflowError):
+        return now
+    return min(now, timestamp) if math.isfinite(timestamp) and timestamp > 0 else now
 
 
 def stable_migration_id(slug: str) -> str:
@@ -80,6 +94,8 @@ def new_job(
         "error": "",
         "attempts": 0,
         "source_retry_count": 0,
+        "source_retry_started_at": 0.0,
+        "source_retry_fingerprints": [],
         "next_retry_at": 0.0,
         "wait_reason": "",
         "language_checked_at": 0.0,
@@ -126,7 +142,7 @@ def normalize_job(
     job["status"] = status
     if active and recover_active and job["audio_check_status"] in ("waiting", "checking"):
         job["audio_check_status"] = job["audio_check_detail"] = ""
-    for key in ("created_at", "started_at", "completed_at", "cancel_requested_at", "progress", "speed_bps", "next_retry_at", "language_checked_at"):
+    for key in ("created_at", "started_at", "completed_at", "cancel_requested_at", "progress", "speed_bps", "next_retry_at", "language_checked_at", "source_retry_started_at"):
         try:
             job[key] = float(job.get(key) or 0)
         except (TypeError, ValueError):
@@ -141,6 +157,10 @@ def normalize_job(
             job[key] = max(0, int(job[key])) if job.get(key) is not None else None
         except (TypeError, ValueError):
             job[key] = None
+    fingerprints = job["source_retry_fingerprints"]
+    job["source_retry_fingerprints"] = [
+        item for item in fingerprints[:256] if isinstance(item, str) and len(item) == 32
+    ] if isinstance(fingerprints, list) else []
     return job
 
 
