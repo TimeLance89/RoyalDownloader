@@ -976,12 +976,12 @@
   outline: none;
 }
 
-#queue-dock .queue-history-panel {
+#queue-dock :is(.queue-history-panel, .queue-source-waits) {
   margin-top: 10px;
   color: rgba(255, 255, 255, .58);
 }
 
-#queue-dock .queue-history-panel > summary {
+#queue-dock :is(.queue-history-panel, .queue-source-waits) > summary {
   padding: 8px 2px;
   font: 600 10px/1.2 "DM Sans", sans-serif;
   cursor: pointer;
@@ -1364,8 +1364,8 @@
   #queue-dock .queue-item-actions { grid-column: 1 / -1; grid-row: 2; justify-self: end; justify-content: flex-end; max-width: none; gap: 4px; }
   #queue-dock .queue-action-btn { min-width: 44px; min-height: 44px; padding: 8px; border-radius: 10px; color: #d7d5d7; touch-action: manipulation; }
   #queue-dock .queue-action-btn:focus-visible, #queue-dock button:focus-visible, #queue-dock summary:focus-visible { outline: 2px solid #e7c78b; outline-offset: -2px; }
-  #queue-dock .queue-history-panel { flex: 0 0 auto; margin: 4px 0 0; color: #c1bbba; }
-  #queue-dock .queue-history-panel > summary { min-height: 44px; padding: 14px 2px; font-size: 11px; }
+  #queue-dock :is(.queue-history-panel, .queue-source-waits) { flex: 0 0 auto; margin: 4px 0 0; color: #c1bbba; }
+  #queue-dock :is(.queue-history-panel, .queue-source-waits) > summary { min-height: 44px; padding: 14px 2px; font-size: 11px; }
   #queue-dock .queue-history-list { max-height: 22dvh; padding-top: 0; overscroll-behavior: contain; }
   #queue-dock .queue-history-item { content-visibility: auto; contain-intrinsic-size: auto 64px; }
   #queue-dock .queue-history-item strong, #queue-dock .queue-history-item small { white-space: normal; overflow-wrap: anywhere; }

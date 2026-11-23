@@ -236,7 +236,7 @@ def _content_already_available(movie: FilmpalastMovie, slug: str) -> tuple[bool,
     return False, ""
 
 
-def _episode_candidates(movie, slug, episode, known, refresh, cancelled, gate_seen):
+def _episode_candidates(movie, slug, episode, known, refresh, cancelled, gate_seen, *, fallback_only=False):
     """Resolve providers one at a time, including after a failed transfer."""
     from features.episode_source_probe import episode_source_providers
 
@@ -253,7 +253,7 @@ def _episode_candidates(movie, slug, episode, known, refresh, cancelled, gate_se
     for provider in providers:
         if (cancelled and cancelled()) or not _queue_slug_claimed(slug):
             return
-        if provider == "serienstream" and not state.provider_health.routing_allowed(provider):
+        if provider == "serienstream" and (fallback_only or not state.provider_health.routing_allowed(provider)):
             gate_seen[0] = gate_seen[0] or original_provider == provider
             continue
         candidates = [candidate for candidate in known if candidate.hosters
@@ -305,6 +305,8 @@ def run_download_queue(
     movie_fallbacks: Optional[Dict[str, List[FilmpalastMovie]]] = None,
     start_queue: bool = True,
     cancelled: Optional[Callable[[], bool]] = None,
+    *,
+    fallback_only: bool = False,
 ):
     """jobs: Liste von (movie, slug)-Paaren. Der slug ist der Queue-Schlüssel
     (z.B. 'serienstream:the-last-of-us-s01e01') – daraus wird die Serie/Staffel/
@@ -371,6 +373,7 @@ def run_download_queue(
             )
             episode_candidates = _episode_candidates(
                 movie, movie_slug, ep_info, known, refresh, cancelled, gate_seen,
+                fallback_only=fallback_only,
             )
             source_movies = []
             source_fallbacks_loaded = [True]

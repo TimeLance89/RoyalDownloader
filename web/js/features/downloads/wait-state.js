@@ -1,8 +1,9 @@
 function relativeRetryLabel(targetAt, nowSeconds, { longTerm = false, noun = "Versuch" } = {}) {
   const target = Number(targetAt);
   if (!Number.isFinite(target) || target <= 0) return "";
-  const remaining = Math.max(0, target - Number(nowSeconds || 0));
-  const minutes = Math.max(1, Math.ceil(remaining / 60));
+  const remaining = target - Number(nowSeconds || 0);
+  if (remaining <= 0) return `${noun} fällig`;
+  const minutes = Math.ceil(remaining / 60);
 
   if (longTerm || minutes >= 24 * 60) {
     const days = Math.max(1, Math.ceil(minutes / (24 * 60)));
@@ -29,7 +30,9 @@ export function queueWaitCopy(job, nowSeconds = Date.now() / 1000) {
   if (job?.wait_reason === "source_unavailable") {
     const longTerm = /langzeitprüfung/i.test(String(job?.error || ""));
     const timing = relativeRetryLabel(job?.next_retry_at, nowSeconds, { longTerm });
-    return ["Wartet auf Quelle", timing || "Automatische Prüfung vorgemerkt"]
+    const attempts = Number(job?.source_retry_count);
+    const history = attempts > 0 ? `${attempts}× geprüft` : "";
+    return ["Wartet auf Quelle", history, timing || "Automatische Prüfung vorgemerkt"]
       .filter(Boolean)
       .join(" · ");
   }
