@@ -164,10 +164,11 @@ def _matched_series_inventory(matches, library, tmdb_id, fetch):
     if not matches:
         return []
     if len(matches) > 1:
-        wanted = str(tmdb_id or "").strip()
         candidates = [item for item in library if str(item.get("id")) in matches]
-        if (not wanted or {str(item.get("id")) for item in candidates} != matches
-                or any(str(item.get("tmdb_id") or "").strip() != wanted for item in candidates)):
+        identities = {_series_tmdb_id(item.get("tmdb_id")) for item in candidates}
+        if ({str(item.get("id")) for item in candidates} != matches
+                or len(identities) != 1 or "" in identities
+                or (tmdb_id is not None and _series_tmdb_id(tmdb_id) not in identities)):
             return []
     try:
         series_ids = sorted({UUID(identity).hex for identity in matches})
@@ -185,6 +186,11 @@ def _matched_series_inventory(matches, library, tmdb_id, fetch):
         for item in items:
             episodes.setdefault(item["id"], item)
     return sorted(episodes.values(), key=lambda item: (item["season"], item["episode"], item["id"]))
+
+
+def _series_tmdb_id(value):
+    identity = str(value or "").strip()
+    return identity if identity.isascii() and identity.isdecimal() and identity.lstrip("0") else ""
 
 
 def _episode_cards(items):
@@ -307,13 +313,44 @@ def create_movie_playback_router(backend, administrator=None):
         except JellyfinPermissionError as error:
             raise HTTPException(error.status, str(error)) from None
 
-    def series_inventory(base_url, config, profile_id, series_id):
-        profile_series(base_url, config, profile_id, series_id)
+    def series_episodes_for_id(base_url, config, profile_id, series_id):
         result = _jellyfin_json(base_url, config["api_key"], f"/Shows/{series_id}/Episodes", {
             "UserId": profile_id, "IsMissing": "false", "EnableUserData": "true",
             "ImageTypeLimit": 1, "EnableImageTypes": "Primary", "Fields": "Overview",
         })
         return _episode_cards(result.get("Items") or [])
+
+    def series_inventory(base_url, config, profile_id, series_id):
+        profile_series(base_url, config, profile_id, series_id)
+        return series_episodes_for_id(base_url, config, profile_id, series_id)
+
+    def series_inventory_by_identity(base_url, config, profile_id, series_id, parent):
+        primary = series_episodes_for_id(base_url, config, profile_id, series_id)
+        tmdb_id = _series_tmdb_id((parent.get("ProviderIds") or {}).get("Tmdb"))
+        if not tmdb_id:
+            return primary
+        episodes = {item["id"]: item for item in primary}
+        for candidate in backend.get_jellyfin_series() or ():
+            if _series_tmdb_id(candidate.get("tmdb_id")) != tmdb_id:
+                continue
+            try:
+                other_id = UUID(str(candidate.get("id"))).hex
+            except (ValueError, AttributeError):
+                continue
+            if other_id == series_id:
+                continue
+            try:
+                copy = profile_series(base_url, config, profile_id, other_id)
+                if _series_tmdb_id((copy.get("ProviderIds") or {}).get("Tmdb")) != tmdb_id:
+                    continue
+                extra = series_episodes_for_id(base_url, config, profile_id, other_id)
+            except HTTPException as error:
+                if error.status_code in (404, 503):
+                    continue
+                raise
+            for item in extra:
+                episodes.setdefault(item["id"], item)
+        return sorted(episodes.values(), key=lambda item: (item["season"], item["episode"], item["id"]))
 
     @router.get("/api/media-center/series/episodes")
     def series_episodes(request: Request, title: str = Query(default="", max_length=400),
@@ -330,7 +367,8 @@ def create_movie_playback_router(backend, administrator=None):
         if not profile_id:
             return {"items": []}
         if item_id is not None:
-            return {"items": series_inventory(base_url, config, profile_id, item_id.hex),
+            parent = profile_series(base_url, config, profile_id, item_id.hex)
+            return {"items": series_inventory_by_identity(base_url, config, profile_id, item_id.hex, parent),
                     "profile_id": profile_id, "generation": generation}
         library = backend.get_jellyfin_series()
         if library is None:
@@ -357,8 +395,9 @@ def create_movie_playback_router(backend, administrator=None):
             series_id = UUID(current["SeriesId"]).hex
         except (KeyError, TypeError, ValueError, AttributeError):
             raise HTTPException(502, "Die Serie konnte in Jellyfin nicht zugeordnet werden.") from None
+        parent = profile_series(base_url, config, profile_id, series_id)
         return {
-            "items": series_inventory(base_url, config, profile_id, series_id),
+            "items": series_inventory_by_identity(base_url, config, profile_id, series_id, parent),
             "profile_id": profile_id, "generation": generation,
         }
 
@@ -457,14 +496,15 @@ def create_movie_playback_router(backend, administrator=None):
                 series_id = UUID(item["SeriesId"]).hex
             except (KeyError, TypeError, ValueError, AttributeError):
                 raise HTTPException(404, "Die zugehörige Serie ist nicht verfügbar.") from None
-            episodes = series_inventory(base_url, config, profile_id, series_id)
+            parent = profile_series(base_url, config, profile_id, series_id)
+            episodes = series_inventory_by_identity(base_url, config, profile_id, series_id, parent)
             if not any(episode["id"] == item_id.hex for episode in episodes):
                 episodes.extend(_episode_cards([item]))
             context = {
                 "series_id": series_id,
                 "inventory": {"items": episodes, "profile_id": profile_id, "generation": generation},
             }
-            item = profile_series(base_url, config, profile_id, series_id)
+            item = parent
         return {
             "title": item.get("Name"), "year": item.get("ProductionYear"),
             "description": item.get("Overview"), "tmdb_id": (item.get("ProviderIds") or {}).get("Tmdb"),
@@ -499,7 +539,7 @@ def create_movie_playback_router(backend, administrator=None):
             raise HTTPException(502, "Jellyfin-Bild ist nicht erreichbar.") from None
         return Response(bytes(content), media_type=mime)
 
-    register_library_routes(router, connection, linked_profile, _jellyfin_json, item_image)
+    register_library_routes(router, connection, linked_profile, _jellyfin_json, item_image, access)
 
     def resolve_movie(request: Request, title: str = Query(default="", max_length=400),
                       year: str = Query(default="", max_length=10),

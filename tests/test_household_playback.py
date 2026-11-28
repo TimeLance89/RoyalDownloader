@@ -24,6 +24,44 @@ def test_series_detail_reads_exact_library_item_with_profile_permissions(househo
     assert client.get(f"{BASE}/series/episodes", params={"item_id": ITEM}).status_code == 404
 
 
+@pytest.mark.parametrize("source", ["series", "navigation", "resume"])
+def test_pinned_series_inventory_combines_only_visible_verified_copies(household, monkeypatch, source):
+    duplicate, hidden, changed, second = "5" * 32, "6" * 32, "7" * 32, "8" * 32
+    parents = (SERIES, duplicate, hidden, changed)
+    household.backend.get_jellyfin_series = lambda: [
+        {"id": identity, "tmdb_id": "271001"} for identity in parents
+    ]
+
+    def read(url, key, path, params):
+        requested = params.get("Ids")
+        if path == "/Items" and requested in parents:
+            assert params["UserId"] == A
+            if requested == hidden:
+                return {"Items": []}
+            tmdb_id = "271999" if requested == changed else "271001"
+            return {"Items": [{"Id": requested, "Type": "Series", "ProviderIds": {"Tmdb": tmdb_id}}]}
+        if path.startswith("/Shows/"):
+            parent = path.split("/")[2]
+            assert parent in (SERIES, duplicate)
+            base = household.read(url, key, path, params)
+            if parent == duplicate:
+                base["Items"][0].update(Id=second, IndexNumber=2)
+            return base
+        return household.read(url, key, path, params)
+
+    monkeypatch.setattr("api.api_movie_playback_router._jellyfin_json", read)
+    path = {
+        "series": f"{BASE}/series/episodes?item_id={SERIES}",
+        "navigation": f"{BASE}/episodes/{ITEM}/navigation",
+        "resume": f"{BASE}/continue-watching/{ITEM}/details",
+    }[source]
+    result = household.clients["a"].get(path)
+    assert result.status_code == 200, result.text
+    payload = result.json()
+    inventory = payload["inventory"] if source == "resume" else payload
+    assert [item["id"] for item in inventory["items"]] == [ITEM, second]
+
+
 def test_library_children_require_visible_parent_and_use_profile(household):
     client = household.clients["a"]
     result = client.get(f"{BASE}/library/{SERIES}/children")
@@ -43,6 +81,30 @@ def test_library_list_paginates_and_filters_with_linked_profile(household):
     assert household.calls[-1][1]["IncludeItemTypes"] == "BoxSet"
     assert household.calls[-1][1]["StartIndex"] == 4
     assert household.calls[-1][1]["SearchTerm"] == "Saga"
+
+
+def test_library_delete_uses_exact_item_and_linked_profile_permission(household, monkeypatch):
+    deleted = []
+
+    def delete(url, **_):
+        deleted.append(url)
+        return nullcontext(SimpleNamespace(status_code=204))
+
+    monkeypatch.setattr("api.jellyfin_library.requests.delete", delete)
+    path = f"{BASE}/library/{ITEM}"
+    client = household.clients["a"]
+    assert client.delete(path, params={"kind": "episode"}).status_code == 403
+    household.users["a"]["role"] = "admin"
+    assert client.delete(path, params={"kind": "episode"}).status_code == 403
+    assert client.delete(path, params={"kind": "series"}).status_code == 404
+    assert deleted == []
+
+    household.flags["can_delete"] = True
+    assert client.delete(path, params={"kind": "episode"}).json() == {"deleted": True}
+    assert household.calls[-1][1]["UserId"] == A
+    assert household.calls[-1][1]["Ids"] == ITEM
+    assert household.calls[-1][1]["Fields"] == "CanDelete"
+    assert deleted == [f"http://jf/Items/{ITEM}"]
 
 
 @pytest.mark.parametrize("title,tmdb_id,count", [
@@ -124,7 +186,8 @@ def household(monkeypatch, tmp_path):
         assert profile in (A, B)
         item = {"Id": ITEM, "Type": "Episode", "Name": "Pilot", "SeriesName": "Demo", "SeriesId": SERIES,
                 "ParentIndexNumber": 1, "IndexNumber": 1, "RunTimeTicks": 7200 * 10_000_000,
-                "UserData": dict(data[profile]), "ImageTags": {"Primary": "fixture"}}
+                "UserData": dict(data[profile]), "ImageTags": {"Primary": "fixture"},
+                "CanDelete": flags.get("can_delete", False)}
         if path == "/Items" and params.get("Ids") == SERIES:
             return {"Items": [{"Id": SERIES, "Type": "Series", "Name": "Demo"}]}
         return {"Items": [item] if flags["visible"] else []}
