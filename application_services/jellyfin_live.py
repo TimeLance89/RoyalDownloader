@@ -1,9 +1,8 @@
 """Near-live Jellyfin ownership snapshots without request-path full scans.
 
-A tiny one-page Jellyfin probe runs in the background. Only when the library
-fingerprint changes do we rebuild the heavier movie/series/episode snapshots.
-Interactive callers keep using the last verified snapshot immediately while a
-single coalesced refresh runs in the background.
+Jellyfin ownership is kept in a durable index, updated from item events and
+reconciled periodically. Interactive callers can display the previous snapshot
+while verified changes are collected in the background.
 """
 
 from __future__ import annotations
@@ -18,9 +17,13 @@ from concurrent.futures import ThreadPoolExecutor
 
 from core import egress_requests as requests
 from integrations.jellyfin_auth import jellyfin_auth_headers
+from integrations.jellyfin_index import MAX_PENDING
 from application_services.runtime import backend_value, publish_service
 from application_services.saved_media import saved_media_sync
-from application_services.jellyfin_inventory import read_inventory, publish_inventory
+from application_services.jellyfin_inventory import cached_inventory, read_inventory, publish_inventory
+from application_services.jellyfin_local_index import (
+    full_interval, local_index, publish_rows, refresh_events, stored_rows, uses_index,
+)
 from integrations.jellyfin_reads import inventory_reads, scope_key, is_background_read
 from integrations.jellyfin_reads import movie_identities as _movie_identities_from_library
 
@@ -40,13 +43,17 @@ _legacy_content_already_available = backend_value("_content_already_available")
 
 _LIVE_PROBE_LIMIT = 12
 _LIVE_MIN_INTERVAL_SECONDS = 0.5
-_LIVE_DEFAULT_INTERVAL_SECONDS = 1.0
+_LIVE_DEFAULT_INTERVAL_SECONDS = 15.0
 _LIVE_MAX_INTERVAL_SECONDS = 30.0
 _LIVE_MAX_FAILURE_BACKOFF_SECONDS = 15.0
 _LIVE_DOWNLOAD_WAIT_SECONDS = 20.0
+_INDEX_PROBE_REUSE_SECONDS = 2.0
+_INDEX_DELTA_FAILURES_BEFORE_RECONCILE = 2
+_INDEX_FULL_RETRY_SECONDS = 30.0
 _RECENT_MOVIE_SNAPSHOT_GRACE_SECONDS = 120.0
 
 _live_lock = threading.RLock()
+_index_cycle_lock = threading.Lock()
 _live_wake_event = threading.Event()
 _live_stop_event = threading.Event()
 _live_ready_event = threading.Event()
@@ -57,11 +64,13 @@ _failure_count = 0
 
 
 def _poll_interval_seconds() -> float:
-    raw = os.environ.get("JELLYFIN_LIVE_POLL_SECONDS", str(_LIVE_DEFAULT_INTERVAL_SECONDS))
+    cfg = getattr(state, "jellyfin_cfg", {})
+    default = 1.0 if cfg.get("provider") == "plex" else _LIVE_DEFAULT_INTERVAL_SECONDS
+    raw = os.environ.get("JELLYFIN_LIVE_POLL_SECONDS") or str(default)
     try:
         interval = float(raw)
     except (TypeError, ValueError):
-        interval = _LIVE_DEFAULT_INTERVAL_SECONDS
+        interval = default
     return max(_LIVE_MIN_INTERVAL_SECONDS, min(_LIVE_MAX_INTERVAL_SECONDS, interval))
 
 
@@ -100,7 +109,7 @@ def _wake_automation() -> None:
         logger.warning("Jellyfin-Liveupdate konnte Automatik nicht wecken: %s", exc)
 
 
-def _mark_probe_unavailable() -> None:
+def _mark_probe_unavailable(*, include_user: bool = True) -> None:
     """Keep visual snapshots but fail closed for download/automation safety."""
     with state.jellyfin_cache_lock:
         state.jellyfin_live_stale = True
@@ -111,12 +120,12 @@ def _mark_probe_unavailable() -> None:
             state.jellyfin_library_available = False
         if state.jellyfin_episodes is not None:
             state.jellyfin_episodes_available = False
-        if state.jellyfin_user_episodes is not None:
+        if include_user and state.jellyfin_user_episodes is not None:
             state.jellyfin_user_episodes_available = False
     _live_ready_event.clear()
 
 
-def _mark_cached_snapshots_verified(now: float) -> None:
+def _mark_cached_snapshots_verified(now: float, *, include_user: bool = True) -> None:
     """A successful unchanged probe proves cached ownership is still current."""
     with state.jellyfin_cache_lock:
         if state.jellyfin_library is not None:
@@ -135,7 +144,7 @@ def _mark_cached_snapshots_verified(now: float) -> None:
             state.jellyfin_series_available = True
             state.jellyfin_series_time = now
             state.jellyfin_series_retry_after = 0.0
-        if state.jellyfin_user_episodes is not None:
+        if include_user and state.jellyfin_user_episodes is not None:
             state.jellyfin_user_episodes_available = True
             state.jellyfin_user_episodes_time = now
             state.jellyfin_user_episodes_retry_after = 0.0
@@ -157,6 +166,8 @@ def _probe_library_revision(client) -> str | None:
         "IsMissing": "false",
         "IsPlaceHolder": "false",
         "Fields": "DateCreated",
+        "EnableImages": "false",
+        "EnableUserData": "false",
         "SortBy": "DateCreated",
         "SortOrder": "Descending",
         "StartIndex": "0",
@@ -175,7 +186,9 @@ def _probe_library_revision(client) -> str | None:
     except (requests.RequestException, ValueError) as exc:
         logger.warning("Jellyfin-Liveprobe fehlgeschlagen (%s): %s", client.base_url, exc)
         return None
-    if not isinstance(payload, dict) or not isinstance(payload.get("Items", []), list):
+    if (not isinstance(payload, dict) or not isinstance(payload.get("Items"), list)
+            or not isinstance(payload.get("TotalRecordCount"), int)
+            or payload["TotalRecordCount"] < len(payload["Items"])):
         return None
     recent = [
         (
@@ -246,7 +259,91 @@ def _broadcast_live_update() -> None:
         logger.warning("Jellyfin-Liveupdate konnte nicht verteilt werden: %s", exc)
 
 
-def _monitor_cycle(*, force_full: bool = False) -> str:
+def _refresh_index(index, scope, client, generation, *, force):
+    retry_generation, retry_at = getattr(state, "_jellyfin_index_full_retry", (None, 0.0))
+    if not force and generation == retry_generation and time.monotonic() < retry_at:
+        return None
+    state._jellyfin_index_full_retry = generation, time.monotonic() + _INDEX_FULL_RETRY_SECONDS
+    pending_before_scan = index.pending(scope, limit=MAX_PENDING)
+    kinds = ("movies", "series", "episodes")
+    with ThreadPoolExecutor(max_workers=3, thread_name_prefix="jellyfin-inventory") as pool:
+        futures = {kind: pool.submit(getattr(client, f"list_{kind}"), complete=True) for kind in kinds}
+        rows = {kind: future.result() for kind, future in futures.items()}
+    with state.jellyfin_cache_lock:
+        if generation != state.jellyfin_config_generation:
+            return None
+    if not index.replace(scope, rows, acknowledge=pending_before_scan):
+        return None
+    state._jellyfin_index_full_retry = generation, 0.0
+    logger.info(
+        "Jellyfin-Bestand abgeglichen: %d Filme, %d Serien, %d Episoden",
+        *(len(rows[kind]) for kind in kinds),
+    )
+    return rows
+
+
+def _monitor_index(client, generation, force_full, *, reuse_recent=False):
+    """Prefer item-level updates. Reconcile the complete collection on a timer."""
+    global _last_revision, _failure_count
+    with _index_cycle_lock:
+        if generation != state.jellyfin_config_generation:
+            return "stale"
+        index, scope = local_index(state, client)
+        last_full = index.last_full(scope)
+        with state.jellyfin_cache_lock:
+            cold = state.jellyfin_library is None
+            if (reuse_recent and not cold and not _live_stale()
+                    and time.time() - state.jellyfin_live_checked_at < _INDEX_PROBE_REUSE_SECONDS):
+                return "unchanged"
+        if cold and last_full is not None:
+            publish_rows(state, stored_rows(index, scope), generation, verified=False, index_scope=scope)
+        event_revision = getattr(state, "_jellyfin_inventory_event_revision", 0)
+        revision = inventory_reads(state).read(
+            scope_key(client, generation, "probe"),
+            lambda: _probe_library_revision(client),
+            background=True,
+            retry_seconds=_LIVE_MAX_FAILURE_BACKOFF_SECONDS,
+        ).value
+        if generation != state.jellyfin_config_generation:
+            return "stale"
+        if revision is None:
+            _failure_count += 1
+            _mark_probe_unavailable()
+            return "unavailable"
+
+        changed = bool(_last_revision and revision != _last_revision)
+        full_due = force_full or not _last_revision or last_full is None or time.time() - last_full >= full_interval()
+        updated, pending, failed = refresh_events(index, scope, client) if not full_due else (set(), False, False)
+        full = (full_due or (changed and not updated and not pending)
+                or (failed and _failure_count >= _INDEX_DELTA_FAILURES_BEFORE_RECONCILE))
+        rows = _refresh_index(index, scope, client, generation, force=force_full) if full else {
+            kind: index.read(scope, kind) for kind in updated
+        }
+        if full:
+            pending = bool(index.pending(scope, limit=1))
+        with state.jellyfin_cache_lock:
+            if generation != state.jellyfin_config_generation:
+                return "stale"
+            recovered = _live_stale()
+            event_arrived = event_revision != getattr(state, "_jellyfin_inventory_event_revision", 0)
+            verified = rows is not None and not pending and not event_arrived
+            if rows:
+                publish_rows(state, rows, generation, verified=verified, index_scope=scope)
+            if not verified:
+                _failure_count += 1
+                _mark_probe_unavailable(include_user=False)
+                return "stale"
+            _last_revision = revision
+            _failure_count = 0
+            _mark_cached_snapshots_verified(time.time(), include_user=False)
+    if full or updated or recovered:
+        _wake_automation()
+        _broadcast_live_update()
+        return "refreshed"
+    return "unchanged"
+
+
+def _monitor_cycle(*, force_full: bool = False, reuse_recent: bool = False) -> str:
     global _last_revision, _failure_count
     with state.jellyfin_cache_lock:
         client = backend_value("get_jellyfin_client")()
@@ -256,6 +353,16 @@ def _monitor_cycle(*, force_full: bool = False) -> str:
         _failure_count = 0
         _set_live_state(stale=False, checked_at=time.time())
         return "unconfigured"
+
+    if uses_index(client):
+        try:
+            return _monitor_index(client, generation, force_full, reuse_recent=reuse_recent)
+        except Exception:
+            logger.exception("Jellyfin-Bestandsindex konnte nicht aktualisiert werden")
+            if generation == state.jellyfin_config_generation:
+                _failure_count += 1
+                _mark_probe_unavailable()
+            return "unavailable"
 
     revision = inventory_reads(state).read(
         scope_key(client, generation, 'probe'), lambda: _probe_library_revision(client),
@@ -309,7 +416,8 @@ def wait_for_jellyfin_live_ready(timeout: float | None = None) -> bool:
     not force users to click the download action repeatedly.  Series queue
     requests deliberately do not use this wait path.
     """
-    if not backend_value("get_jellyfin_client")().configured:
+    client = backend_value("get_jellyfin_client")()
+    if not client.configured:
         return True
     with state.jellyfin_cache_lock:
         # Die Detailansicht kann einen vollständigen, negativen Besitzstand
@@ -332,14 +440,14 @@ def wait_for_jellyfin_live_ready(timeout: float | None = None) -> bool:
             and not missing_movie_snapshot
         ):
             return True
-        if recent_snapshot:
+        if recent_snapshot and not uses_index(client):
             return True
         # Clear while holding the state lock so a concurrent successful monitor
         # cycle cannot publish freshness immediately before this reset.
         _live_ready_event.clear()
     # A successful lightweight revision probe is enough when the library did
     # not change; the monitor escalates to a full snapshot only when needed.
-    if missing_movie_snapshot:
+    if missing_movie_snapshot and not uses_index(client):
         request_jellyfin_live_refresh(force_full=True)
     else:
         request_jellyfin_live_refresh()
@@ -406,6 +514,10 @@ def _cached_snapshot(value_attr: str, force: bool, legacy):
     client = backend_value("get_jellyfin_client")()
     if not client.configured:
         return None
+    if force and uses_index(client):
+        _monitor_cycle(reuse_recent=True)
+        with state.jellyfin_cache_lock:
+            return getattr(state, value_attr)
     if force:
         if not is_background_read():
             inventory_reads(state).forget("probe")
@@ -417,7 +529,7 @@ def _cached_snapshot(value_attr: str, force: bool, legacy):
         checked_at = float(getattr(state, "jellyfin_live_checked_at", 0.0) or 0.0)
         stale = bool(getattr(state, "jellyfin_live_stale", False))
     if value is None:
-        request_jellyfin_live_refresh(force_full=True)
+        request_jellyfin_live_refresh(force_full=not uses_index(client))
     elif stale or time.time() - checked_at > max(2.0, _poll_interval_seconds() * 2.5):
         request_jellyfin_live_refresh()
     return value
@@ -442,6 +554,9 @@ def get_jellyfin_series(force: bool = False):
 
 
 def get_jellyfin_user_episodes(force: bool = False):
+    client = backend_value("get_jellyfin_client")()
+    if uses_index(client):
+        return cached_inventory(state, lambda: backend_value("get_jellyfin_client")(), "user_episodes", force=force)
     return _cached_snapshot(
         "jellyfin_user_episodes", force, _legacy_get_jellyfin_user_episodes,
     )
@@ -456,33 +571,63 @@ def get_jellyfin_targeted_episodes(series_ids: set[str], force: bool = False):
         available = bool(state.jellyfin_episodes_available)
         checked_at = float(state.jellyfin_episodes_time or 0.0)
         stale = bool(getattr(state, "jellyfin_live_stale", False))
+        generation = state.jellyfin_config_generation
+        data_generation = state.jellyfin_episode_data_generation
+        indexed = getattr(state, "_jellyfin_index_episode_snapshot", None)
 
     # Preserve the old targeted first-load path until the shared snapshot exists.
     # This is both backwards compatible and avoids a misleading unavailable state
     # during the few moments before background warm-up completes.
     if episodes is None:
         result = _legacy_get_jellyfin_targeted_episodes(wanted, force=force)
-        request_jellyfin_live_refresh(force_full=True)
+        client = backend_value("get_jellyfin_client")()
+        request_jellyfin_live_refresh(force_full=not (client.configured and uses_index(client)))
         return result
-    if force:
-        if available and not stale:
-            return (
-                [item for item in episodes if str(item.get("series_id") or "") in wanted],
-                True,
-                False,
-                checked_at,
-            )
+    if force and (not available or stale):
         result = _legacy_get_jellyfin_targeted_episodes(wanted, force=True)
-        request_jellyfin_live_refresh(force_full=True)
+        request_jellyfin_live_refresh()
         return result
 
-    targeted = [
-        item for item in episodes
-        if str(item.get("series_id") or "") in wanted
-    ]
+    targeted = None
+    if (indexed and indexed[0] == generation and indexed[1] is episodes
+            and _index_cycle_lock.acquire(blocking=False)):
+        try:
+            targeted = state._jellyfin_local_index.read(indexed[2], "episodes", wanted)
+        except Exception:
+            logger.warning("Jellyfin-Episodenindex nicht lesbar, verwende Arbeitsspeicher")
+        finally:
+            _index_cycle_lock.release()
+    with state.jellyfin_cache_lock:
+        if (generation != state.jellyfin_config_generation
+                or data_generation != state.jellyfin_episode_data_generation):
+            return None, False, True, 0.0
+    if targeted is None:
+        targeted = [item for item in episodes if str(item.get("series_id") or "") in wanted]
     if stale:
         request_jellyfin_live_refresh()
     return targeted, available and not stale, stale, checked_at
+
+
+def confirm_jellyfin_episode_membership(series_ids):
+    """Confirm a negative indexed result once per series in the targeted cache."""
+    return _legacy_get_jellyfin_targeted_episodes(series_ids)
+
+
+def accept_jellyfin_inventory_event(kind, item_id):
+    with state.jellyfin_cache_lock:
+        client = backend_value("get_jellyfin_client")()
+        generation = state.jellyfin_config_generation
+    if not client.configured or not uses_index(client):
+        return False
+    index, scope = local_index(state, client)
+    if not index.enqueue(scope, kind, item_id):
+        return False
+    with state.jellyfin_cache_lock:
+        if generation == state.jellyfin_config_generation:
+            state._jellyfin_inventory_event_revision = getattr(state, "_jellyfin_inventory_event_revision", 0) + 1
+            _mark_probe_unavailable(include_user=False)
+    request_jellyfin_live_refresh()
+    return True
 
 
 def _set_runtime_jellyfin_config(cfg: dict) -> None:
@@ -531,6 +676,8 @@ def stop_jellyfin_recommender() -> None:
 
 _SERVICE_EXPORTS = (
     "request_jellyfin_live_refresh",
+    "confirm_jellyfin_episode_membership",
+    "accept_jellyfin_inventory_event",
     "wait_for_jellyfin_live_ready",
     "get_jellyfin_library",
     "get_jellyfin_movie_identities",

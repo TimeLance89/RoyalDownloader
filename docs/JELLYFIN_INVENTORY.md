@@ -1,50 +1,33 @@
-# Shared Jellyfin inventory reads
+# Jellyfin-Bestandsindex
 
-The live monitor and legacy forced readers share in-flight reads in one process.
-The key contains the configuration generation, hashed connection/credential scope,
-provider, library selection, dataset and (for user data) the linked user. Nothing
-is shared across server credentials or user profiles. Plex retains its own loaders.
+Royal Downloader speichert den letzten vollständigen Bestand an Filmen, Serien und Episoden in `jellyfin_inventory.sqlite3` im RD-Datenverzeichnis. SQLite aktualisiert den Bestand atomar und indiziert Episoden nach Serien-ID. Der Index enthält auch die von RD für Qualitätsvergleiche benötigten Film-Metadaten und Medienpfade. Benutzerbezogene Daten wie der Wiedergabestatus werden weiterhin separat geladen.
 
-A queued request may reuse a read completed after that request began. A new
-manual request after completion still fetches fresh data: this is not a longer
-successful cache lifetime. Cached UI access remains immediate during network I/O.
-Publication rejects previous configurations and older read results. Identity
-projection happens outside the state lock, including during live snapshots.
+Ein Hintergrundprozess prüft standardmäßig alle 15 Sekunden die Anzahl und die zuletzt hinzugefügten Einträge. Einen vollständigen Abgleich führt RD beim Start, alle sechs Stunden und bei einer erkannten Änderung ohne passende Webhook-Aktualisierung durch. Die beiden Intervalle sind über `JELLYFIN_LIVE_POLL_SECONDS` und `JELLYFIN_INVENTORY_RECONCILE_SECONDS` einstellbar. Der letzte gespeicherte Bestand bleibt bei fehlgeschlagenen Abrufen sichtbar und eine nicht verifizierte Abwesenheit gibt keinen Download frei. Vor dem Einreihen einer fehlenden Folge einer bekannten Serie kann RD deren Episoden gezielt bei Jellyfin bestätigen.
 
-Successful rich movie reads publish the same normalized identity fields used by
-badges. The download reconciliation still checks at 5, 15, 30, 60 and 120 seconds,
-including separate user watched-state reads. It omits the now-redundant identity
-HTTP traversal: 20 logical collection reads rather than 25 with a linked user,
-or 15 rather than 20 without one. Paginated HTTP request counts depend on library
-size; simultaneous callers can save more through coalescing. No idle NAS CPU or
-end-to-end latency improvement is claimed without production measurements.
+## Änderungen per Webhook übernehmen
 
-Background failed inventory reads share a 30-second retry budget. The live probe
-uses its existing exponential failure delay, capped at 15 seconds, even if stale
-UI reads repeatedly wake the monitor. Healthy poll intervals, cache TTLs, scan
-debounce/cooldown, download validation and user-visible layouts stay unchanged.
-Explicit manual forced reads bypass the background inventory failure budget and
-allow an immediate subsequent probe. Unavailability preserves old display rows,
-but marks safety data unavailable; an error is never an empty library.
+1. In RD `JELLYFIN_INVENTORY_WEBHOOK_SECRET` auf einen eigenen zufälligen Wert mit mindestens 32 Zeichen setzen und RD mit der neuen Umgebung starten.
+2. In Jellyfin eine zu dessen Version passende Version des [offiziellen Webhook-Plugins](https://github.com/jellyfin/jellyfin-plugin-webhook) installieren. Das Plugin unterstützt `ItemDeleted` ab [Version 16](https://github.com/jellyfin/jellyfin-plugin-webhook/releases/tag/v16).
+3. Im Plugin ein **Generic Destination** für **Item Added** und **Item Deleted** anlegen. Als Typen **Movie**, **Series** und **Episode** wählen. Die Zieladresse ist `http://<RD-Adresse>:8765/api/jellyfin/inventory/events`, erreichbar von Jellyfin aus. Als Request-Header `X-Royal-Jellyfin-Secret` mit dem in RD gesetzten Wert hinterlegen.
+4. **Send All Properties** deaktiviert lassen und die folgende Vorlage eintragen.
 
-Personal saved-media synchronization still checks every 30 seconds and reads
-the current user's visible library. Global membership fingerprints cannot prove
-user permissions, playability or watched state, so they never replace those
-user-scoped reads. The fresh index requests ProviderIds without MediaSources/Path;
-only wished movie IDs are hydrated in batches of at most 100. Wished series keep
-their targeted episode reads. Ambiguous TMDB matches remain ambiguous, failed
-hydration aborts reconciliation, and private playlist verification/repair is
-unchanged. Movie wishes add a small targeted request in exchange for avoiding
-playback metadata for the entire library. This does not remove the slim identity
-traversal, nor cache ACL changes or skip playlist repair.
+```json
+{
+  "NotificationType": "{{NotificationType}}",
+  "ItemType": "{{ItemType}}",
+  "ItemId": "{{ItemId}}"
+}
+```
+
+RD bestätigt die dauerhaft abgelegte Meldung mit HTTP 202. Anschließend prüft RD die betreffende Jellyfin-ID über dessen API. Mehrere Meldungen zur selben ID werden zusammengefasst. Das Entfernen eines Eintrags aus dem Index löscht keine Mediendatei. Der regelmäßige Vollabgleich findet auch Änderungen, zu denen das Plugin keine Meldung geliefert hat.
+
+## Bestehende Lesewege und Diagnose
+
+Plex verwendet weiterhin seine bisherigen Bestandsabrufe. Die Jellyfin-Merkliste lädt die Sicht des verknüpften Benutzers separat, weil der globale Index keine Bibliotheksberechtigungen, Abspielbarkeit oder Wiedergabestatus belegt. Für Filme in der Merkliste wird die Wiedergabe-Metadatenabfrage auf die betreffenden Jellyfin-IDs eingeschränkt.
+
+Die Nachprüfung der Downloads läuft weiterhin nach 5, 15, 30, 60 und 120 Sekunden. Die globalen Prüfungen teilen sich die Bestandsaktualisierung. Benutzerbezogene Abfragen erfolgen weiterhin separat.
 
 `media_scan_diagnostics().inventory_reads` exposes only counts of started,
 joined, reused and failed reads, current in-flight reads and retained result
 entries. Results are bounded to 16 entries and cleared on configuration changes.
 URLs, credentials, item IDs and user IDs are not included in these diagnostics.
-
-Regression coverage: `tests/test_jellyfin_inventory.py`,
-`tests/test_jellyfin_live_state.py`, `tests/test_saved_media.py`, plus existing
-movie ownership, per-user profile, scan coordinator and handoff tests. The API
-parameters used for the two-stage user lookup are documented by Jellyfin's
-[ItemsController](https://github.com/jellyfin/jellyfin/blob/master/Jellyfin.Api/Controllers/ItemsController.cs).

@@ -7,6 +7,7 @@ from application_services.runtime import (
     import_backend_namespace,
     publish_service,
 )
+from integrations.jellyfin_client import shared_series_tmdb_id
 from integrations.media_center import media_client
 from application_services.jellyfin_inventory import cached_inventory
 from integrations.jellyfin_reads import inventory_reads
@@ -395,7 +396,7 @@ def _series_jellyfin_status(
         ) in existing
         for item in episodes if item.get("slug")
     }
-    return {
+    result = {
         "configured": True,
         "available": live_available,
         "stale": stale,
@@ -403,6 +404,11 @@ def _series_jellyfin_status(
         "episodes": statuses,
         "count": sum(statuses.values()),
     }
+    if not tmdb_id and live_available and not stale and len(series_ids) > 1:
+        shared_id = shared_series_tmdb_id([item for item in series_items if str(item.get("id")) in series_ids])
+        if shared_id:
+            result["tmdb_id"] = shared_id
+    return result
 
 
 def get_jellyfin_user_episodes(force: bool = False) -> Optional[List[dict]]:
