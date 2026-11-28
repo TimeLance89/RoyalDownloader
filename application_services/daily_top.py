@@ -10,7 +10,6 @@ import math
 import re
 import threading
 import time
-import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, is_dataclass
 from datetime import date, datetime, time as day_time, timezone
@@ -19,7 +18,9 @@ from fastapi import Query, Response
 from starlette.concurrency import run_in_threadpool
 
 from api.api_discovery_router import router as discovery_router
-from application_services.chart_history import ALGORITHM, ChartHistory, chart_view
+from application_services.chart_history import (
+    ALGORITHM, ChartHistory, _display_title, _normalise_title, chart_view,
+)
 from application_services.runtime import backend_value
 from core.config import config_path
 
@@ -44,10 +45,6 @@ SERIES_SIGNALS = {
     "filmpalast": "recent_uploads", "megakino": "recent_uploads",
     "ridomovies": "recent_uploads", "xcine": "recent_uploads",
 }
-_TITLE_QUALIFIER = re.compile(
-    r"\s*(?:\[[^\]]{1,40}\]|\*(?:subbed|dubbed|ger(?:man)?(?:\s+dub)?|eng(?:lish)?)\*)\s*$",
-    re.IGNORECASE,
-)
 _BUILD_LOCK = threading.Lock()
 _BUILD_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="royal-charts")
 _build = None
@@ -55,18 +52,6 @@ _build = None
 
 def chart_day() -> date:
     return datetime.now(timezone.utc).date()
-
-
-def _display_title(value):
-    title = str(value or "").strip()
-    while _TITLE_QUALIFIER.search(title):
-        title = _TITLE_QUALIFIER.sub("", title).strip()
-    return title
-
-
-def _normalise_title(value):
-    text = unicodedata.normalize("NFKD", _display_title(value)).casefold()
-    return "".join(char for char in text if char.isalnum())
 
 
 def _clean_year(value):

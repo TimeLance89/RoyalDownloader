@@ -332,7 +332,7 @@ class SerienstreamScraper:
         return self._result(slug, alt.split("|")[0].strip(), cover_url, self._extract_year(a))
 
     @staticmethod
-    def _extract_year(node, slug: str = "") -> str:
+    def _extract_year(node, slug: str = "", title: str = "") -> str:
         start = node.select_one('[itemprop="startDate"]') if node is not None else None
         value = (
             str(start.get("content") or start.get("datetime") or start.get_text(" ", strip=True))
@@ -342,9 +342,13 @@ class SerienstreamScraper:
         if not match:
             year_node = node.select_one(".year, .card-year, .series-year") if node is not None else None
             match = re.search(r"\b(?:19|20)\d{2}\b", year_node.get_text(" ") if year_node else "")
-        if not match:
-            match = re.search(r"(?<=-)(?:19|20)\d{2}$", slug)
-        return match.group() if match else ""
+        if match:
+            return match.group()
+        suffix = re.search(r"(?<=-)(?:19|20)\d{2}$", slug)
+        if not suffix:
+            return ""
+        # A literal number in the title is not the catalog's remake suffix.
+        return "" if re.search(rf"\b{suffix.group()}\W*$", title) else suffix.group()
 
     @staticmethod
     def _slug_from_href(href: str) -> str:
@@ -365,7 +369,7 @@ class SerienstreamScraper:
             sample_slug=f"{SOURCE_PREFIX}{slug}",
             sample_url=self._series_url(slug),
             cover_url=cover_url,
-            year=year or self._extract_year(None, slug),
+            year=year or self._extract_year(None, slug, title),
         )
 
     # ------------------------------------------------------------------
@@ -433,7 +437,7 @@ class SerienstreamScraper:
             title=series_title, base_slug=f"{SOURCE_PREFIX}{slug}", url=url,
             cover_url=cover_url, description=description, genres=genres,
             seasons=seasons,
-            year=self._extract_year(soup, slug),
+            year=self._extract_year(soup, slug, series_title),
         )
 
     def _load_season(self, slug: str, season: int) -> List[SeriesEpisode]:
