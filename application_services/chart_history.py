@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import time
+import unicodedata
 import uuid
 from collections import defaultdict
 from contextlib import closing, contextmanager
@@ -150,13 +152,54 @@ class ChartHistory:
         return snapshots, baseline[0] if baseline else None, seen
 
 
+_TITLE_QUALIFIER = re.compile(
+    r"\s*(?:\[[^\]]{1,40}\]|\*(?:subbed|dubbed|ger(?:man)?(?:\s+dub)?|eng(?:lish)?)\*)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _display_title(value):
+    title = str(value or "").strip()
+    while _TITLE_QUALIFIER.search(title):
+        title = _TITLE_QUALIFIER.sub("", title).strip()
+    return title
+
+
+def _normalise_title(value):
+    text = unicodedata.normalize("NFKD", _display_title(value)).casefold()
+    return "".join(char for char in text if char.isalnum())
+
+
+def _title_number_from_series_slug(candidate):
+    """Recognize a numeric title that older SerienStream rows treated as dated."""
+    if candidate["kind"] != "series" or ":tmdb:" in candidate["identity"]:
+        return ""
+    item = candidate["item"]
+    suffix = re.search(r"\b((?:19|20)\d{2})\W*$", _display_title(item["title"]))
+    if not suffix:
+        return ""
+    year = suffix[1]
+    if item.get("year") and item["year"] != year:
+        return ""
+    return year if any(
+        alias.startswith("series:source:serienstream:") and alias.endswith(f"-{year}")
+        for alias in candidate.get("aliases", [])
+    ) else ""
+
+
 def _indexed(snapshots):
     aliases = defaultdict(set)
+    known_titles = defaultdict(set)
     for snapshot in snapshots:
         for item in snapshot["candidates"]:
             if ":tmdb:" in item["identity"]:
                 for alias in item.get("aliases", []):
                     aliases[alias].add(item["identity"])
+                if item["kind"] == "series":
+                    media = item["item"]
+                    for title in (media["title"], media.get("original_title")):
+                        if title and media.get("year"):
+                            known_titles[_normalise_title(title)].add((item["identity"], media["year"]))
 
     index = {}
     appearances = defaultdict(dict)
@@ -169,7 +212,19 @@ def _indexed(snapshots):
                 matches = set().union(*(aliases[alias] for alias in item.get("aliases", [])))
                 if len(matches) == 1:
                     identity = next(iter(matches))
-            current.setdefault(identity, item)
+                if year := _title_number_from_series_slug(item):
+                    known = known_titles[_normalise_title(item["item"]["title"])]
+                    if (not matches or len(matches) == 1) and len(known) == 1:
+                        confirmed_id, confirmed_year = next(iter(known))
+                        if confirmed_year != year and (not matches or identity == confirmed_id):
+                            identity = confirmed_id
+                            item = {**item, "item": {**item["item"], "year": confirmed_year}}
+            previous = current.setdefault(identity, item)
+            if previous["identity"] != identity and item["identity"] == identity:
+                current[identity] = item
+        if len(current) < len(snapshot["candidates"]):
+            current = {identity: dict(item, global_rank=position)
+                       for position, (identity, item) in enumerate(current.items(), 1)}
         index[period] = current
         for identity, item in current.items():
             appearances[identity][period] = item["global_rank"]

@@ -215,6 +215,37 @@ def test_history_resolves_confirmed_identity_upgrade(tmp_path):
     assert result["identity"] == "movie:tmdb:123"
 
 
+@pytest.mark.parametrize("provider_year", ["2099", ""])
+def test_stored_serienstream_slug_year_does_not_duplicate_confirmed_series(tmp_path, provider_year):
+    store = ChartHistory(tmp_path / "charts.sqlite3")
+    old = candidate("Blade Runner 2099", kind="series", provider="serienstream", year=provider_year)
+    verified = candidate("Blade Runner 2099", kind="series", provider="megakino", year="2026")
+    verified["identity"] = "series:tmdb:171802"
+    verified["item"].update(tmdb_id=171802, rating=5.4)
+    other = candidate("Different title", kind="series")
+    persist(store, DAY - timedelta(days=1), old)
+    persist(store, DAY, old, verified, other)
+
+    current = chart_view(store.read("scope", DAY), DAY, "today", "mixed", "")["candidates"]
+    assert [row["item"]["title"] for row in current] == ["Blade Runner 2099", "Different title"]
+    assert [row["global_rank"] for row in current] == [1, 2]
+    assert current[0]["item"]["year"] == "2026"
+    assert current[0]["history"]["days_charted"] == 2
+    weekly = chart_view(store.read("scope", DAY), DAY, "week", "mixed", "")["candidates"]
+    assert sum(row["item"]["title"] == "Blade Runner 2099" for row in weekly) == 1
+
+
+def test_ambiguous_confirmed_titles_do_not_resolve_legacy_slug_year():
+    old = candidate("Blade Runner 2099", kind="series", provider="serienstream", year="2099")
+    first = candidate("Blade Runner 2099", kind="series", provider="megakino", year="2026")
+    remake = candidate("Blade Runner 2099", kind="series", provider="xcine", year="2040")
+    first["identity"] = "series:tmdb:171802"
+    remake["identity"] = "series:tmdb:199999"
+    data = ([snapshot(DAY, first, old, remake)], DAY.isoformat(), {})
+    result = chart_view(data, DAY, "today", "mixed", "")["candidates"]
+    assert len(result) == 3
+
+
 def test_retention_preserves_known_returning_identity_for_active_scope(tmp_path):
     store = ChartHistory(tmp_path / "charts.sqlite3")
     persist(store, DAY - timedelta(days=91), candidate("Old"))

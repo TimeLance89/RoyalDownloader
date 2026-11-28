@@ -106,6 +106,24 @@ def test_remake_card_keeps_year_from_slug():
     assert scraper._parse_cards(soup)[0].year == "2023"
 
 
+@pytest.mark.parametrize("metadata, expected", [
+    ("", ""),
+    ('<meta itemprop="startDate" content="2026-11-27">', "2026"),
+])
+def test_title_number_is_not_a_slug_year(monkeypatch, metadata, expected):
+    scraper = SerienstreamScraper(session=object())
+    card = BeautifulSoup(
+        f'<a href="/serie/blade-runner-2099"><img alt="Blade Runner 2099">{metadata}</a>',
+        "html.parser",
+    )
+    assert scraper._parse_cards(card)[0].year == expected
+
+    detail = BeautifulSoup(f"<h1>Blade Runner 2099</h1>{metadata}", "html.parser")
+    monkeypatch.setattr(scraper, "_get_soup", lambda *_args, **_kwargs: detail)
+    monkeypatch.setattr(scraper, "_episodes_from_soup", lambda *_args: [_episode("blade-runner-2099", 1, 1)])
+    assert scraper.get_series("serienstream:blade-runner-2099").year == expected
+
+
 def test_blocked_season_is_not_silently_treated_as_missing(monkeypatch):
     scraper = SerienstreamScraper(session=object())
 
