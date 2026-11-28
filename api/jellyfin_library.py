@@ -3,11 +3,10 @@
 from typing import Literal
 from uuid import UUID
 
-import requests
 from fastapi import HTTPException, Query, Request
 
+from core import egress_requests as requests
 from integrations.jellyfin_auth import jellyfin_auth_headers
-
 from integrations.jellyfin_permissions import JellyfinPermissionError, require_jellyfin_item
 
 
