@@ -24,7 +24,7 @@ def test_series_detail_reads_exact_library_item_with_profile_permissions(househo
     assert client.get(f"{BASE}/series/episodes", params={"item_id": ITEM}).status_code == 404
 
 
-@pytest.mark.parametrize("source", ["series", "navigation"])
+@pytest.mark.parametrize("source", ["series", "navigation", "resume"])
 def test_pinned_series_inventory_combines_only_visible_verified_copies(household, monkeypatch, source):
     duplicate, hidden, changed, second = "5" * 32, "6" * 32, "7" * 32, "8" * 32
     parents = (SERIES, duplicate, hidden, changed)
@@ -50,11 +50,16 @@ def test_pinned_series_inventory_combines_only_visible_verified_copies(household
         return household.read(url, key, path, params)
 
     monkeypatch.setattr("api.api_movie_playback_router._jellyfin_json", read)
-    path = (f"{BASE}/series/episodes?item_id={SERIES}" if source == "series"
-            else f"{BASE}/episodes/{ITEM}/navigation")
+    path = {
+        "series": f"{BASE}/series/episodes?item_id={SERIES}",
+        "navigation": f"{BASE}/episodes/{ITEM}/navigation",
+        "resume": f"{BASE}/continue-watching/{ITEM}/details",
+    }[source]
     result = household.clients["a"].get(path)
     assert result.status_code == 200, result.text
-    assert [item["id"] for item in result.json()["items"]] == [ITEM, second]
+    payload = result.json()
+    inventory = payload["inventory"] if source == "resume" else payload
+    assert [item["id"] for item in inventory["items"]] == [ITEM, second]
 
 
 def test_library_children_require_visible_parent_and_use_profile(household):

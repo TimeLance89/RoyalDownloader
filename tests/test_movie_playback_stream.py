@@ -130,7 +130,7 @@ def test_resume_series_details_use_linked_jellyfin_ids_without_catalog_match(mon
     assert details["description"] == "Aus der Bibliothek"
     assert details["inventory"]["profile_id"] == profile
     assert details["inventory"]["items"][0]["id"] == episode
-    assert paths == [f"/Users/{profile}", "/Items", "/Items", f"/Shows/{series}/Episodes", "/Items"]
+    assert paths == [f"/Users/{profile}", "/Items", "/Items", f"/Shows/{series}/Episodes"]
 
 
 def authenticate(backend):
