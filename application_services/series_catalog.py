@@ -1073,21 +1073,6 @@ def series_to_dict(
             *(watchlist_entry.get("aliases") or []),
             *aliases,
         ))))
-    season_episode_counts = (tmdb or {}).get("season_episode_counts") or (
-        watchlist_entry.get("season_episode_counts", {}) if watchlist_entry else {}
-    )
-    season_episode_counts = {
-        str(season): count
-        for season, count in season_episode_counts.items()
-        if str(season).lstrip("-").isdigit() and int(season) > 0
-    }
-    season_counts_checked_at = (tmdb or {}).get("season_counts_checked_at") or (
-        watchlist_entry.get("season_counts_checked_at", 0) if watchlist_entry else 0
-    )
-    unreleased_slugs = (
-        _unreleased_episode_slugs(series, tmdb_id)
-        if not defer_checks and tmdb_id else set()
-    )
     jf_client = get_jellyfin_client()
     jellyfin_pending = bool(defer_checks and jf_client.configured)
     jf_identity_available: Optional[bool] = None if jellyfin_pending else True
@@ -1113,6 +1098,28 @@ def series_to_dict(
             for episode in series.all_episodes
             if quick_status["episodes"].get(episode.slug)
         }
+        if not tmdb_id and (shared_id := quick_status.get("tmdb_id")):
+            identity = get_tmdb_series(series.title, shared_id, year=series.year)
+            identity_year = str((identity or {}).get("year") or "")
+            if series.year and identity_year and identity_year != str(series.year):
+                jf_identity_available, jf_existing = False, set()
+            else:
+                tmdb_id, tmdb = shared_id, identity
+    season_episode_counts = (tmdb or {}).get("season_episode_counts") or (
+        watchlist_entry.get("season_episode_counts", {}) if watchlist_entry else {}
+    )
+    season_episode_counts = {
+        str(season): count
+        for season, count in season_episode_counts.items()
+        if str(season).lstrip("-").isdigit() and int(season) > 0
+    }
+    season_counts_checked_at = (tmdb or {}).get("season_counts_checked_at") or (
+        watchlist_entry.get("season_counts_checked_at", 0) if watchlist_entry else 0
+    )
+    unreleased_slugs = (
+        _unreleased_episode_slugs(series, tmdb_id)
+        if not defer_checks and tmdb_id else set()
+    )
     from media.rejected_episode_audio import huhu_episode_rejected
     seasons = []
     for s in series.season_numbers:

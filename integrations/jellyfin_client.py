@@ -128,6 +128,16 @@ def _same_installment_title(wanted: str, candidate: str) -> bool:
     )
 
 
+def shared_series_tmdb_id(items):
+    """Identify separate library entries with the same explicit series identity."""
+    tmdb_ids = {str(item.get("tmdb_id") or "").strip() for item in items}
+    if len(tmdb_ids) == 1 and len({item["id"] for item in items}) > 1:
+        tmdb_id = next(iter(tmdb_ids))
+        if tmdb_id.isascii() and tmdb_id.isdecimal() and tmdb_id.lstrip("0"):
+            return tmdb_id
+    return ""
+
+
 class JellyfinClient(JellyfinSegmentsMixin, JellyfinSavedMixin):
     def __init__(self, base_url: str = "", api_key: str = "", timeout: float = 5.0):
         self.base_url = (base_url or "").rstrip("/")
@@ -853,8 +863,6 @@ class JellyfinClient(JellyfinSegmentsMixin, JellyfinSavedMixin):
             })
         ]
         matched = {str(item.get("id")) for item in title_matches}
-        # Mehrere Jellyfin-Serien mit demselben Titel dürfen niemals zu einer
-        # gemeinsamen Episodenmenge verschmolzen werden.
-        if len(matched) > 1:
+        if len(matched) > 1 and not shared_series_tmdb_id(title_matches):
             return None
         return matched

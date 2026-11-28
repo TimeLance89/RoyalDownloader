@@ -1,3 +1,5 @@
+import pytest
+
 import server
 from integrations.jellyfin_client import JellyfinClient
 from providers.models import FilmpalastMovie, FilmpalastSeries, SeriesEpisode
@@ -179,6 +181,64 @@ def test_targeted_jellyfin_status_never_loads_complete_episode_index(monkeypatch
         "episodes": {"house-s01e01": True, "house-s01e02": False},
         "count": 1,
     }
+
+
+
+@pytest.mark.parametrize("second_id, expected", [
+    ("225171", {"movies-library-series", "series-library-series"}),
+    ("999999", None),
+    ("", None),
+])
+def test_duplicate_series_title_requires_shared_stable_identity(second_id, expected):
+    title = "Pluribus- Glück ist ansteckend"
+    items = [
+        {"id": "movies-library-series", "name": title, "tmdb_id": "225171"},
+        {"id": "series-library-series", "name": title, "tmdb_id": second_id},
+    ]
+    assert JellyfinClient().series_ids_for(title, items=items) == expected
+
+
+@pytest.mark.parametrize("metadata_year, available", [("2025", True), ("2017", False)])
+def test_series_detail_uses_shared_library_identity_when_provider_title_has_no_tmdb_match(
+    monkeypatch, metadata_year, available,
+):
+    title = "Pluribus- Glück ist ansteckend"
+    library = [
+        {"id": "copy-a", "name": title, "tmdb_id": "225171"},
+        {"id": "copy-b", "name": title, "tmdb_id": "225171"},
+    ]
+    series = _series("pluribus")
+    series.title, series.year = title, "2025"
+    queried = []
+
+    def tmdb_lookup(_title, tmdb_id="", **_kwargs):
+        queried.append(tmdb_id)
+        if tmdb_id == "225171":
+            return {"title": "Pluribus", "tmdb_id": 225171, "year": metadata_year}
+
+    def targeted(ids, force=False):
+        assert ids == {"copy-a", "copy-b"}
+        return ([
+            {"series_id": "copy-a", "season": 1, "episode": 1},
+            {"series_id": "copy-b", "season": 1, "episode": 2},
+        ], True, False, 123.0)
+
+    monkeypatch.setattr(server.state, "watchlist", [])
+    monkeypatch.setattr(server.state, "jellyfin_series_available", True)
+    monkeypatch.setattr(server, "get_jellyfin_client", lambda: JellyfinClient("http://jellyfin", "key"))
+    monkeypatch.setattr(server, "get_jellyfin_series", lambda force=False: library)
+    monkeypatch.setattr(server, "get_jellyfin_targeted_episodes", targeted)
+    monkeypatch.setattr(server, "get_tmdb_series", tmdb_lookup)
+    monkeypatch.setattr(server, "compute_downloaded_episodes", lambda _series: set())
+    monkeypatch.setattr(server, "_unreleased_episode_slugs", lambda *_args: set())
+
+    payload = server.series_to_dict(series)
+
+    assert queried == ["", "225171"]
+    assert payload["jellyfin_available"] is available
+    assert payload.get("tmdb_id") == ("225171" if available else None)
+    assert payload["metadata_source"] == ("TMDB" if available else "Anbieter")
+    assert all(episode["in_jellyfin"] is available for episode in payload["seasons"][0]["episodes"])
 
 
 def test_targeted_episode_cache_avoids_repeated_jellyfin_calls(monkeypatch):
