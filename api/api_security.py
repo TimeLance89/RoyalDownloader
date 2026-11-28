@@ -22,6 +22,7 @@ from core.proxy_security import host_allowed, origin_matches
 PUBLIC_API_METHODS = {
     "/api/public/remote-access/verify": frozenset({"GET"}),
     "/api/health": frozenset({"GET"}),
+    "/api/jellyfin/inventory/events": frozenset({"POST"}),
     "/api/public/announcements/feed": frozenset({"GET"}),
     "/api/public/announcements/receipts": frozenset({"POST"}),
     "/api/auth/status": frozenset({"GET"}),

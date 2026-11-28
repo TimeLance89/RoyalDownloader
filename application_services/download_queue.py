@@ -7,6 +7,8 @@ from application_services.runtime import (
     publish_service,
 )
 
+from application_services.jellyfin_local_index import uses_index
+
 globals().update(import_backend_namespace())
 
 
@@ -209,6 +211,19 @@ def _content_already_available(movie: FilmpalastMovie, slug: str) -> tuple[bool,
                 aliases=aliases, series_ids=series_ids,
             ):
                 return True, "in Jellyfin vorhanden"
+            if series_ids and uses_index(jf_client):
+                items, confirmed, _, _ = confirm_jellyfin_episode_membership(series_ids)
+                if items is None or not confirmed:
+                    return True, "Jellyfin nicht erreichbar"
+                with state.jellyfin_cache_lock:
+                    if (config_generation != state.jellyfin_config_generation
+                            or data_generation != state.jellyfin_episode_data_generation):
+                        return True, "Jellyfin-Daten werden gerade aktualisiert"
+                if jf_client.has_episode(
+                    series_title, episode_info[1], episode_info[2], items=items,
+                    aliases=aliases, series_ids=series_ids,
+                ):
+                    return True, "in Jellyfin vorhanden"
         return False, ""
 
     if _existing_valid_movie_path(Path(state.save_path), movie) is not None:

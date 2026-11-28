@@ -139,7 +139,7 @@ class JellyfinClient(JellyfinSegmentsMixin, JellyfinSavedMixin):
         return bool(self.base_url and self.api_key)
 
     def _list_endpoint_items(
-        self, endpoint: str, params: dict, page_size: int, label: str,
+        self, endpoint: str, params: dict, page_size: int, label: str, *, complete: bool = False,
     ) -> Optional[List[dict]]:
         """Liest einen paginierten Jellyfin-QueryResult-Endpunkt vollständig."""
         if not self.configured:
@@ -149,6 +149,8 @@ class JellyfinClient(JellyfinSegmentsMixin, JellyfinSavedMixin):
         start = 0
         result: List[dict] = []
         seen_pages: set[str] = set()
+        expected_total = None
+        seen_ids: set[str] = set()
         for _page_number in range(MAX_ITEM_PAGES):
             page_params = dict(params)
             page_params.update({
@@ -176,7 +178,7 @@ class JellyfinClient(JellyfinSegmentsMixin, JellyfinSavedMixin):
                     label, self.base_url, endpoint,
                 )
                 return None
-            page = data.get("Items") or []
+            page = data.get("Items") if complete else data.get("Items") or []
             if not isinstance(page, list) or any(not isinstance(item, dict) for item in page):
                 logger.warning("%s lieferte ungültige Daten (%s%s)", label, self.base_url, endpoint)
                 return None
@@ -197,6 +199,14 @@ class JellyfinClient(JellyfinSegmentsMixin, JellyfinSavedMixin):
                 total = int(data.get("TotalRecordCount"))
             except (TypeError, ValueError):
                 total = None
+            if complete:
+                ids = {str(item.get("Id") or "").replace("-", "").lower() for item in page}
+                if (total is None or total < start or (not page and start < total)
+                        or (expected_total is not None and total != expected_total)
+                        or "" in ids or len(ids) != len(page) or ids & seen_ids):
+                    return None
+                expected_total = total
+                seen_ids.update(ids)
             if (
                 not page
                 or (total is not None and start >= total)
@@ -219,10 +229,21 @@ class JellyfinClient(JellyfinSegmentsMixin, JellyfinSavedMixin):
         """Liest /Items vollständig; Jellyfin begrenzt große Antworten serverseitig."""
         return self._list_endpoint_items("/Items", params, page_size, label)
 
-    def list_movies(self, limit: int = 1000) -> Optional[List[dict]]:
+    def _inventory_items(self, params, limit, label, *, item_ids, complete):
+        if item_ids:
+            params["Ids"] = ",".join(item_ids)
+        if complete or item_ids:
+            params["EnableImages"] = "false"
+            params["EnableUserData"] = "false"
+            return self._list_endpoint_items("/Items", params, limit, label, complete=True)
+        return self._list_items(params, limit, label)
+
+    def list_movies(
+        self, limit: int = 1000, *, item_ids: tuple[str, ...] = (), complete: bool = False,
+    ) -> Optional[List[dict]]:
         """Liefert die komplette Filmbibliothek (für Duplikat-Checks von
         Listen wie Neu/Top/Genre, bei denen kein gemeinsamer Suchbegriff existiert)."""
-        items = self._list_items({
+        params = {
             "IncludeItemTypes": "Movie",
             "Recursive": "true",
             # Sonst blendet Jellyfin einzelne Filme aus Collections/Boxsets
@@ -232,7 +253,10 @@ class JellyfinClient(JellyfinSegmentsMixin, JellyfinSavedMixin):
             "IsMissing": "false",
             "IsPlaceHolder": "false",
             "Fields": "ProductionYear,OriginalTitle,SortName,ProviderIds,MediaSources,Path",
-        }, limit, "Jellyfin-Bibliotheksabruf")
+        }
+        items = self._inventory_items(
+            params, limit, "Jellyfin-Bibliotheksabruf", item_ids=item_ids, complete=complete,
+        )
         if items is None:
             return None
         return [{
@@ -481,21 +505,26 @@ class JellyfinClient(JellyfinSegmentsMixin, JellyfinSavedMixin):
             if user.get("Id") and not (user.get("Policy") or {}).get("IsDisabled", False)
         ]
 
-    def list_episodes(self, limit: int = 1000) -> Optional[List[dict]]:
+    def list_episodes(
+        self, limit: int = 1000, *, item_ids: tuple[str, ...] = (), complete: bool = False,
+    ) -> Optional[List[dict]]:
         """Liefert alle Episoden aus Jellyfin: [{"series", "season", "episode"}, ...].
         Damit lässt sich prüfen, ob eine neu gefundene Episode einer
         abonnierten Serie bereits in der Bibliothek vorhanden ist – ohne
         das wüsste die Watchlist-Prüfung nur, dass die Quelle (Filmpalast/
         Moflix) einen neuen Episoden-Slug gescraped hat, nicht ob die
         Episode für den Nutzer überhaupt neu/fehlend ist."""
-        items = self._list_items({
+        params = {
             "IncludeItemTypes": "Episode",
             "Recursive": "true",
             "ExcludeLocationTypes": "Virtual,Offline",
             "IsMissing": "false",
             "IsPlaceHolder": "false",
             "Fields": "ParentIndexNumber,IndexNumber,SeriesName,SeriesId",
-        }, limit, "Jellyfin-Episodenabruf")
+        }
+        items = self._inventory_items(
+            params, limit, "Jellyfin-Episodenabruf", item_ids=item_ids, complete=complete,
+        )
         if items is None:
             return None
         result = []
@@ -579,16 +608,21 @@ class JellyfinClient(JellyfinSegmentsMixin, JellyfinSavedMixin):
             })
         return result
 
-    def list_series(self, limit: int = 1000) -> Optional[List[dict]]:
+    def list_series(
+        self, limit: int = 1000, *, item_ids: tuple[str, ...] = (), complete: bool = False,
+    ) -> Optional[List[dict]]:
         """Liefert Serien-IDs und Provider-IDs für stabile Zuordnungen."""
-        items = self._list_items({
+        params = {
             "IncludeItemTypes": "Series",
             "Recursive": "true",
             "ExcludeLocationTypes": "Virtual,Offline",
             "IsMissing": "false",
             "IsPlaceHolder": "false",
             "Fields": "ProviderIds,OriginalTitle,SortName",
-        }, limit, "Jellyfin-Serienabruf")
+        }
+        items = self._inventory_items(
+            params, limit, "Jellyfin-Serienabruf", item_ids=item_ids, complete=complete,
+        )
         if items is None:
             return None
         result = []

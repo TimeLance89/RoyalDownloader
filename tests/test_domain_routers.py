@@ -57,6 +57,7 @@ def test_api_route_method_pairs_are_unique_and_explicitly_owned():
         ("GET", "/api/v3/royal-charts"),
         ("POST", "/api/queue/add"),
         ("POST", "/api/v1/queue/add"),
+        ("POST", "/api/jellyfin/inventory/events"),
         ("WEBSOCKET", "/ws"),
         ("WEBSOCKET", "/api/v1/ws"),
     }.issubset(pairs)

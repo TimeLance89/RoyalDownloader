@@ -59,6 +59,7 @@ from features.watchlist_policy import (
 )
 
 from api.api_discovery_router import episode_languages_for_slug
+from api.jellyfin_inventory_events import create_jellyfin_inventory_events_router
 from features.episode_language_policy import (
     LANGUAGE_PROBE_LIMIT, needs_exact_episode_language, fresh_episode_languages,
     episode_language_state,
@@ -162,6 +163,7 @@ def create_library_router(backend) -> APIRouter:
     from api.api_saved_media_router import create_saved_media_router
     from application_services.saved_media import saved_media_sync
     router.routes.extend(create_saved_media_router(backend.state.saved_media, backend.current_user, saved_media_sync()).routes)
+    router.routes.extend(create_jellyfin_inventory_events_router(dynamic("accept_jellyfin_inventory_event")).routes)
     return router
 
 
