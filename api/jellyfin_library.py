@@ -3,7 +3,10 @@
 from typing import Literal
 from uuid import UUID
 
+import requests
 from fastapi import HTTPException, Query, Request
+
+from integrations.jellyfin_auth import jellyfin_auth_headers
 
 from integrations.jellyfin_permissions import JellyfinPermissionError, require_jellyfin_item
 
@@ -33,7 +36,7 @@ def library_card(item):
     }
 
 
-def register_library_routes(router, connection, linked_profile, read_json, image):
+def register_library_routes(router, connection, linked_profile, read_json, image, access):
     def scope(request):
         active = connection(request)
         if active is None:
@@ -45,9 +48,9 @@ def register_library_routes(router, connection, linked_profile, read_json, image
         base_url, api_key, profile = context
         return read_json(base_url, api_key, path, {"UserId": profile, **params})
 
-    def exact(context, item_id, types):
+    def exact(context, item_id, types, fields=FIELDS):
         result = read(context, "/Items", Ids=item_id, IncludeItemTypes=",".join(types),
-                      Recursive="true", Limit=1, Fields=FIELDS, EnableUserData="true")
+                      Recursive="true", Limit=1, Fields=fields, EnableUserData="true")
         try:
             return require_jellyfin_item(result, item_id, types=types)
         except JellyfinPermissionError as error:
@@ -101,3 +104,27 @@ def register_library_routes(router, connection, linked_profile, read_json, image
         if item.get("BackdropImageTags") and (style == "wide" or not (item.get("ImageTags") or {}).get("Primary")):
             image_type = "Backdrop"
         return image(context[0], context[1], item_id.hex, image_type)
+
+    @router.delete("/api/media-center/library/{item_id}")
+    def library_delete(request: Request, item_id: UUID, kind: Literal["movie", "series", "episode"]):
+        if access.context(request).role != "admin":
+            raise HTTPException(403, "Administratorrechte erforderlich.")
+        context = scope(request)
+        item = exact(context, item_id.hex, (KINDS[kind],), "CanDelete")
+        if item.get("CanDelete") is not True:
+            raise HTTPException(403, "Das verknüpfte Jellyfin-Profil darf diesen Inhalt nicht löschen.")
+        access.assert_current(request)
+        base_url, api_key, _ = context
+        try:
+            with requests.delete(f"{base_url}/Items/{item_id.hex}",
+                                 headers=jellyfin_auth_headers(api_key), timeout=(5, 25),
+                                 allow_redirects=False) as response:
+                if response.status_code == 204:
+                    return {"deleted": True}
+                if response.status_code in (401, 403):
+                    raise HTTPException(403, "Jellyfin hat das Löschen verweigert.")
+                if response.status_code == 404:
+                    raise HTTPException(404, "Der Inhalt ist in Jellyfin nicht mehr vorhanden.")
+        except requests.RequestException:
+            raise HTTPException(503, "Jellyfin hat das Löschen nicht bestätigt. Prüfe die Mediathek.") from None
+        raise HTTPException(502, "Jellyfin hat das Löschen nicht bestätigt. Prüfe die Mediathek.")

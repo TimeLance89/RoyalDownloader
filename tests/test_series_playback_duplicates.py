@@ -8,7 +8,8 @@ from api.api_movie_playback_router import _matched_series_inventory
 A, B, E1, E2 = (UUID(int=n).hex for n in range(1, 5))
 
 
-def test_same_tmdb_library_copies_combine_seasons_without_duplicate_items():
+@pytest.mark.parametrize("tmdb_id", [None, 66732])
+def test_same_tmdb_library_copies_combine_seasons_without_duplicate_items(tmdb_id):
     library = [{"id": A, "tmdb_id": "66732"}, {"id": B, "tmdb_id": "66732"}]
     one = {"id": E1, "season": 1, "episode": 1}
     two = {"id": E2, "season": 2, "episode": 1}
@@ -18,7 +19,7 @@ def test_same_tmdb_library_copies_combine_seasons_without_duplicate_items():
         calls.append(identity)
         return [two, one] if identity == A else [one]
 
-    assert _matched_series_inventory({A, B}, library, 66732, fetch) == [one, two]
+    assert _matched_series_inventory({A, B}, library, tmdb_id, fetch) == [one, two]
     assert set(calls) == {A, B}
 
 
